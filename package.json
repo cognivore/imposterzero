@@ -1,0 +1,31 @@
+{
+  "name": "imposter-kings-cli",
+  "version": "1.0.0",
+  "description": "CLI client for The Imposter Kings card game",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "clean": "rimraf dist"
+  },
+  "bin": {
+    "imposter-kings": "./dist/index.js"
+  },
+  "keywords": ["game", "cli", "cards", "imposter-kings"],
+  "author": "CLI Client",
+  "license": "MIT",
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "inquirer": "^9.2.12",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^9.0.7",
+    "@types/node": "^20.8.0",
+    "rimraf": "^5.0.5",
+    "tsx": "^4.0.0",
+    "typescript": "^5.2.2"
+  }
+}

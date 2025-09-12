@@ -1,0 +1,35 @@
+{
+  description = "Imposter Kings CLI Client - TypeScript development environment";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
+
+  outputs = { self, nixpkgs, flake-utils }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+      in
+      {
+        devShells.default = pkgs.mkShell {
+          buildInputs = with pkgs; [
+            # Node.js and package managers
+            nodejs  # Node.js LTS (22.x)
+            pnpm
+
+            # TypeScript toolchain
+            typescript
+
+            # Development tools
+            nodePackages.rimraf
+
+            # Optional: helpful development utilities
+            git
+            jq
+          ];
+        };
+
+      }
+    );
+}
