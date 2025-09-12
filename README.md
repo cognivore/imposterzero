@@ -40,23 +40,39 @@ pnpm run dev
 
 ### Start the CLI
 
+#### Option 1: Play Online
 ```bash
 pnpm start
 # or after building
 node dist/index.js
 ```
 
+#### Option 2: Local Client-Server (Fragments of Nersetti)
+
+**Start the server:**
+```bash
+pnpm run dev:server
+# or after building
+pnpm run start:server
+```
+
+**Connect clients (in separate terminals):**
+```bash
+pnpm start
+# Choose "Connect to localhost server"
+```
+
 ### Game Flow
 
-1. **Main Menu**: Choose to create a new game or join an existing one
-2. **Create Game**:
-   - Enter your player name
-   - Get a Game ID to share with opponents
-   - Optionally add a bot to fill the second slot
-3. **Join Game**:
-   - Enter the Game ID and join token
-   - Enter your player name
-4. **Play**:
+1. **Main Menu**: Choose between online, localhost, or quit
+2. **Online Mode**:
+   - Create or join games on the official server
+   - Standard game rules
+3. **Localhost Mode**:
+   - Connect to local server running Fragments of Nersetti (Stage 4 rules)
+   - Full army management, signature cards, and king facets
+   - Separate client instances for each player
+4. **Game Play**:
    - View your hand, court, army, and game state
    - Select from available actions when it's your turn
    - Watch real-time updates as the game progresses

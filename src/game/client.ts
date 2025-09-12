@@ -2,6 +2,7 @@ import { ImposterKingsAPIClient } from '../api/client.js';
 import { GameState } from './state.js';
 import { GameDisplay } from '../ui/display.js';
 import { GamePrompts } from '../ui/prompts.js';
+import { Logger } from '../utils/logger.js';
 import type { GameAction, GameEvent, CardName } from '../types/game.js';
 
 export class GameClient {
@@ -9,15 +10,19 @@ export class GameClient {
   private state: GameState;
   private display: GameDisplay;
   private prompts: GamePrompts;
+  private logger: Logger;
   private gameId: number = 0;
   private playerToken: string = '';
+  private joinToken: string = '';
   private isRunning: boolean = false;
+  private isLocalMode: boolean = false;
 
   constructor() {
     this.api = new ImposterKingsAPIClient();
     this.state = new GameState();
     this.display = new GameDisplay();
     this.prompts = new GamePrompts();
+    this.logger = new Logger();
   }
 
   async start(): Promise<void> {
@@ -33,6 +38,9 @@ export class GameClient {
           break;
         case 'join':
           await this.joinGame();
+          break;
+        case 'localhost':
+          await this.connectToLocalhost();
           break;
         case 'quit':
           console.log('Goodbye!');
@@ -89,6 +97,25 @@ export class GameClient {
 
     // Wait for game to start
     await this.waitForGameStart();
+  }
+
+  private async connectToLocalhost(): Promise<void> {
+    this.logger.log('Connecting to localhost server');
+
+    // Create API client pointing to localhost
+    this.api = new ImposterKingsAPIClient('http://localhost:3000');
+
+    this.display.displayInfo('Connecting to local server at http://localhost:3000');
+    this.display.displayInfo('Make sure the server is running with: pnpm run dev:server');
+
+    // Show choice to create or join
+    const choice = await this.prompts.promptConfirmation('Create a new game on localhost?');
+
+    if (choice) {
+      await this.createGame();
+    } else {
+      await this.joinGame();
+    }
   }
 
   private async waitForGameStart(): Promise<void> {

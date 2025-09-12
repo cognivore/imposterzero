@@ -1,4 +1,5 @@
 import fetch from 'node-fetch';
+import { Logger } from '../utils/logger.js';
 import type {
   GameEvent,
   GameAction,
@@ -11,8 +12,11 @@ import type {
 
 export class ImposterKingsAPIClient {
   private baseUrl = 'https://play.theimposterkings.com';
+  private logger: Logger;
 
   constructor(baseUrl?: string) {
+    this.logger = new Logger('api-client.log');
+
     if (baseUrl) {
       this.baseUrl = baseUrl;
     }

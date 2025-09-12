@@ -2,15 +2,16 @@ import inquirer from 'inquirer';
 import type { GameAction, CardName } from '../types/game.js';
 
 export class GamePrompts {
-  async promptMainMenu(): Promise<'create' | 'join' | 'quit'> {
+  async promptMainMenu(): Promise<'create' | 'join' | 'localhost' | 'quit'> {
     const { action } = await inquirer.prompt([
       {
         type: 'list',
         name: 'action',
         message: 'What would you like to do?',
         choices: [
-          { name: 'Create a new game', value: 'create' },
-          { name: 'Join an existing game', value: 'join' },
+          { name: 'Create a new online game', value: 'create' },
+          { name: 'Join an existing online game', value: 'join' },
+          { name: 'Connect to localhost server (Fragments of Nersetti)', value: 'localhost' },
           { name: 'Quit', value: 'quit' },
         ],
       },
@@ -24,6 +25,26 @@ export class GamePrompts {
         type: 'input',
         name: 'name',
         message: 'Enter your player name:',
+        validate: (input: string) => {
+          if (input.trim().length === 0) {
+            return 'Player name cannot be empty';
+          }
+          if (input.trim().length > 20) {
+            return 'Player name must be 20 characters or less';
+          }
+          return true;
+        },
+      },
+    ]);
+    return name.trim();
+  }
+
+  async promptSecondPlayerName(): Promise<string> {
+    const { name } = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'name',
+        message: 'Enter second player name:',
         validate: (input: string) => {
           if (input.trim().length === 0) {
             return 'Player name cannot be empty';
