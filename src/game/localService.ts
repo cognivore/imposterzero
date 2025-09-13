@@ -74,12 +74,12 @@ export class LocalGameService {
     // If this is the first player, create the engine
     if (emptySlotIdx === 0) {
       this.logger.log(`First player joined, creating initial engine`);
-      game.engine = new LocalGameEngine(playerName, '');
+      game.engine = new LocalGameEngine(playerName, '', this.logger);
     } else {
       // Second player joined, update engine and start game
       const player1Name = game.players[0]?.name || 'Player 1';
       this.logger.log(`Second player joined, creating full engine with players: ${player1Name}, ${playerName}`);
-      game.engine = new LocalGameEngine(player1Name, playerName);
+      game.engine = new LocalGameEngine(player1Name, playerName, this.logger);
       game.started = true;
 
       // Add initial game state event
@@ -226,7 +226,7 @@ export class LocalGameService {
     if (game.players.every(p => p !== null)) {
       const player1Name = game.players[0]?.name || 'Player 1';
       const player2Name = game.players[1]?.name || 'Player 2';
-      game.engine = new LocalGameEngine(player1Name, player2Name);
+      game.engine = new LocalGameEngine(player1Name, player2Name, this.logger);
       game.started = true;
 
       this.addGameStateEvent(game);

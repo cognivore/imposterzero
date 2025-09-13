@@ -11,6 +11,8 @@
     "start": "node dist/index.js",
     "start:server": "node dist/server/index.js",
     "test": "tsx src/test/e2e.test.ts",
+    "test:bots": "tsx src/test/bot-vs-bot.test.ts",
+    "test:all": "tsx src/test/e2e.test.ts && tsx src/test/bot-vs-bot.test.ts",
     "clean": "rimraf dist"
   },
   "bin": {

@@ -1,9 +1,11 @@
 import type { CardName, KingFacet, GameAction, GameBoard, GameStatus } from '../types/game.js';
 import { FragmentsOfNersettiRules, GAME_CONFIG } from './rules.js';
+import { Logger } from '../utils/logger.js';
 
 export interface Player {
   name: string;
   hand: CardName[];
+  antechamber: CardName[];
   army: CardName[];
   exhaustedArmy: CardName[];
   successor: CardName | null;
@@ -30,8 +32,11 @@ export interface LocalGameState {
 
 export class LocalGameEngine {
   private state: LocalGameState;
+  private logger?: Logger;
 
-  constructor(player1Name: string, player2Name: string) {
+  constructor(player1Name: string, player2Name: string, logger?: Logger) {
+    this.logger = logger;
+
     // Randomly assign True King
     const trueKingIdx = Math.random() < 0.5 ? 0 : 1;
 
@@ -44,7 +49,7 @@ export class LocalGameEngine {
       trueKingIdx,
       firstPlayerIdx: null,
       court: [],
-      accused: 'Assassin', // For quickplay, always Assassin
+      accused: 'Fool', // Will be set during setupSuccessorAndDungeon
       deck: [...GAME_CONFIG.BASE_DECK],
       phase: 'signature_selection',
       round: 1,
@@ -52,17 +57,18 @@ export class LocalGameEngine {
       signatureCardsSelected: [false, false],
     };
 
-    // Remove accused card from deck
-    this.state.deck = this.state.deck.filter(card => card !== this.state.accused);
+    // Accused card will be selected during setup, don't remove it yet
 
     // Shuffle deck
     this.shuffleDeck();
   }
 
+
   private createPlayer(name: string): Player {
     return {
       name,
       hand: [],
+      antechamber: [],
       army: [...GAME_CONFIG.BASE_ARMY],
       exhaustedArmy: [],
       successor: null,
@@ -153,6 +159,8 @@ export class LocalGameEngine {
       player.kingFlipped = false;
     });
 
+    this.logger?.log(`Dealing ${GAME_CONFIG.HAND_SIZE} cards to each player from deck of ${this.state.deck.length}`);
+
     // Deal 9 cards to each player
     for (let i = 0; i < GAME_CONFIG.HAND_SIZE * 2; i++) {
       const playerIdx = i % 2;
@@ -161,33 +169,56 @@ export class LocalGameEngine {
         this.state.players[playerIdx].hand.push(card);
       }
     }
+
+    this.logger?.log(`After dealing - Player 1 hand: ${this.state.players[0].hand.length} cards, Player 2 hand: ${this.state.players[1].hand.length} cards`);
+    this.logger?.log(`Player 1 hand: ${this.state.players[0].hand.join(', ')}`);
+    this.logger?.log(`Player 2 hand: ${this.state.players[1].hand.join(', ')}`);
   }
 
   private setupSuccessorAndDungeon(): void {
-    // Each player chooses Successor and Dungeon
-    // For now, auto-select (in real game, players would choose)
+    // Each player chooses Successor and Dungeon from their hand
     this.state.players.forEach((player, idx) => {
+      this.logger?.log(`Setting up Successor and Dungeon for Player ${idx + 1}`);
+
       if (player.hand.length > 0) {
-        // Auto-select highest card as successor
+        // Auto-select highest card as successor (players would choose in real game)
         const successorIdx = player.hand.findIndex(card =>
           this.state.rules.getCardValue(card) >= 5
         );
         if (successorIdx >= 0) {
           player.successor = player.hand.splice(successorIdx, 1)[0];
+          this.logger?.log(`Player ${idx + 1}: Selected ${player.successor} as Successor`);
+        } else if (player.hand.length > 0) {
+          // If no high card, take any card as successor
+          player.successor = player.hand.splice(0, 1)[0];
+          this.logger?.log(`Player ${idx + 1}: Selected ${player.successor} as Successor (no high cards)`);
         }
 
-        // Auto-select another card as dungeon
+        // Auto-select another card as dungeon (face-down discard)
         if (player.hand.length > 0) {
           player.dungeon = player.hand.splice(0, 1)[0];
+          this.logger?.log(`Player ${idx + 1}: Selected ${player.dungeon} as Dungeon (face-down)`);
         }
 
         // Master Tactician needs a Squire
         if (player.kingFacet === 'MasterTactician' && player.hand.length > 0) {
           player.squire = player.hand.splice(0, 1)[0];
           this.state.rules.setSquire(idx, player.squire);
+          this.logger?.log(`Player ${idx + 1}: Selected ${player.squire} as Squire (Master Tactician)`);
         }
       }
+
+      this.logger?.log(`Player ${idx + 1}: Final hand size after setup: ${player.hand.length} cards`);
     });
+
+    // Select accused card (face-up, set aside, can be swapped with Warden)
+    if (this.state.deck.length > 0) {
+      // Remove accused card from deck randomly
+      const accusedIdx = Math.floor(Math.random() * this.state.deck.length);
+      this.state.accused = this.state.deck.splice(accusedIdx, 1)[0];
+      this.logger?.log(`Accused card selected: ${this.state.accused} (face-up, set aside, removed from deck)`);
+      this.logger?.log(`Remaining deck size: ${this.state.deck.length} cards`);
+    }
   }
 
   // Stage 2: Mustering Phase
@@ -197,23 +228,38 @@ export class LocalGameEngine {
     this.state.currentPlayerIdx = 1 - (this.state.firstPlayerIdx || 0);
   }
 
-  // Recruit: Remove card from hand, take card from army, exhaust if needed
-  recruit(playerIdx: number, handCardIdx: number, armyCardIdx: number): boolean {
+  // Recruit: Remove card from hand, take card from army, exhaust another army card
+  recruit(playerIdx: number, handCardIdx: number, armyCardIdx: number, exhaustArmyCardIdx?: number): boolean {
     const player = this.state.players[playerIdx];
 
     if (handCardIdx >= player.hand.length || armyCardIdx >= player.army.length) {
+      this.logger?.log(`Recruit failed: invalid indices. Hand: ${handCardIdx}/${player.hand.length}, Army: ${armyCardIdx}/${player.army.length}`);
       return false;
     }
 
-    // Remove card from hand (discard)
+    // Remove card from hand (discard to dungeon)
     const discarded = player.hand.splice(handCardIdx, 1)[0];
+    this.logger?.log(`Player ${playerIdx + 1}: Discarded ${discarded} from hand`);
 
     // Take card from army
     const recruited = player.army.splice(armyCardIdx, 1)[0];
     player.hand.push(recruited);
+    this.logger?.log(`Player ${playerIdx + 1}: Recruited ${recruited} from army to hand`);
 
-    // Exhaust a card if this is the first recruit/recommission this turn
-    // (simplified for now - in real game this would track per-turn state)
+    // Must exhaust another army card (different from recruited)
+    let exhaustCardIdx = exhaustArmyCardIdx;
+    if (exhaustCardIdx === undefined || exhaustCardIdx === armyCardIdx || exhaustCardIdx >= player.army.length) {
+      // Find a different card to exhaust
+      exhaustCardIdx = player.army.findIndex((card, idx) => idx !== armyCardIdx);
+    }
+
+    if (exhaustCardIdx >= 0 && exhaustCardIdx < player.army.length) {
+      const exhausted = player.army.splice(exhaustCardIdx, 1)[0];
+      player.exhaustedArmy.push(exhausted);
+      this.logger?.log(`Player ${playerIdx + 1}: Exhausted ${exhausted} from army`);
+    } else {
+      this.logger?.log(`Player ${playerIdx + 1}: No army card available to exhaust`);
+    }
 
     return true;
   }
@@ -269,34 +315,144 @@ export class LocalGameEngine {
   }
 
   // Play a card to the court
-  playCard(playerIdx: number, handCardIdx: number): boolean {
+  playCard(playerIdx: number, handCardIdx: number, fromAntechamber: boolean = false): boolean {
     const player = this.state.players[playerIdx];
+    const opponent = this.state.players[1 - playerIdx];
 
-    if (handCardIdx >= player.hand.length) {
+    const sourceCards = fromAntechamber ? player.antechamber : player.hand;
+
+    if (handCardIdx >= sourceCards.length) {
       return false;
     }
 
-    const card = player.hand[handCardIdx];
+    const card = sourceCards[handCardIdx];
     const currentThroneValue = this.getCurrentThroneValue();
     const cardValue = this.state.rules.getCardValue(card);
 
-    // Check if card can be played (equal or higher value)
-    if (cardValue < currentThroneValue) {
+    // Check if card can be played (equal or higher value, or from antechamber which ignores value)
+    if (!fromAntechamber && cardValue < currentThroneValue) {
       return false;
     }
 
-    // Remove from hand and add to court
-    player.hand.splice(handCardIdx, 1);
+    // Remove from source and add to court
+    sourceCards.splice(handCardIdx, 1);
     this.state.court.push({
       card,
       playerIdx,
       disgraced: false,
     });
 
+    this.logger?.log(`Player ${playerIdx + 1}: Played ${card} ${fromAntechamber ? 'from Antechamber' : 'from Hand'} (value ${cardValue})`);
+
+    // Trigger card ability
+    this.triggerCardAbility(card, playerIdx, opponent);
+
     // Switch to next player
     this.state.currentPlayerIdx = 1 - this.state.currentPlayerIdx;
 
     return true;
+  }
+
+  // Trigger card abilities
+  private triggerCardAbility(card: CardName, playerIdx: number, opponent: Player): void {
+    this.logger?.log(`Triggering ability for ${card}`);
+
+    switch (card) {
+      case 'Inquisitor':
+        this.triggerInquisitorAbility(playerIdx, opponent);
+        break;
+
+      case 'Judge':
+        this.triggerJudgeAbility(playerIdx);
+        break;
+
+      case 'Warden':
+        this.triggerWardenAbility(playerIdx, opponent);
+        break;
+
+      // Add more abilities as needed
+      default:
+        this.logger?.log(`No ability implemented for ${card}`);
+    }
+  }
+
+  private triggerInquisitorAbility(playerIdx: number, opponent: Player): void {
+    // Inquisitor: Say a card name. If opponent has it in hand, they put it in antechamber
+    // For bot testing, we'll have the bot "guess" a card not visible to them
+
+    const visibleCards = new Set<CardName>();
+
+    // Add cards visible to current player
+    visibleCards.add(this.state.accused);
+    this.state.court.forEach(c => visibleCards.add(c.card));
+    this.state.players[playerIdx].hand.forEach(c => visibleCards.add(c));
+
+    // Bot guesses a card they haven't seen
+    const allPossibleCards = [...GAME_CONFIG.BASE_DECK, ...GAME_CONFIG.SIGNATURE_CARDS];
+    const unseenCards = allPossibleCards.filter(card => !visibleCards.has(card));
+
+    if (unseenCards.length > 0) {
+      const guessedCard = unseenCards[Math.floor(Math.random() * unseenCards.length)];
+      this.logger?.log(`Player ${playerIdx + 1}: Inquisitor ability - guessing ${guessedCard}`);
+
+      // Check if opponent has the guessed card
+      const opponentHasCard = opponent.hand.includes(guessedCard);
+
+      if (opponentHasCard) {
+        // Move card from opponent's hand to their antechamber
+        const cardIdx = opponent.hand.indexOf(guessedCard);
+        const movedCard = opponent.hand.splice(cardIdx, 1)[0];
+        opponent.antechamber.push(movedCard);
+
+        this.logger?.log(`Player ${(1 - playerIdx) + 1}: Has ${guessedCard}! Moved to antechamber`);
+      } else {
+        this.logger?.log(`Player ${(1 - playerIdx) + 1}: Does not have ${guessedCard}`);
+      }
+    }
+  }
+
+  private triggerJudgeAbility(playerIdx: number): void {
+    // Judge: Put a card from hand to antechamber
+    const player = this.state.players[playerIdx];
+
+    if (player.hand.length > 0) {
+      // For bot, put lowest value card in antechamber
+      let lowestIdx = 0;
+      let lowestValue = this.state.rules.getCardValue(player.hand[0]);
+
+      for (let i = 1; i < player.hand.length; i++) {
+        const value = this.state.rules.getCardValue(player.hand[i]);
+        if (value < lowestValue) {
+          lowestValue = value;
+          lowestIdx = i;
+        }
+      }
+
+      const movedCard = player.hand.splice(lowestIdx, 1)[0];
+      player.antechamber.push(movedCard);
+
+      this.logger?.log(`Player ${playerIdx + 1}: Judge ability - moved ${movedCard} to antechamber`);
+    }
+  }
+
+  private triggerWardenAbility(playerIdx: number, opponent: Player): void {
+    // Warden: If there are 3+ court cards including Warden, may swap with accused
+    if (this.state.court.length >= 3) {
+      // For bot, always swap if beneficial
+      const currentCard = this.state.court[this.state.court.length - 1].card;
+      const accusedValue = this.state.rules.getCardValue(this.state.accused);
+      const currentValue = this.state.rules.getCardValue(currentCard);
+
+      if (accusedValue > currentValue) {
+        // Swap with accused
+        this.state.court[this.state.court.length - 1].card = this.state.accused;
+        this.state.accused = currentCard;
+
+        this.logger?.log(`Player ${playerIdx + 1}: Warden ability - swapped ${currentCard} with accused ${this.state.accused}`);
+      } else {
+        this.logger?.log(`Player ${playerIdx + 1}: Warden ability - chose not to swap`);
+      }
+    }
   }
 
   // Flip King to take Successor
@@ -307,6 +463,25 @@ export class LocalGameEngine {
       return false;
     }
 
+    // Check for Assassin reactions before flipping
+    const opponentIdx = 1 - playerIdx;
+    const opponent = this.state.players[opponentIdx];
+
+    // Check if opponent has Assassin in hand and can react
+    const hasAssassin = opponent.hand.includes('Assassin');
+    if (hasAssassin) {
+      // Assassin reaction - opponent wins immediately
+      const assassinatorKingFlipped = opponent.kingFlipped;
+      const points = assassinatorKingFlipped ? 2 : 3;
+
+      opponent.points += points;
+      this.state.phase = 'game_over';
+
+      this.logger?.log(`Assassin reaction! Player ${opponentIdx + 1} wins ${points} points`);
+      return true;
+    }
+
+    // No Assassin reaction, proceed with king flip
     player.kingFlipped = true;
     player.hand.push(player.successor);
     player.successor = null;
@@ -355,14 +530,27 @@ export class LocalGameEngine {
 
   // End round when a player cannot play
   endRound(): void {
-    // Award points to the winner (player who didn't lose)
-    const winnerIdx = 1 - this.state.currentPlayerIdx;
+    const loserIdx = this.state.currentPlayerIdx;
+    const winnerIdx = 1 - loserIdx;
     const winner = this.state.players[winnerIdx];
+    const loser = this.state.players[loserIdx];
 
-    // Calculate points based on court strength
-    const courtStrength = this.state.court.length;
-    const points = Math.min(3, Math.max(1, Math.floor(courtStrength / 3)));
+    // Calculate points: 1 + 1 + 1 system
+    let points = 1; // Base point for winning
+
+    // +1 if winner's king isn't flipped
+    if (!winner.kingFlipped) {
+      points += 1;
+    }
+
+    // +1 if loser had cards in hand or successor and king not flipped
+    if ((loser.hand.length > 0 || (loser.successor !== null && !loser.kingFlipped))) {
+      points += 1;
+    }
+
     winner.points += points;
+
+    this.logger?.log(`Round ended. Player ${winnerIdx + 1} wins ${points} points. Score: ${this.state.players[0].points}-${this.state.players[1].points}`);
 
     // Check for game over
     if (winner.points >= GAME_CONFIG.POINTS_TO_WIN) {
@@ -375,26 +563,45 @@ export class LocalGameEngine {
   }
 
   private prepareNextRound(): void {
-    // Exhaust all recruited/rallied cards
-    this.state.players.forEach(player => {
-      // Move recruited cards to exhausted (simplified)
-      player.exhaustedArmy.push(...player.hand.filter(card =>
-        !GAME_CONFIG.BASE_DECK.includes(card)
-      ));
+    this.logger?.log('=== PREPARING NEXT ROUND ===');
+
+    // Exhaust all recruited/rallied cards that came from army
+    this.state.players.forEach((player, idx) => {
+      // Cards that were recruited from army go to exhausted zone
+      const armyCards = [...GAME_CONFIG.BASE_ARMY, ...player.army, ...player.exhaustedArmy];
+      const recruitedCards = player.hand.filter(card =>
+        !GAME_CONFIG.BASE_DECK.includes(card) || armyCards.includes(card)
+      );
+
+      // Move recruited army cards to exhausted
+      recruitedCards.forEach(card => {
+        const handIdx = player.hand.indexOf(card);
+        if (handIdx >= 0) {
+          player.hand.splice(handIdx, 1);
+          player.exhaustedArmy.push(card);
+        }
+      });
+
+      this.logger?.log(`Player ${idx + 1}: Moved ${recruitedCards.length} recruited cards to exhausted zone: ${recruitedCards.join(', ')}`);
+      this.logger?.log(`Player ${idx + 1}: Exhausted army now has ${player.exhaustedArmy.length} cards`);
     });
 
     // Reset for next round
     this.state.round++;
     this.state.court = [];
     this.state.phase = 'mustering';
+    this.state.signatureCardsSelected = [true, true]; // Signature cards persist across rounds
+
+    this.logger?.log(`Starting Round ${this.state.round}`);
 
     // Shuffle remaining deck with discarded cards
     this.reshuffleDeck();
   }
 
   private reshuffleDeck(): void {
-    // Add all cards back to deck except army cards
+    // Add all cards back to deck except army cards and accused card
     this.state.deck = [...GAME_CONFIG.BASE_DECK].filter(card => card !== this.state.accused);
+    this.logger?.log(`Reshuffled deck: ${this.state.deck.length} cards (excluded accused: ${this.state.accused})`);
     this.shuffleDeck();
   }
 
@@ -470,7 +677,7 @@ export class LocalGameEngine {
         break;
 
       case 'play':
-        // Add card play actions
+        // Add card play actions from hand
         const throneValue = this.getCurrentThroneValue();
         currentPlayer.hand.forEach((card, idx) => {
           const cardValue = this.state.rules.getCardValue(card);
@@ -479,16 +686,37 @@ export class LocalGameEngine {
               type: 'PlayCard',
               card_idx: { type: 'Hand', idx },
               card,
-              ability: null, // Simplified for now
+              ability: null,
             });
           }
         });
 
-        // Add King flip action
-        if (!currentPlayer.kingFlipped && currentPlayer.successor) {
+        // Add card play actions from antechamber (ignores value requirement)
+        currentPlayer.antechamber.forEach((card, idx) => {
+          actions.push({
+            type: 'PlayCard',
+            card_idx: { type: 'Antechamber', idx },
+            card,
+            ability: null,
+          });
+        });
+
+        // Add King flip action if player can't play any cards
+        const canPlayFromHand = currentPlayer.hand.some(card =>
+          this.state.rules.getCardValue(card) >= throneValue
+        );
+        const canPlayFromAntechamber = currentPlayer.antechamber.length > 0;
+
+        if (!canPlayFromHand && !canPlayFromAntechamber && !currentPlayer.kingFlipped && currentPlayer.successor) {
           actions.push({
             type: 'FlipKing',
           });
+        }
+
+        // If player can't play and can't flip king, they lose the round
+        if (!canPlayFromHand && !canPlayFromAntechamber && (currentPlayer.kingFlipped || !currentPlayer.successor)) {
+          // End the round - current player loses
+          this.endRound();
         }
         break;
     }
@@ -544,7 +772,22 @@ export class LocalGameEngine {
 
       case 'PlayCard':
         if (action.card_idx.type === 'Hand') {
-          return this.playCard(this.state.currentPlayerIdx, action.card_idx.idx);
+          return this.playCard(this.state.currentPlayerIdx, action.card_idx.idx, false);
+        } else if (action.card_idx.type === 'Antechamber') {
+          return this.playCard(this.state.currentPlayerIdx, action.card_idx.idx, true);
+        }
+        return false;
+
+      case 'Recruit':
+        if (action.type === 'Recruit') {
+          // Find the card in army and a card in hand to discard
+          const player = this.state.players[this.state.currentPlayerIdx];
+          const armyCardIdx = player.army.findIndex(card => card === action.army_card);
+          const handCardIdx = 0; // Discard first card for simplicity
+
+          if (armyCardIdx >= 0 && handCardIdx < player.hand.length) {
+            return this.recruit(this.state.currentPlayerIdx, handCardIdx, armyCardIdx);
+          }
         }
         return false;
 
@@ -552,6 +795,7 @@ export class LocalGameEngine {
         return this.flipKing(this.state.currentPlayerIdx);
 
       default:
+        this.logger?.log(`Unhandled action type: ${action.type}`);
         return false;
     }
   }
@@ -583,7 +827,11 @@ export class LocalGameEngine {
       reveal_everything: false,
       player_idx: forPlayerIdx,
       points: [this.state.players[0].points, this.state.players[1].points],
-      accused: [],
+      accused: [{
+        card: { card: this.state.accused, flavor: 0 },
+        modifiers: {},
+        spec: null,
+      }],
       randomly_discarded: [],
       dungeons: [
         player.dungeon ? [{ card: player.dungeon, flavor: 0 }] : [],
@@ -624,10 +872,25 @@ export class LocalGameEngine {
         modifiers: {},
         spec: null,
       })),
-      antechamber: [],
+      antechamber: player.antechamber.map(card => ({
+        card: { card, flavor: 0 },
+        modifiers: {},
+        spec: null,
+      })),
       king_facets: [this.state.players[0].kingFacet, this.state.players[1].kingFacet],
       kings_flipped: [this.state.players[0].kingFlipped, this.state.players[1].kingFlipped],
-      antechambers: [[], []],
+      antechambers: [
+        this.state.players[0].antechamber.map(card => ({
+          card: forPlayerIdx === 0 ? { card, flavor: 0 } : 'Unknown' as any,
+          modifiers: {},
+          spec: null,
+        })),
+        this.state.players[1].antechamber.map(card => ({
+          card: forPlayerIdx === 1 ? { card, flavor: 0 } : 'Unknown' as any,
+          modifiers: {},
+          spec: null,
+        })),
+      ],
       hands: [
         this.state.players[0].hand.map(card => ({
           card: forPlayerIdx === 0 ? { card, flavor: 0 } : 'Unknown' as any,
