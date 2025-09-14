@@ -13,6 +13,9 @@
     "test": "tsx src/test/e2e.test.ts",
     "test:bots": "tsx src/test/bot-vs-bot.test.ts",
     "test:all": "tsx src/test/e2e.test.ts && tsx src/test/bot-vs-bot.test.ts",
+    "test:regression": "tsx src/test/regression.test.ts",
+    "test:regression2": "tsx src/test/regression2.test.ts",
+    "test:regression-unified": "tsx src/test/regression-unified.test.ts",
     "clean": "rimraf dist"
   },
   "bin": {

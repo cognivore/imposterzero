@@ -2,9 +2,10 @@
 export type CardName =
   | "Fool" | "FlagBearer" | "Assassin" | "Stranger" | "Elder" | "Zealot"
   | "Aegis" | "Inquisitor" | "Ancestor" | "Informant" | "Nakturn"
-  | "Soldier" | "Judge" | "Lockshift" | "Immortal" | "Oathbound"
-  | "Conspiracist" | "Mystic" | "Warlord" | "Warden" | "Sentry"
-  | "KingsHand" | "Exile" | "Princess" | "Queen";
+  | "Soldier" | "Judge" | "Lockshift" | "Herald" | "Executioner" | "Oathbound"
+  | "Conspiracist" | "Mystic" | "Warlord" | "Warden" | "Sentry" | "Spy"
+  | "KingsHand" | "Exile" | "Princess" | "Queen" | "Oracle" | "Impersonator" | "Elocutionist"
+  | "Arbiter" | "Bard" | "Immortal";
 
 export type KingFacet = "Regular" | "CharismaticLeader" | "MasterTactician";
 

@@ -80,6 +80,27 @@ export class LocalGameService {
       const player1Name = game.players[0]?.name || 'Player 1';
       this.logger.log(`Second player joined, creating full engine with players: ${player1Name}, ${playerName}`);
       game.engine = new LocalGameEngine(player1Name, playerName, this.logger);
+
+      // Set deterministic hands for regression testing if this is a test game
+      if (gameId >= 1000) { // Test games have ID >= 1000
+        // Check if there are custom hands set (will be set by regression test)
+        const customHands = (global as any).regressionTestHands;
+        if (customHands) {
+          game.engine.setDeterministicHands(1, customHands.calm, customHands.katto, customHands.accused);
+          this.logger.log(`Set custom deterministic hands for regression test game ${gameId}`);
+        } else {
+          // Default hands for backward compatibility
+          const round1Hands = {
+            calm: ['Soldier', 'Soldier', 'Queen', 'KingsHand', 'Immortal', 'Elder', 'Oathbound', 'Assassin', 'Princess'] as any[],
+            katto: ['Elder', 'Warden', 'Sentry', 'Inquisitor', 'Inquisitor', 'Warlord', 'Judge', 'Mystic', 'Fool'] as any[],
+            accused: 'Zealot' as any
+          };
+
+          game.engine.setDeterministicHands(1, round1Hands.calm, round1Hands.katto, round1Hands.accused);
+          this.logger.log(`Set default deterministic hands for regression test game ${gameId}`);
+        }
+      }
+
       game.started = true;
 
       // Add initial game state event

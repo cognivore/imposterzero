@@ -2,15 +2,26 @@ import type { CardName, KingFacet } from '../types/game.js';
 
 // Stage 4 - Full Fragments of Nersetti Rules
 export const GAME_CONFIG = {
-  // Stage 1: Base deck with Immortal and Warden
+  // Stage 1: Correct base deck with proper card counts
   BASE_DECK: [
-    'Queen', 'Princess', 'Fool',
-    'Sentry', 'Warlord', 'Mystic',
+    'Queen',
+    'Princess',
+    'KingsHand',
+    'Spy',
+    'Sentry',
+    'Warden',
+    'Warlord',
+    'Mystic',
+    'Herald',
     'Oathbound', 'Oathbound', // x2
     'Soldier', 'Soldier', // x2
+    'Judge',
     'Inquisitor', 'Inquisitor', // x2
+    'Executioner',
     'Elder', 'Elder', // x2
-    'Immortal', 'Warden' // Stage 1 additions
+    'Zealot',
+    'Assassin',
+    'Fool'
   ] as CardName[],
 
   // Stage 2: Base Army cards
@@ -21,7 +32,8 @@ export const GAME_CONFIG = {
   // Stage 3: Available Signature Cards
   SIGNATURE_CARDS: [
     'FlagBearer', 'Stranger', 'Aegis', 'Nakturn',
-    'Ancestor', 'Informant', 'Lockshift', 'Conspiracist', 'Exile'
+    'Ancestor', 'Informant', 'Lockshift', 'Conspiracist', 'Exile',
+    'Arbiter', 'Bard', 'Immortal'
   ] as CardName[],
 
   // Stage 4: King Facets
@@ -65,6 +77,11 @@ export class FragmentsOfNersettiRules implements GameRules {
   private squires: [any | null, any | null] = [null, null];
   private successorsRevealed: [boolean, boolean] = [false, false];
 
+  // Update court state for Immortal effect calculations
+  setCourt(court: Array<{ card: CardName; playerIdx: number; disgraced: boolean }>): void {
+    this.court = court;
+  }
+
   constructor() {
     // Initialize armies with base cards
     this.armies[0] = [...GAME_CONFIG.BASE_ARMY];
@@ -77,7 +94,7 @@ export class FragmentsOfNersettiRules implements GameRules {
   }
 
   isImmortalActive(): boolean {
-    const immortal = this.court.find(card => card.card.card === 'Immortal');
+    const immortal = this.court.find(card => card.card === 'Immortal');
     return immortal && !immortal.disgraced;
   }
 
@@ -155,35 +172,40 @@ export class FragmentsOfNersettiRules implements GameRules {
       'Soldier': 5,
       'Judge': 5,
       'Lockshift': 5,
-      'Immortal': 6,
+      'Elocutionist': 5,
+      'Herald': 6,
       'Oathbound': 6,
       'Conspiracist': 6,
       'Mystic': 7,
       'Warlord': 7,
       'Warden': 7,
+      'Executioner': 4,
+      'Impersonator': 4,
+      'Spy': 8,
       'Sentry': 8,
       'KingsHand': 8,
       'Exile': 8,
       'Princess': 9,
       'Queen': 9,
+      'Oracle': 5,
+      'Arbiter': 5,
+      'Bard': 4,
+      'Immortal': 6,
     };
 
     let value = baseValues[card] || 0;
 
     // Apply Immortal effects
     if (this.isImmortalActive()) {
-      // Warlord gets +1 value
-      if (card === 'Warlord') {
-        value += 1;
-      }
-      // Princess/Queen get -1 value
+      // Princess/Queen (other Royalty) get -1 value and are Muted
       if (card === 'Princess' || card === 'Queen') {
         value -= 1;
       }
-      // Elder gets -1 value
+      // Elder gets -1 value and is Muted
       if (card === 'Elder') {
         value -= 1;
       }
+      // Immortal's value is 5 while in Court (handled separately in context logic)
     }
 
     return Math.max(1, value); // Minimum value of 1
@@ -191,7 +213,7 @@ export class FragmentsOfNersettiRules implements GameRules {
 
   // Check if a card has Steadfast keyword
   hasSteadfast(card: CardName): boolean {
-    return card === 'Immortal';
+    return card === 'Immortal' || card === 'Aegis' || card === 'Exile' || card === 'Conspiracist';
   }
 
   // Check if a card has Royalty keyword
@@ -216,17 +238,25 @@ export class FragmentsOfNersettiRules implements GameRules {
       'Soldier': 'Soldier',
       'Judge': 'Judge',
       'Lockshift': 'Lockshift',
-      'Immortal': 'Immortal',
+      'Elocutionist': 'Elocutionist',
+      'Herald': 'Herald',
       'Oathbound': 'Oathbound',
       'Conspiracist': 'Conspiracist',
       'Mystic': 'Mystic',
       'Warlord': 'Warlord',
       'Warden': 'Warden',
+      'Executioner': 'Executioner',
+      'Impersonator': 'Impersonator',
+      'Spy': 'Spy',
       'Sentry': 'Sentry',
       'KingsHand': "King's Hand",
       'Exile': 'Exile',
       'Princess': 'Princess',
       'Queen': 'Queen',
+      'Oracle': 'Oracle',
+      'Arbiter': 'Arbiter',
+      'Bard': 'Bard',
+      'Immortal': 'Immortal',
     };
 
     return nameMap[card] || card;
