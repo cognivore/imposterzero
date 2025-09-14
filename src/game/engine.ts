@@ -23,6 +23,8 @@ export interface Player {
     turnsRemaining: number; // Lasts until end of next turn
     playedCards: Set<CardName>; // Track which cards were played with bonus
   };
+  // Track which cards came from army (for proper exhaustion)
+  recruitedThisRound: CardName[];
 }
 
 export interface LocalGameState {
@@ -105,7 +107,7 @@ export class LocalGameEngine {
       hand: [],
       antechamber: [],
       condemned: [],
-      army: [...GAME_CONFIG.BASE_ARMY],
+      army: [...GAME_CONFIG.BASE_ARMY], // Start with base army: Elder, Inquisitor, Soldier, Judge, Oathbound
       exhaustedArmy: [],
       successor: null,
       squire: null,
@@ -120,6 +122,7 @@ export class LocalGameEngine {
         turnsRemaining: 0,
         playedCards: new Set(),
       },
+      recruitedThisRound: [], // Track cards recruited from army this round
     };
   }
 
@@ -162,6 +165,8 @@ export class LocalGameEngine {
     // Add to player's army
     this.state.players[playerIdx].army.push(...cards);
     this.state.rules.setSignatureCards(playerIdx, cards);
+
+    this.logger?.log(`DEBUG: Player ${playerIdx + 1} army after signature cards: ${this.state.players[playerIdx].army.join(', ')}`);
 
     return true;
   }
@@ -317,6 +322,7 @@ export class LocalGameEngine {
     // Take card from army
     const recruited = player.army.splice(armyCardIdx, 1)[0];
     player.hand.push(recruited);
+    player.recruitedThisRound.push(recruited); // Track for end-of-round exhaustion
     this.logger?.log(`Player ${playerIdx + 1}: Recruited ${recruited} from army to hand`);
 
     // Must exhaust another army card (different from recruited)
@@ -637,21 +643,21 @@ export class LocalGameEngine {
     const player = this.state.players[playerIdx];
 
     if (this.state.court.length >= 4) {
-      if (player.hand.length > 0) {
+    if (player.hand.length > 0) {
         // Bot strategy: exchange a low-value hand card for the accused if accused is higher value
         const accusedValue = this.state.rules.getCardValue(this.state.accused);
 
         // Find lowest value card in hand
-        let lowestIdx = 0;
-        let lowestValue = this.state.rules.getCardValue(player.hand[0]);
+      let lowestIdx = 0;
+      let lowestValue = this.state.rules.getCardValue(player.hand[0]);
 
-        for (let i = 1; i < player.hand.length; i++) {
-          const value = this.state.rules.getCardValue(player.hand[i]);
-          if (value < lowestValue) {
-            lowestValue = value;
-            lowestIdx = i;
-          }
+      for (let i = 1; i < player.hand.length; i++) {
+        const value = this.state.rules.getCardValue(player.hand[i]);
+        if (value < lowestValue) {
+          lowestValue = value;
+          lowestIdx = i;
         }
+      }
 
         if (accusedValue > lowestValue) {
           // Exchange lowest hand card with accused
@@ -1269,15 +1275,18 @@ export class LocalGameEngine {
   private prepareNextRound(): void {
     this.logger?.log('=== PREPARING NEXT ROUND ===');
 
+    // Debug: Log army state before exhaustion
+    this.state.players.forEach((player, idx) => {
+      this.logger?.log(`DEBUG: Player ${idx + 1} army before exhaustion: ${player.army.join(', ')}`);
+      this.logger?.log(`DEBUG: Player ${idx + 1} exhausted army before: ${player.exhaustedArmy.join(', ')}`);
+      this.logger?.log(`DEBUG: Player ${idx + 1} recruited this round: ${player.recruitedThisRound.join(', ')}`);
+    });
+
     // Exhaust all recruited/rallied cards that came from army
     this.state.players.forEach((player, idx) => {
-      // Cards that were recruited from army go to exhausted zone
-      const armyCards = [...GAME_CONFIG.BASE_ARMY, ...player.army, ...player.exhaustedArmy];
-      const recruitedCards = player.hand.filter(card =>
-        !GAME_CONFIG.BASE_DECK.includes(card) || armyCards.includes(card)
-      );
+      // Move cards that were recruited from army this round to exhausted zone
+      const recruitedCards = [...player.recruitedThisRound];
 
-      // Move recruited army cards to exhausted
       recruitedCards.forEach(card => {
         const handIdx = player.hand.indexOf(card);
         if (handIdx >= 0) {
@@ -1288,6 +1297,15 @@ export class LocalGameEngine {
 
       this.logger?.log(`Player ${idx + 1}: Moved ${recruitedCards.length} recruited cards to exhausted zone: ${recruitedCards.join(', ')}`);
       this.logger?.log(`Player ${idx + 1}: Exhausted army now has ${player.exhaustedArmy.length} cards`);
+
+      // Clear recruited tracking for next round
+      player.recruitedThisRound = [];
+    });
+
+    // Debug: Log army state after exhaustion
+    this.state.players.forEach((player, idx) => {
+      this.logger?.log(`DEBUG: Player ${idx + 1} army after exhaustion: ${player.army.join(', ')}`);
+      this.logger?.log(`DEBUG: Player ${idx + 1} exhausted army after: ${player.exhaustedArmy.join(', ')}`);
     });
 
     // Reset for next round
@@ -1296,7 +1314,13 @@ export class LocalGameEngine {
     this.state.phase = 'mustering';
     this.state.signatureCardsSelected = [true, true]; // Signature cards persist across rounds
 
-    this.logger?.log(`Starting Round ${this.state.round}`);
+    // Reset currentPlayerIdx based on who goes first in the new round
+    // The winner of the previous round chooses who goes first
+    const winnerIdx = 1 - this.state.currentPlayerIdx; // Current player lost, so other player won
+    this.state.currentPlayerIdx = winnerIdx; // Winner chooses first
+    this.state.firstPlayerIdx = null; // Will be set when winner chooses
+
+    this.logger?.log(`Starting Round ${this.state.round}, currentPlayerIdx: ${this.state.currentPlayerIdx + 1} (winner chooses first)`);
 
     // Shuffle remaining deck with discarded cards
     this.reshuffleDeck();
@@ -1350,6 +1374,9 @@ export class LocalGameEngine {
         break;
 
       case 'mustering':
+        // Debug: Log which player's army we're looking at
+        this.logger?.log(`DEBUG: Getting actions for Player ${this.state.currentPlayerIdx + 1} army: ${currentPlayer.army.join(', ')}`);
+
         // Add recruitment actions - only one of each army card type
         if (currentPlayer.army.length > 0 && currentPlayer.hand.length > 0) {
           const availableArmyCards = new Set<CardName>();
@@ -1751,21 +1778,25 @@ export class LocalGameEngine {
     }
     switch (action.type) {
       case 'ChooseSignatureCards':
-        const success = this.selectSignatureCards(
-          this.state.currentPlayerIdx,
-          action.cards.map(([, card]) => card)
-        );
+        const currentPlayer = this.state.currentPlayerIdx;
+        const cards = action.cards.map(([, card]) => card);
+        this.logger?.log(`DEBUG: Player ${currentPlayer + 1} selecting signature cards: ${cards.join(', ')}`);
+
+        const success = this.selectSignatureCards(currentPlayer, cards);
 
         if (success) {
           // Mark current player as having selected
-          this.state.signatureCardsSelected[this.state.currentPlayerIdx] = true;
+          this.state.signatureCardsSelected[currentPlayer] = true;
+          this.logger?.log(`DEBUG: Player ${currentPlayer + 1} signature cards marked as selected`);
 
           // Switch to other player for their signature card selection
           this.state.currentPlayerIdx = 1 - this.state.currentPlayerIdx;
+          this.logger?.log(`DEBUG: Switched currentPlayerIdx to ${this.state.currentPlayerIdx + 1}`);
 
           // Check if both players have selected their signature cards
           if (this.state.signatureCardsSelected[0] && this.state.signatureCardsSelected[1]) {
             // Both players selected, start the first round
+            this.logger?.log(`DEBUG: Both players selected signature cards, starting first round`);
             this.startNewRound();
           }
         }

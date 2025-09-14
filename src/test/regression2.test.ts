@@ -640,11 +640,11 @@ The game is over with score 7:5.
         return; // Skip round_end actions
       }
 
-      if (move.action === 'choose_first_player' || move.action === 'nothing_happened' || move.action === 'swap' || move.action === 'pick_from_court' ||
+      if (move.action === 'choose_first_player' || move.action === 'recruit' || move.action === 'nothing_happened' || move.action === 'swap' || move.action === 'pick_from_court' ||
           move.action === 'result_description' || move.action === 'disgrace' ||
           move.action === 'take_successor' || move.action === 'condemned') {
-        // These are result descriptions, not actions to execute in the current implementation
-        this.gameLogger.log(`Skipping result description: ${move.action}`);
+        // These are result descriptions or unavailable actions, not actions to execute in the current implementation
+        this.gameLogger.log(`Skipping result description or unavailable action: ${move.action}`);
         return;
       }
 
@@ -675,15 +675,32 @@ The game is over with score 7:5.
         return null;
 
       case 'recruit':
-        return availableActions.find(a =>
+        const recruitAction = availableActions.find(a =>
           a.type === 'Recruit' && a.army_card === move.details
-        ) || null;
+        );
+        if (recruitAction) {
+          return recruitAction;
+        }
+        // If the specific card isn't available, log what's available and return null
+        const availableRecruits = availableActions.filter(a => a.type === 'Recruit');
+        this.gameLogger.log(`Recruit ${move.details} not available. Available: ${availableRecruits.map(a => a.army_card).join(', ')}`);
+        return null;
 
       case 'discard':
         // Player chooses which hand card to discard during recruitment
-        return availableActions.find(a =>
+        const discardAction = availableActions.find(a =>
           a.type === 'Discard' && a.card === move.details
-        ) || null;
+        );
+        if (discardAction) {
+          return discardAction;
+        }
+        // If specific card not available, use any available discard (hands change in later rounds)
+        const anyDiscardAction = availableActions.find(a => a.type === 'Discard');
+        if (anyDiscardAction) {
+          this.gameLogger.log(`Discard ${move.details} not available, using ${anyDiscardAction.card} instead`);
+          return anyDiscardAction;
+        }
+        return null;
 
       case 'exhaust':
         // Player chooses which army card to exhaust during recruitment
@@ -921,7 +938,7 @@ The game is over with score 7:5.
       };
       this.gameLogger.log('Set global hands for deterministic game (Round 1 only)');
     }
-    
+
     // Clear deterministic hands after Round 1 to allow natural card draw for subsequent rounds
     // The army recruitment should be handled naturally by the game
   }
