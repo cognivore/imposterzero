@@ -145,12 +145,22 @@ export class LocalGameService {
 
     // Validate event count matches
     if (eventCount !== game.events.length) {
+      this.logger.error(`Action rejected: event count mismatch`, new Error(JSON.stringify({
+        expected: game.events.length,
+        got: eventCount,
+        action,
+      })));
       return false; // Out of sync
     }
 
-    // Execute action in game engine
-    const success = game.engine.executeAction(action);
-    if (!success) return false;
+    // Execute action in game engine with correct player context
+    const success = game.engine.executeAction(action, playerIdx);
+    if (!success) {
+      // Capture rich debug information when engine rejects the action
+      const debug = this.getDebugInfo(game);
+      this.logger.error(`Engine rejected action`, new Error(JSON.stringify({ action, debug })));
+      return false;
+    }
 
     // Add action message
     this.addActionMessage(game, playerIdx, action);
@@ -159,6 +169,29 @@ export class LocalGameService {
     this.addGameStateEvent(game);
 
     return true;
+  }
+
+  // Rich debug snapshot to include in error responses/logs
+  getDebugInfo(game: LocalGame) {
+    const engineState: any = (game.engine as any).state;
+    return {
+      game_id: game.id,
+      started: game.started,
+      currentPlayerIdx: engineState?.currentPlayerIdx,
+      phase: engineState?.phase,
+      firstPlayerIdx: engineState?.firstPlayerIdx,
+      players: game.players,
+      hands: engineState?.players?.map((p: any) => ({
+        hand: p?.hand,
+        successor: p?.successor,
+        squire: p?.squire,
+        kingFacet: p?.kingFacet,
+        kingFlipped: p?.kingFlipped,
+      })),
+      court: engineState?.court,
+      accused: engineState?.accused,
+      possible_actions: game.engine.getPossibleActions?.() ?? [],
+    };
   }
 
   private addActionMessage(game: LocalGame, playerIdx: number, action: GameAction): void {

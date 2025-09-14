@@ -128,21 +128,45 @@ export class ImposterKingsAPIClient {
   }
 
   async sendAction(gameId: number, playerToken: string, eventCount: number, action: GameAction): Promise<void> {
-    const response = await fetch(`${this.baseUrl}/action/${gameId}/${playerToken}`, {
+    const url = `${this.baseUrl}/action/${gameId}/${playerToken}`;
+    const payload = [eventCount, action];
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify([eventCount, action]),
+      body: JSON.stringify(payload),
     });
 
+    // Read raw text always to capture error bodies
+    const responseText = await response.text();
+
     if (!response.ok) {
+      // Try to parse JSON error details from server
+      let details: any = null;
+      try {
+        details = JSON.parse(responseText);
+      } catch (_e) {
+        // leave as text
+      }
+
+      const errorSummary = {
+        url,
+        status: `${response.status} ${response.statusText}`,
+        request_body: payload,
+        response_body: details ?? responseText,
+      };
+
+      this.logger.error('Failed to send action', new Error(JSON.stringify(errorSummary)));
       throw new Error(`Failed to send action: ${response.status} ${response.statusText}`);
     }
 
-    // Log the response for debugging
-    const responseText = await response.text();
-    console.log('Action response:', responseText);
+    // Log the success response for debugging
+    this.logger.debug('Action sent successfully', {
+      url,
+      request_body: payload,
+      response_body: (() => { try { return JSON.parse(responseText); } catch { return responseText; } })(),
+    });
   }
 
   async getPublicObserverLink(gameId: number): Promise<string> {

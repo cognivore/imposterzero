@@ -11,7 +11,9 @@ const oathboundAbility: CardAbility = {
 
   execute(state: GameState, playerIdx: number, opponentIdx: number, logger?: any): void {
     const player = state.players[playerIdx];
-    const throneCard = state.court[state.court.length - 2]; // Previous card (before Oathbound)
+    // Oathbound checks the card it was played ON (the previous throne card)
+    const oathboundCourtIdx = state.court.length - 1; // Oathbound is the last card
+    const throneCard = oathboundCourtIdx > 0 ? state.court[oathboundCourtIdx - 1] : null; // Card before Oathbound
 
     if (throneCard) {
       // Get the throne value
@@ -26,22 +28,17 @@ const oathboundAbility: CardAbility = {
         logger?.log(`Player ${playerIdx + 1}: Oathbound ability - disgraced ${throneCard.card} (higher value)`);
 
         // Must play another card of any value (immune to King's Hand)
+        // Set game state to require player to choose the second card
         if (player.hand.length > 0) {
-          // Bot: play lowest value card
-          const lowestIdx = player.hand.reduce((lowestIdx, card, idx) => {
-            return getCardBaseValue(card) < getCardBaseValue(player.hand[lowestIdx]) ? idx : lowestIdx;
-          }, 0);
-
-          const playedCard = player.hand.splice(lowestIdx, 1)[0];
-          state.court.push({
-            card: playedCard,
+          // Set flag that player must play another card (immune to reactions)
+          (state as any).pendingOathboundPlay = {
             playerIdx: playerIdx,
-            disgraced: false
-          });
+            immuneToReactions: true
+          };
 
-          logger?.log(`Player ${playerIdx + 1}: Oathbound ability - must play another card: ${playedCard} (Immune to King's Hand)`);
+          logger?.log(`Player ${playerIdx + 1}: Oathbound ability - disgraced ${throneCard.card}, must choose another card to play (Immune to King's Hand)`);
         } else {
-          logger?.log(`Player ${playerIdx + 1}: Oathbound ability - no cards in hand to play`);
+          logger?.log(`Player ${playerIdx + 1}: Oathbound ability - no cards in hand for forced play`);
         }
       } else {
         logger?.log(`Player ${playerIdx + 1}: Oathbound ability - not played on higher value card (${oathboundValue} not < ${throneValue})`);

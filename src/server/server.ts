@@ -139,8 +139,20 @@ export class LocalGameServer {
     const success = this.gameService.sendAction(gameId, playerToken, eventCount, action);
 
     if (!success) {
-      res.writeHead(400);
-      res.end('Action failed');
+      // Try to provide rich error details
+      const game = this.gameService.getAllGames().find(g => g.id === gameId);
+      const debug = game ? this.gameService.getDebugInfo(game) : { reason: 'game_not_found' };
+      const errorBody = {
+        error: 'Action failed',
+        game_id: gameId,
+        player_token: playerToken,
+        event_count: eventCount,
+        action,
+        debug,
+      };
+      this.logger.error('Action failed', new Error(JSON.stringify(errorBody)));
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(errorBody));
       return;
     }
 

@@ -2,22 +2,20 @@ import type { CardName, KingFacet } from '../types/game.js';
 
 // Stage 4 - Full Fragments of Nersetti Rules
 export const GAME_CONFIG = {
-  // Stage 1: Correct base deck with proper card counts
+  // Stage 1: Correct base deck with proper card counts (20 cards total)
   BASE_DECK: [
     'Queen',
     'Princess',
     'KingsHand',
-    'Spy',
     'Sentry',
     'Warden',
     'Warlord',
     'Mystic',
-    'Herald',
+    'Executioner',
     'Oathbound', 'Oathbound', // x2
     'Soldier', 'Soldier', // x2
     'Judge',
     'Inquisitor', 'Inquisitor', // x2
-    'Executioner',
     'Elder', 'Elder', // x2
     'Zealot',
     'Assassin',
