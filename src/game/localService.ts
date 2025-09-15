@@ -74,12 +74,14 @@ export class LocalGameService {
     // If this is the first player, create the engine
     if (emptySlotIdx === 0) {
       this.logger.log(`First player joined, creating initial engine`);
-      game.engine = new LocalGameEngine(playerName, '', this.logger);
+      const engineLogger = new Logger(`game-${gameId}-engine.log`);
+      game.engine = new LocalGameEngine(playerName, '', engineLogger);
     } else {
       // Second player joined, update engine and start game
       const player1Name = game.players[0]?.name || 'Player 1';
       this.logger.log(`Second player joined, creating full engine with players: ${player1Name}, ${playerName}`);
-      game.engine = new LocalGameEngine(player1Name, playerName, this.logger);
+      const engineLogger = new Logger(`game-${gameId}-engine.log`);
+      game.engine = new LocalGameEngine(player1Name, playerName, engineLogger);
 
       // Set deterministic hands for regression testing if this is a test game
       if (gameId >= 1000) { // Test games have ID >= 1000

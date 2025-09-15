@@ -61,6 +61,7 @@ export class LocalGameEngine {
     katto: CardName[];
     accused: CardName;
   };
+  private verboseLogs: boolean = true;
 
   constructor(player1Name: string, player2Name: string, logger?: Logger) {
     this.logger = logger;
@@ -474,6 +475,7 @@ export class LocalGameEngine {
     this.state.court.push(courtCard);
 
     this.logger?.log(`Player ${playerIdx + 1}: Played ${card} ${fromAntechamber ? 'from Antechamber' : 'from Hand'} (value ${cardValue})`);
+    this.snapshotCourt();
 
     // Check for King's Hand reactions before triggering ability
     // Only cards with abilities can be countered by King's Hand
@@ -493,11 +495,12 @@ export class LocalGameEngine {
     // Universal reaction prompt: always enter reaction phase for stoppable abilities to preserve hidden info
     // Some abilities require a player choice before King's Hand can legally interrupt per rules
     const requiresPrechoiceWindow = ['Fool','Princess','Sentry','Spy','Mystic','Warden','Herald','Soldier','Judge','Inquisitor','Executioner'].includes(card);
-    if (!requiresPrechoiceWindow && card !== 'KingsHand' && cardsWithAbilities.includes(card) && !immuneToReactions) {
+    if (withAbility && !requiresPrechoiceWindow && card !== 'KingsHand' && cardsWithAbilities.includes(card) && !immuneToReactions) {
       // Enter King's Hand reaction phase - BEFORE triggering the ability
       this.state.phase = 'reaction_kings_hand';
       this.state.currentPlayerIdx = opponentIdx; // Switch to opponent for reaction choice
       this.logger?.log(`Player ${playerIdx + 1} played ${card} - Player ${opponentIdx + 1} may react with King's Hand`);
+      this.snapshotCourt();
 
       // Store the played card info for potential condemnation
       (this.state as any).pendingKingsHandReaction = {
@@ -514,6 +517,7 @@ export class LocalGameEngine {
 
     // No King's Hand reaction possible at play-time, proceed with ability if chosen
     this.triggerCardAbility(card, playerIdx, opponent, withAbility);
+    this.snapshotCourt();
 
     // If an ability opened a reaction window (phase changed), don't switch turns yet
     if (this.state.phase !== 'play') {
@@ -767,19 +771,23 @@ export class LocalGameEngine {
     this.logger?.log(`Player ${playerIdx + 1}: Soldier ability - guessing ${guessedCard}`);
 
     // Open King's Hand reaction window AFTER the name is declared, BEFORE resolution
-    (this.state as any).pendingKingsHandReaction = {
-      originalPlayerIdx: playerIdx,
-      playedCard: 'Soldier' as CardName,
-      playedCardCourtIdx: this.state.court.findIndex(c => c.card === 'Soldier' && c.playerIdx === playerIdx),
-      abilitySpec: (this.state as any).currentAbilitySpec,
-      parameter: this.state.currentActionParameter,
-      withAbility: true,
-      resolution: { type: 'SoldierResolve', guessedCard }
-    };
-    this.state.phase = 'reaction_kings_hand';
-    this.state.currentPlayerIdx = 1 - playerIdx;
-    this.logger?.log(`Player ${playerIdx + 1}: Soldier guess declared; offering King's Hand before resolution`);
-    return;
+    if (!(this.state as any).suppressReactionWindowsOnce) {
+      (this.state as any).pendingKingsHandReaction = {
+        originalPlayerIdx: playerIdx,
+        playedCard: 'Soldier' as CardName,
+        playedCardCourtIdx: this.state.court.findIndex(c => c.card === 'Soldier' && c.playerIdx === playerIdx),
+        abilitySpec: (this.state as any).currentAbilitySpec,
+        parameter: this.state.currentActionParameter,
+        withAbility: true,
+        resolution: { type: 'SoldierResolve', guessedCard }
+      };
+      this.state.phase = 'reaction_kings_hand';
+      this.state.currentPlayerIdx = 1 - playerIdx;
+      this.logger?.log(`Player ${playerIdx + 1}: Soldier guess declared; offering King's Hand before resolution`);
+      return;
+    }
+    delete (this.state as any).suppressReactionWindowsOnce;
+    // fallthrough to resolve immediately when suppressed
   }
 
   private triggerMysticAbility(playerIdx: number): void {
@@ -856,6 +864,13 @@ export class LocalGameEngine {
         return;
       }
       // Choice declared: open King's Hand window before resolution
+      // If we're resuming after a NoReaction, do NOT re-open the window
+      if ((this.state as any).suppressReactionWindowsOnce) {
+        delete (this.state as any).suppressReactionWindowsOnce;
+        // Defer resolution to the caller (NoReaction handler) using the
+        // previously saved pendingReaction context
+        return;
+      }
       (this.state as any).pendingKingsHandReaction = {
         originalPlayerIdx: playerIdx,
         playedCard: 'Fool' as CardName,
@@ -1285,9 +1300,10 @@ export class LocalGameEngine {
     }
 
     this.logger?.log(`Player ${playerIdx + 1}: King flipped, took successor, disgraced throne`);
+    this.snapshotCourt();
 
-    // Switch to next player
-    this.state.currentPlayerIdx = 1 - this.state.currentPlayerIdx;
+    // Switch to next player (explicitly to the opponent of the flipping player)
+    this.state.currentPlayerIdx = 1 - playerIdx;
     this.logger?.log(`DEBUG: executeKingFlip - Switched to Player ${this.state.currentPlayerIdx + 1}`);
 
     return true;
@@ -1356,6 +1372,7 @@ export class LocalGameEngine {
     winner.points += points;
 
     this.logger?.log(`Round ended. Player ${winnerIdx + 1} wins ${points} points. Score: ${this.state.players[0].points}-${this.state.players[1].points}`);
+    this.snapshotCourt();
 
     // Check for game over
     if (winner.points >= GAME_CONFIG.POINTS_TO_WIN) {
@@ -1543,6 +1560,15 @@ export class LocalGameEngine {
             });
           });
         }
+        // Allow king facet changes during recruitment sub-phase as per rules
+        GAME_CONFIG.KING_FACETS.forEach(facet => {
+          if (facet !== currentPlayer.kingFacet) {
+            actions.push({
+              type: 'ChangeKingFacet',
+              facet,
+            });
+          }
+        });
         break;
 
       case 'exhaust_for_recruitment':
@@ -1559,6 +1585,15 @@ export class LocalGameEngine {
             }
           });
         }
+        // Allow king facet changes during recruitment sub-phase as per rules
+        GAME_CONFIG.KING_FACETS.forEach(facet => {
+          if (facet !== currentPlayer.kingFacet) {
+            actions.push({
+              type: 'ChangeKingFacet',
+              facet,
+            });
+          }
+        });
         break;
 
       case 'select_successor_dungeon':
@@ -1882,6 +1917,8 @@ export class LocalGameEngine {
 
   private checkForRoundEnd(): void {
     if (this.state.phase !== 'play') {
+      // If a reaction phase is in progress, do not auto-end the round
+      this.logger?.log(`DEBUG: checkForRoundEnd skipped due to phase=${this.state.phase}`);
       return; // Only check during play phase
     }
 
@@ -1889,6 +1926,7 @@ export class LocalGameEngine {
     const throneValue = this.getCurrentThroneValue();
 
     this.logger?.log(`Checking round end: Player ${this.state.currentPlayerIdx + 1}, throne value: ${throneValue}`);
+    this.snapshotCourt();
 
     // Check if current player can play from hand
     const canPlayFromHand = currentPlayer.hand.some(card => {
@@ -1899,7 +1937,7 @@ export class LocalGameEngine {
     });
 
     // Check if current player can flip king
-    const canFlipKing = !currentPlayer.kingFlipped && currentPlayer.successor;
+    const canFlipKing = this.state.phase === 'play' && !currentPlayer.kingFlipped && currentPlayer.successor;
 
     this.logger?.log(`  Can play from hand: ${canPlayFromHand}, can flip king: ${canFlipKing ? currentPlayer.successor || 'yes' : 'false'}`);
 
@@ -2036,6 +2074,11 @@ export class LocalGameEngine {
       case 'PlayCard':
         // Handle both non-play and play phases here to avoid unintended fallthrough
         if (this.state.phase !== 'play') {
+          // Strict: No plays allowed during reaction phases
+          if (this.state.phase === 'reaction_kings_hand' || this.state.phase === 'reaction_assassin') {
+            this.logger?.log(`DEBUG: PlayCard rejected during reaction phase: ${this.state.phase}`);
+            return false;
+          }
           this.logger?.log(`DEBUG: PlayCard (non-play phase) branch - phase=${this.state.phase}`);
           if (action.card_idx.type === 'Hand') {
             this.logger?.log(`DEBUG: Attempting play from Hand idx=${action.card_idx.idx}`);
@@ -2387,12 +2430,19 @@ export class LocalGameEngine {
             this.state.currentActionParameter = pendingReaction.parameter;
             this.state.currentActionWithAbility = pendingReaction.withAbility !== undefined ? pendingReaction.withAbility : true;
 
-            this.triggerCardAbility(
-              pendingReaction.playedCard,
-              pendingReaction.originalPlayerIdx,
-              this.state.players[1 - pendingReaction.originalPlayerIdx],
-              this.state.currentActionWithAbility
-            );
+            // IMPORTANT: avoid re-opening reaction twice. Only trigger once; if it opens a reaction window again, return to let client resolve
+            (this.state as any).suppressReactionWindowsOnce = true;
+            if (this.state.currentActionWithAbility) {
+              this.triggerCardAbility(
+                pendingReaction.playedCard,
+                pendingReaction.originalPlayerIdx,
+                this.state.players[1 - pendingReaction.originalPlayerIdx],
+                true
+              );
+              if (this.state.phase !== 'play') {
+                return true;
+              }
+            }
 
             // If a deferred resolution exists, resolve it now
             if (pendingReaction.resolution && pendingReaction.resolution.type === 'FoolTakeFromCourt') {
@@ -2443,13 +2493,18 @@ export class LocalGameEngine {
             return true;
           }
         } else if (this.state.phase === 'reaction_assassin') {
-          // No reaction chosen, proceed with the original king flip
+          // No reaction chosen; only proceed with flip if there is a pending flip context
           const pending = (this.state as any).pendingKingFlip;
-          const originalPlayerIdx = pending && typeof pending.flipperIdx === 'number' ? pending.flipperIdx : (1 - this.state.currentPlayerIdx);
-          delete (this.state as any).pendingKingFlip;
           this.state.phase = 'play';
           this.logger?.log(`Player ${this.state.currentPlayerIdx + 1}: Chose not to react with Assassin`);
-          return this.executeKingFlip(originalPlayerIdx);
+          if (pending && typeof pending.flipperIdx === 'number') {
+            const originalPlayerIdx = pending.flipperIdx as number;
+            delete (this.state as any).pendingKingFlip;
+            return this.executeKingFlip(originalPlayerIdx);
+          }
+          // No pending flip; just continue and check if the round should end
+          this.checkForRoundEnd();
+          return true;
         }
         return false;
 
@@ -2648,6 +2703,32 @@ export class LocalGameEngine {
         };
       default:
         return { type: 'RegularMove' };
+    }
+  }
+
+  private snapshotCourt(): void {
+    if (!this.verboseLogs) return;
+    const sequence = this.state.court.map(c => {
+      let base = this.state.rules.getCardValue(c.card);
+      const parts: string[] = [];
+      if (c.disgraced) parts.push('D');
+      if ((c as any).soldierBonus) {
+        base += (c as any).soldierBonus;
+        parts.push(`+${(c as any).soldierBonus}`);
+      }
+      if ((c as any).conspiracistBonus) {
+        base += (c as any).conspiracistBonus;
+        parts.push(`+${(c as any).conspiracistBonus}`);
+      }
+      return `${c.card}${parts.length ? ' [' + parts.join(',') + ']' : ''} (${c.disgraced ? 1 : base})`;
+    }).join(' → ');
+    const throne = this.state.court[this.state.court.length - 1];
+    if (this.logger) {
+      this.logger.log(`COURT: ${sequence}`);
+      if (throne) {
+        this.logger.log(`THRONE: ${throne.card}${throne.disgraced ? ' [D]' : ''}`);
+      }
+      this.logger.log(`CONDEMNED: ${this.state.condemned.join(', ') || '—'}`);
     }
   }
 }
