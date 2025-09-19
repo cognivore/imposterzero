@@ -810,11 +810,23 @@ The game is over with score 7:5.
         const recruitAction = availableActions.find(a =>
           a.type === 'Recruit' && a.army_card === move.details
         );
-        if (!recruitAction) {
-          const availableRecruits = availableActions.filter(a => a.type === 'Recruit');
-          throw new Error(`Recruit ${move.details} expected but not offered. Available: ${availableRecruits.map(a => a.army_card).join(', ')}`);
+        if (recruitAction) {
+          return recruitAction;
         }
-        return recruitAction;
+
+        // If recruit not available, check if it's available as recommission (exhausted card)
+        const recommissionAction = availableActions.find(a =>
+          a.type === 'Recommission' && a.army_card === move.details
+        );
+        if (recommissionAction) {
+          this.gameLogger.log(`Converting recruit ${move.details} to recommission (card was exhausted)`);
+          return recommissionAction;
+        }
+
+        const availableRecruits = availableActions.filter(a => a.type === 'Recruit');
+        const availableRecommissions = availableActions.filter(a => a.type === 'Recommission');
+        throw new Error(`Recruit ${move.details} expected but not offered. Available recruits: ${availableRecruits.map(a => a.army_card).join(', ')}, Available recommissions: ${availableRecommissions.map(a => a.army_card).join(', ')}`);
+
 
       case 'discard':
         // Player chooses which hand card to discard - EXACT MATCH REQUIRED

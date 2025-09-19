@@ -153,8 +153,8 @@ export class FragmentsOfNersettiRules implements GameRules {
     return this.successorsRevealed[playerIdx];
   }
 
-  // Card value calculations with Immortal effects
-  getCardValue(card: CardName, context: 'hand' | 'court' = 'hand'): number {
+  // Card value calculations with Immortal and Mystic muting effects
+  getCardValue(card: CardName, context: 'hand' | 'court' = 'hand', mutedValues?: Set<number>): number {
     const baseValues: Record<CardName, number> = {
       'Fool': 1,
       'FlagBearer': 1,
@@ -192,6 +192,11 @@ export class FragmentsOfNersettiRules implements GameRules {
     };
 
     let value = baseValues[card] || 0;
+
+    // Apply Mystic muting effect (only affects cards in court, not in hand)
+    if (context === 'court' && mutedValues && mutedValues.has(baseValues[card] || 0)) {
+      value = 3; // Muted cards in court have value 3 and no abilities
+    }
 
     // Apply Immortal effects
     if (this.isImmortalActive()) {

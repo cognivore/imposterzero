@@ -40,6 +40,10 @@ export interface LocalGameState {
   round: number;
   rules: FragmentsOfNersettiRules;
   signatureCardsSelected: [boolean, boolean]; // Track which players have selected
+  mutedCardValues?: Set<number>; // Track which base values are muted by Mystic
+  roundEffects?: {
+    mysticMutedBases: Set<number>;
+  };
   pendingRecruitment?: {
     armyCardIdx: number;
     armyCard: CardName;
@@ -50,6 +54,10 @@ export interface LocalGameState {
   currentActionParameter?: string; // Track parameters from play_with_name/play_with_number actions
   // Full ability specification for explicit player choices
   currentAbilitySpec?: any;
+  pendingAssassinReaction?: {
+    responderIdx: number;
+    kind: 'Assassin' | 'StrangerAssassin';
+  };
 }
 
 export class LocalGameEngine {
@@ -187,6 +195,10 @@ export class LocalGameEngine {
     if (this.state.phase === 'signature_selection' && this.canStartMatch()) {
       this.state.phase = 'mustering';
     }
+
+    // Reset muting effects for new round
+    this.state.mutedCardValues = new Set();
+    this.state.roundEffects = { mysticMutedBases: new Set<number>() };
 
     // FIRST: Select accused card from deck before dealing
     this.selectAccusedCard();
@@ -348,6 +360,44 @@ export class LocalGameEngine {
     this.state.currentPlayerIdx = 1 - (this.state.firstPlayerIdx || 0);
   }
 
+  private isInMusteringState(): boolean {
+    return this.state.phase === 'mustering'
+        || this.state.phase === 'discard_for_recruitment'
+        || this.state.phase === 'exhaust_for_recruitment';
+  }
+
+  private endMusterForCurrentPlayer(): void {
+    const first = this.state.firstPlayerIdx ?? 0;
+    const second = 1 - first;
+
+    // If we're in a sub-phase, cancel any recruitment-in-progress
+    if (this.state.phase === 'discard_for_recruitment'
+     || this.state.phase === 'exhaust_for_recruitment') {
+      if (this.state.pendingRecruitment) {
+        const pr = this.state.pendingRecruitment;
+        this.logger?.log(
+          `DEBUG: EndMuster during ${this.state.phase} – cancelling pending recruitment of ${pr.armyCard}`
+        );
+      }
+      delete this.state.pendingRecruitment;           // nothing removed from hand yet (correct)
+      this.state.phase = 'mustering';                 // normalize context
+    }
+
+    // Apply the same turn-advance semantics as the main mustering path
+    if (this.state.currentPlayerIdx === second) {
+      // Second player (who musters first) just finished; hand mustering to the first player
+      this.state.currentPlayerIdx = first;
+      this.logger?.log(
+        `DEBUG: EndMuster – switching mustering from Player ${second + 1} to Player ${first + 1}`
+      );
+    } else {
+      // First player finished; move to successor selection (first player picks successor)
+      this.state.phase = 'select_successor_dungeon';
+      this.state.currentPlayerIdx = first;
+      this.logger?.log(`Both players finished mustering, transitioning to successor selection phase`);
+    }
+  }
+
   // Recruit: Remove card from hand, take card from army, exhaust another army card
   recruit(playerIdx: number, handCardIdx: number, armyCardIdx: number, exhaustArmyCardIdx?: number): boolean {
     const player = this.state.players[playerIdx];
@@ -459,7 +509,7 @@ export class LocalGameEngine {
     // Remove from source and add to court
     sourceCards.splice(handCardIdx, 1);
 
-    // Check if card gets Conspiracist bonus
+    // Check if card gets Conspiracist bonus or is muted
     const courtCard: any = {
       card,
       playerIdx,
@@ -474,6 +524,14 @@ export class LocalGameEngine {
     }
 
     this.state.court.push(courtCard);
+
+    // Check if the card that just landed is muted (affects abilities and KH windows)
+    const cardBaseValue = this.getCardBaseValue(card);
+    const cardIsMutedByMystic = this.state.roundEffects && this.state.roundEffects.mysticMutedBases.has(cardBaseValue);
+
+    if (cardIsMutedByMystic) {
+      this.logger?.log(`Player ${playerIdx + 1}: ${card} is muted in court (value 3, no abilities)`);
+    }
 
     this.logger?.log(`Player ${playerIdx + 1}: Played ${card} ${fromAntechamber ? 'from Antechamber' : 'from Hand'} (value ${cardValue})`);
     this.snapshotCourt();
@@ -493,18 +551,25 @@ export class LocalGameEngine {
 
     // Check if opponent has King's Hand and can react (can't counter own cards, only cards with abilities)
     // Also check if this card is immune to reactions (Oathbound forced play)
-    // Check if King's Hand window should be suppressed (Oathbound follow-up)
+    // Check if King's Hand window should be suppressed (Oathbound follow-up or muted card)
     const oathboundChain = (this.state as any).oathboundChain;
     const khSuppressed = !!(oathboundChain && oathboundChain.playerIdx === playerIdx && oathboundChain.khSuppressed);
 
+    // Check if the card that just landed is muted (no abilities, no KH window)
+    const abilityBaseValue = this.getCardBaseValue(card);
+    const abilityIsMutedByMystic = this.state.roundEffects && this.state.roundEffects.mysticMutedBases.has(abilityBaseValue);
+
     if (khSuppressed) {
       this.logger?.log(`DEBUG: King's Hand window suppressed (Oathbound follow-up)`);
+    }
+    if (abilityIsMutedByMystic) {
+      this.logger?.log(`DEBUG: ${card} entered court muted — no ability, no KH window`);
     }
 
     // Universal reaction prompt: always enter reaction phase for stoppable abilities to preserve hidden info
     // Some abilities require a player choice before King's Hand can legally interrupt per rules
     const requiresPrechoiceWindow = ['Fool','Princess','Sentry','Spy','Mystic','Warden','Herald','Soldier','Judge','Inquisitor','Executioner'].includes(card);
-    if (withAbility && !requiresPrechoiceWindow && card !== 'KingsHand' && cardsWithAbilities.includes(card) && !immuneToReactions && !khSuppressed) {
+    if (withAbility && !requiresPrechoiceWindow && card !== 'KingsHand' && cardsWithAbilities.includes(card) && !immuneToReactions && !khSuppressed && !abilityIsMutedByMystic) {
       // Enter King's Hand reaction phase - BEFORE triggering the ability
       this.state.phase = 'reaction_kings_hand';
       this.state.currentPlayerIdx = opponentIdx; // Switch to opponent for reaction choice
@@ -524,8 +589,12 @@ export class LocalGameEngine {
       return true;
     }
 
-    // No King's Hand reaction possible at play-time, proceed with ability if chosen
-    this.triggerCardAbility(card, playerIdx, opponent, withAbility);
+    // No King's Hand reaction possible at play-time, proceed with ability if chosen (unless muted)
+    if (!abilityIsMutedByMystic) {
+      this.triggerCardAbility(card, playerIdx, opponent, withAbility);
+    } else {
+      this.logger?.log(`DEBUG: ${card} ability suppressed (muted)`);
+    }
     this.snapshotCourt();
 
     // If an ability opened a reaction window (phase changed), don't switch turns yet
@@ -845,6 +914,13 @@ export class LocalGameEngine {
 
   private triggerMysticAbility(playerIdx: number): void {
     // Mystic: Choose a number 1-8. All cards with that base value become muted and value 3
+
+    // Safety: require a disgraced card already present
+    if (!this.state.court.some(c => c.disgraced)) {
+      this.logger?.log(`Player ${playerIdx + 1}: Mystic cannot use ability (no disgraced cards in court)`);
+      return;
+    }
+
     const spec = (this.state as any).currentAbilitySpec;
     const param = this.state.currentActionParameter;
     const chosenNumber = param ? parseInt(param, 10) : (spec && (spec as any).numbers && (spec as any).numbers[0]);
@@ -854,9 +930,21 @@ export class LocalGameEngine {
     }
     this.logger?.log(`Player ${playerIdx + 1}: Mystic ability - chose number ${chosenNumber}`);
 
-    // Apply muting effect to all cards with that base value
-    // (This would need a more sophisticated implementation to track muted cards)
-    this.logger?.log(`All cards with base value ${chosenNumber} are now muted (value 3, no abilities)`);
+    // Disgrace the just-played Mystic (she should be on top of the court)
+    const topCard = this.state.court[this.state.court.length - 1];
+    if (!topCard || topCard.card !== 'Mystic') {
+      this.logger?.log(`ERROR: Mystic ability fired but Mystic is not on top of court`);
+      return;
+    }
+    topCard.disgraced = true; // throne now counts as value 1
+    this.logger?.log(`Player ${playerIdx + 1}: Mystic disgraced herself`);
+
+    // Record the mute for the rest of the round
+    if (!this.state.roundEffects) {
+      this.state.roundEffects = { mysticMutedBases: new Set() };
+    }
+    this.state.roundEffects.mysticMutedBases.add(chosenNumber);
+    this.logger?.log(`All cards with base value ${chosenNumber} are now muted on court (value 3, no text) for the rest of this round`);
   }
 
   private triggerSentryAbility(playerIdx: number, opponent: Player): void {
@@ -1333,14 +1421,9 @@ export class LocalGameEngine {
     }
 
     const throneCard = this.state.court[this.state.court.length - 1];
-    if (throneCard.disgraced) {
-      return 1; // Disgraced cards have value 1
-    }
 
-    // Calculate value including bonuses
-    // Update rules with current court state before calculating value
-    this.state.rules.setCourt(this.state.court);
-    let value = this.state.rules.getCardValue(throneCard.card);
+    // Use the unified court value calculation
+    let value = this.getCardValueOnCourt(throneCard);
 
     // Add Conspiracist bonus if the card was played with it
     if ((throneCard as any).conspiracistBonus) {
@@ -1609,6 +1692,24 @@ export class LocalGameEngine {
             }
           });
         }
+
+        // Allow additional recruitments during exhaust phase (multiple recruitment cycles)
+        if (currentPlayer.army.length > 0 && currentPlayer.hand.length > 0) {
+          const availableArmyCards = new Set<CardName>();
+          currentPlayer.army.forEach((armyCard, armyIdx) => {
+            // Don't offer recruitment of the card currently being recruited
+            const isPendingRecruitment = this.state.pendingRecruitment && armyIdx === this.state.pendingRecruitment.armyCardIdx;
+            if (!availableArmyCards.has(armyCard) && !isPendingRecruitment) {
+              availableArmyCards.add(armyCard);
+              actions.push({
+                type: 'Recruit',
+                army_card_idx: armyIdx,
+                army_card: armyCard,
+              });
+            }
+          });
+        }
+
         // Allow king facet changes during recruitment sub-phase as per rules
         GAME_CONFIG.KING_FACETS.forEach(facet => {
           if (facet !== currentPlayer.kingFacet) {
@@ -1992,7 +2093,7 @@ export class LocalGameEngine {
       default:
         // Update rules with current court state before calculating value
         this.state.rules.setCourt(this.state.court);
-        value = this.state.rules.getCardValue(card);
+        value = this.state.rules.getCardValue(card, 'hand', this.state.mutedCardValues);
         break;
     }
 
@@ -2008,6 +2109,59 @@ export class LocalGameEngine {
     }
 
     return value;
+  }
+
+  private getCardBaseValue(card: CardName): number {
+    // Use the rules system for base values
+    this.state.rules.setCourt(this.state.court);
+    return this.state.rules.getCardValue(card, 'hand');
+  }
+
+  // Court value: apply Disgraced → 1; otherwise Mystic mute → 3
+  private getCardValueOnCourt(courtCard: any): number {
+    if (courtCard.disgraced) return 1;
+
+    const base = this.getCardBaseValue(courtCard.card);
+    if (this.state.roundEffects && this.state.roundEffects.mysticMutedBases.has(base)) {
+      return 3;
+    }
+
+    // Apply other court-only modifiers (Soldier buff, Conspiracist, etc.)
+    let value = base;
+    if (courtCard.conspiracistBonus) {
+      value += courtCard.conspiracistBonus;
+    }
+    if (courtCard.soldierBonus) {
+      value += courtCard.soldierBonus;
+    }
+    return value;
+  }
+
+  private resolveAssassinReaction(responderIdx: number, kind: 'Assassin' | 'StrangerAssassin'): boolean {
+    const who = kind === 'Assassin' ? 'Assassin' : 'Stranger (copy: Assassin)';
+    const responder = this.state.players[responderIdx];
+
+    // Award points based on assassinator's king status
+    const points = responder.kingFlipped ? 2 : 3;
+    const oldPoints = responder.points;
+    responder.points += points;
+
+    this.logger?.log(`Player ${responderIdx + 1}: Used ${who} reaction! Wins ${points} points`);
+    this.logger?.log(`DEBUG: Score change - Player ${responderIdx + 1}: ${oldPoints} → ${responder.points} (+${points})`);
+    this.logger?.log(`DEBUG: Final scores after Assassin reaction: Calm ${this.state.players[0].points} - melissa ${this.state.players[1].points}`);
+
+    // Check for game over
+    if (responder.points >= GAME_CONFIG.POINTS_TO_WIN) {
+      this.state.phase = 'game_over';
+      this.logger?.log(`Game over! Player ${responderIdx + 1} wins with ${responder.points} points!`);
+      return true;
+    }
+
+    // Continue to next round
+    this.logger?.log(`Round ended by Assassin reaction, preparing next round`);
+    this.prepareNextRound();
+    delete (this.state as any).pendingKingFlip;
+    return true;
   }
 
   // Switch turns and handle ongoing effects
@@ -2185,40 +2339,23 @@ export class LocalGameEngine {
 
         return true;
 
-      case 'EndMuster':
-        if (this.state.phase === 'mustering') {
-          const secondPlayerIdx = 1 - (this.state.firstPlayerIdx || 0);
-          const firstPlayerIdx = this.state.firstPlayerIdx || 0;
-
-          if (this.state.currentPlayerIdx === secondPlayerIdx) {
-            // Second player (who musters first) finished, switch to first player
-            this.state.currentPlayerIdx = firstPlayerIdx;
-          } else {
-            // Both players finished mustering, transition to successor selection phase
-            this.logger?.log(`Both players finished mustering, transitioning to successor selection phase`);
-            this.state.phase = 'select_successor_dungeon';
-            this.state.currentPlayerIdx = firstPlayerIdx; // First player selects successor first
+      case 'EndMuster': {
+        if (!this.isInMusteringState()) {
+          // Accept EndMuster during play as no-op for late compatibility
+          if (this.state.phase === 'play') {
+            this.logger?.log(`DEBUG: Accepting EndMuster during play (regression compatibility)`);
+            return true;
           }
-          return true;
+          this.logger?.log(`ERROR: EndMuster outside of mustering context (phase=${this.state.phase})`);
+          return false;
         }
-        // Accept EndMuster during recruitment sub-phases only from current player
-        if (this.state.phase === 'discard_for_recruitment' || this.state.phase === 'exhaust_for_recruitment') {
-          if (effectivePlayerIdx !== this.state.currentPlayerIdx) {
-            this.logger?.log(`ERROR: EndMuster by non-current player during ${this.state.phase}`);
-            return false;
-          }
-          // Complete pending recruitment and transition to mustering
-          delete this.state.pendingRecruitment;
-          this.state.phase = 'mustering';
-          this.logger?.log(`DEBUG: EndMuster completed recruitment sub-phase, returning to mustering`);
-          return true;
+        if (effectivePlayerIdx !== this.state.currentPlayerIdx) {
+          this.logger?.log(`ERROR: EndMuster by non-current player`);
+          return false;
         }
-        // Accept EndMuster during play as no-op for late compatibility
-        if (this.state.phase === 'play') {
-          this.logger?.log(`DEBUG: Accepting EndMuster during play (regression compatibility)`);
-          return true;
-        }
-        return false;
+        this.endMusterForCurrentPlayer();
+        return true;
+      }
 
       case 'EndRound' as any:
         // Force round end for regression test harness (skip if already ended by reaction)
@@ -2297,9 +2434,72 @@ export class LocalGameEngine {
 
       case 'Recruit':
         if (action.type === 'Recruit') {
-          // Start recruitment process - player needs to choose which card to discard
+          // If there's a pending recruitment in exhaust phase, auto-complete it first
+          if (this.state.phase === 'exhaust_for_recruitment' && this.state.pendingRecruitment) {
+            this.logger?.log(`Player ${this.state.currentPlayerIdx + 1}: Auto-completing pending ${this.state.pendingRecruitment.armyCard} recruitment before starting ${action.army_card}`);
+
+            // Find the target army card index for the new recruitment
+            const player = this.state.players[this.state.currentPlayerIdx];
+            const newRecruitmentTargetIdx = player.army.findIndex(card => card === action.army_card);
+
+            // Auto-exhaust a card that's NOT the pending recruitment AND NOT the new recruitment target
+            // Prefer exhausting cards that are NOT likely to be recruited next (avoid Oathbound, Elder, etc.)
+            const lowPriorityCards = ['Exile', 'Soldier', 'Inquisitor', 'Judge'];
+            this.logger?.log(`DEBUG: Auto-completion - army: [${player.army.join(', ')}], pendingIdx: ${this.state.pendingRecruitment!.armyCardIdx}, newTargetIdx: ${newRecruitmentTargetIdx}`);
+
+            let availableToExhaust = player.army.findIndex((card, idx) => {
+              const notPending = idx !== this.state.pendingRecruitment!.armyCardIdx;
+              const notTarget = idx !== newRecruitmentTargetIdx;
+              const isLowPriority = lowPriorityCards.includes(card);
+              this.logger?.log(`DEBUG: Auto-completion check ${card}[${idx}] - notPending: ${notPending}, notTarget: ${notTarget}, isLowPriority: ${isLowPriority}`);
+              return notPending && notTarget && isLowPriority;
+            });
+
+            // Fallback: if no low-priority cards, exhaust any available card
+            if (availableToExhaust < 0) {
+              this.logger?.log(`DEBUG: Auto-completion fallback - no low-priority cards found`);
+              availableToExhaust = player.army.findIndex((card, idx) =>
+                idx !== this.state.pendingRecruitment!.armyCardIdx && idx !== newRecruitmentTargetIdx
+              );
+            }
+
+            if (availableToExhaust >= 0) {
+              const exhaustCard = player.army[availableToExhaust];
+              const recruitment = this.state.pendingRecruitment;
+              const discardIdx = recruitment.discardCardIdx ?? 0;
+
+              // Manually perform recruitment with correct index handling
+              const discarded = player.hand.splice(discardIdx, 1)[0];
+              this.logger?.log(`Player ${this.state.currentPlayerIdx + 1}: Discarded ${discarded} from hand`);
+
+              // Exhaust FIRST to avoid index shifting issues
+              const exhausted = player.army.splice(availableToExhaust, 1)[0];
+              player.exhaustedArmy.push(exhausted);
+              this.logger?.log(`Player ${this.state.currentPlayerIdx + 1}: Exhausted ${exhausted} from army`);
+
+              // Then recruit (indices are now adjusted)
+              const adjustedArmyIdx = recruitment.armyCardIdx! > availableToExhaust ? recruitment.armyCardIdx! - 1 : recruitment.armyCardIdx!;
+              const recruited = player.army.splice(adjustedArmyIdx, 1)[0];
+              player.hand.push(recruited);
+              player.recruitedThisRound.push(recruited);
+              this.logger?.log(`Player ${this.state.currentPlayerIdx + 1}: Recruited ${recruited} from army to hand`);
+
+              this.logger?.log(`Player ${this.state.currentPlayerIdx + 1}: Auto-completed recruitment - recruited ${recruitment.armyCard}, exhausted ${exhausted}`);
+              delete this.state.pendingRecruitment;
+              this.state.phase = 'mustering'; // Return to mustering for new recruitment
+            }
+          }
+
+          // Start new recruitment process - player needs to choose which card to discard
           const player = this.state.players[this.state.currentPlayerIdx];
-          const armyCardIdx = player.army.findIndex(card => card === action.army_card);
+          let armyCardIdx = player.army.findIndex(card => card === action.army_card);
+
+          // If card was exhausted during auto-completion, try to find it in available actions
+          if (armyCardIdx < 0) {
+            this.logger?.log(`Player ${this.state.currentPlayerIdx + 1}: ${action.army_card} not found in army after auto-completion, checking if it should be recommissioned`);
+            // The card might have been exhausted and should be recommissioned instead
+            return false; // Let the action fail and the harness will adapt
+          }
 
           if (armyCardIdx >= 0) {
             // Store recruitment intent and transition to discard phase
@@ -2635,50 +2835,63 @@ export class LocalGameEngine {
             this.logger?.log(`Player ${pendingReaction.originalPlayerIdx + 1}: Must play again after being countered`);
             return true;
           }
-        } else if (action.type === 'Reaction' && (action.card === 'Assassin' || action.card === 'Stranger')) {
-          // Execute Assassin reaction (or Stranger copying Assassin)
-          const assassinatorIdx = this.state.currentPlayerIdx;
-          const targetPlayerIdx = 1 - assassinatorIdx;
-          const assassinator = this.state.players[assassinatorIdx];
+        } else if (action.type === 'Reaction' && this.state.phase === 'reaction_assassin' && (action.card === 'Assassin' || action.card === 'Stranger')) {
+          // Assassin/Stranger chosen - condemn the card and open King's Hand window for flipper
+          const responderIdx = this.state.currentPlayerIdx;
+          const responder = this.state.players[responderIdx];
 
           if (action.card === 'Assassin') {
             // Remove Assassin from hand
-            const assassinIdx = assassinator.hand.indexOf('Assassin');
+            const assassinIdx = responder.hand.indexOf('Assassin');
             if (assassinIdx >= 0) {
-              assassinator.hand.splice(assassinIdx, 1);
-              this.logger?.log(`Player ${assassinatorIdx + 1}: Used Assassin reaction - condemned Assassin`);
+              responder.hand.splice(assassinIdx, 1);
+              this.state.condemned.push('Assassin');
+              this.logger?.log(`Player ${responderIdx + 1}: Condemned Assassin from hand`);
             } else {
-              // Illegal claim of Assassin; reject reaction
-              this.logger?.log(`Player ${assassinatorIdx + 1}: Attempted Assassin reaction without having Assassin`);
+              this.logger?.log(`Player ${responderIdx + 1}: Attempted Assassin reaction without having Assassin`);
               return false;
             }
           } else if (action.card === 'Stranger') {
-            // Stranger copying Assassin reaction
-            const assassinInCourt = this.state.court.some(courtCard => courtCard.card === 'Assassin' && !courtCard.disgraced);
-            this.logger?.log(`DEBUG: Stranger reaction - assassinInCourt=${assassinInCourt}`);
-            this.logger?.log(`Player ${assassinatorIdx + 1}: Stranger copying Assassin reaction - prevented king flip!`);
+            // Stranger copying Assassin - just log it
+            this.logger?.log(`Player ${responderIdx + 1}: Stranger copying Assassin reaction`);
           }
 
-          // Award points based on assassinator's king status
-          const points = assassinator.kingFlipped ? 2 : 3;
-          const oldPoints = assassinator.points;
-          assassinator.points += points;
+          // Store pending Assassin reaction
+          (this.state as any).pendingAssassinReaction = {
+            responderIdx,
+            kind: action.card === 'Assassin' ? 'Assassin' : 'StrangerAssassin'
+          };
 
-          this.logger?.log(`Player ${assassinatorIdx + 1}: Used ${action.card} reaction! Wins ${points} points`);
-          this.logger?.log(`DEBUG: Score change - Player ${assassinatorIdx + 1}: ${oldPoints} → ${assassinator.points} (+${points})`);
-          this.logger?.log(`DEBUG: Final scores after Assassin reaction: Calm ${this.state.players[0].points} - melissa ${this.state.players[1].points}`);
-
-          // Check for game over
-          if (assassinator.points >= GAME_CONFIG.POINTS_TO_WIN) {
-            this.state.phase = 'game_over';
-            this.logger?.log(`Game over! Player ${assassinatorIdx + 1} wins with ${assassinator.points} points!`);
+          // Offer King's Hand to the flipper
+          const flipperIdx = (this.state as any).pendingKingFlip?.flipperIdx;
+          if (flipperIdx !== undefined) {
+            this.state.phase = 'reaction_kings_hand';
+            this.state.currentPlayerIdx = flipperIdx;
+            this.logger?.log(`DEBUG: Assassin chosen — offering King's Hand to Player ${flipperIdx + 1}`);
             return true;
           }
+          return false;
+        } else if (action.type === 'Reaction' && this.state.phase === 'reaction_kings_hand' && action.card === 'KingsHand') {
+          // King's Hand played to cancel Assassin reaction
+          const flipperIdx = this.state.currentPlayerIdx;
+          const flipper = this.state.players[flipperIdx];
 
-          // Continue to next round (don't set game_over immediately)
-          this.logger?.log(`Round ended by Assassin reaction, preparing next round`);
-          this.prepareNextRound();
-          delete (this.state as any).pendingKingFlip;
+          const khIdx = flipper.hand.indexOf('KingsHand');
+          if (khIdx >= 0) {
+            flipper.hand.splice(khIdx, 1);
+            this.state.condemned.push('KingsHand');
+            this.logger?.log(`Player ${flipperIdx + 1}: King's Hand cancels the Assassin reaction`);
+          }
+
+          delete (this.state as any).pendingAssassinReaction;
+
+          // Proceed with the original flip as if NoReaction had been chosen
+          const pending = (this.state as any).pendingKingFlip;
+          this.state.phase = 'play';
+          if (pending && typeof pending.flipperIdx === 'number') {
+            delete (this.state as any).pendingKingFlip;
+            return this.executeKingFlip(pending.flipperIdx);
+          }
           return true;
         }
         return false;
@@ -2791,6 +3004,20 @@ export class LocalGameEngine {
           }
           // No pending flip; just continue and check if the round should end
           this.checkForRoundEnd();
+          return true;
+        } else if (this.state.phase === 'reaction_kings_hand') {
+          // NEW: No King's Hand played against Assassin — resolve Assassin/Stranger and abort the flip
+          const pa = (this.state as any).pendingAssassinReaction;
+          if (pa) {
+            this.logger?.log(`DEBUG: No King's Hand played — resolving ${pa.kind}`);
+            delete (this.state as any).pendingAssassinReaction;
+
+            // The flip is prevented
+            delete (this.state as any).pendingKingFlip;
+
+            this.state.phase = 'play';
+            return this.resolveAssassinReaction(pa.responderIdx, pa.kind);
+          }
           return true;
         }
         return false;
