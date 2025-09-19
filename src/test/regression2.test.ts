@@ -599,7 +599,7 @@ The game is over with score 7:5.
     const currentPlayer = gameState.board.player_idx === 0 ? 'Calm' : 'melissa';
 
     // Guard: Ensure scripted actor matches current player (except for setup phases and result descriptions)
-    const isResultDescription = ['disgrace', 'swap', 'pick_from_court', 'move_to_antechamber', 'nothing_happened', 'condemned', 'take_successor', 'round_end'].includes(move.action);
+    const isResultDescription = ['disgrace', 'swap', 'pick_from_court', 'move_to_antechamber', 'nothing_happened', 'condemned', 'take_successor', 'round_end', 'game_end'].includes(move.action);
     const isSetupPhase = ['ChooseWhosFirst', 'Discard', 'Exhaust', 'PickSuccessor'].includes(gameState.status.type);
     if (!isSetupPhase && !isResultDescription && move.player !== currentPlayer) {
       throw new Error(`Scripted actor=${move.player} but current player is ${currentPlayer} (phase=${gameState.status.type})`);
@@ -708,7 +708,7 @@ The game is over with score 7:5.
       }
 
       // Skip actions that are no longer needed due to valid game flow variations
-      if ((move.action === 'pick_successor' || move.action === 'pick_squire' || move.action === 'discard' || move.action === 'exhaust' || move.action === 'play_with_ability' || move.action === 'play_no_ability' || move.action === 'flip_king') &&
+      if ((move.action === 'pick_successor' || move.action === 'pick_squire' || move.action === 'discard' || move.action === 'exhaust' || move.action === 'play_with_ability' || move.action === 'play_no_ability' || move.action === 'flip_king' || move.action === 'game_end') &&
           !action) {
         this.gameLogger.log(`Skipping ${move.action} ${move.details} - no longer needed due to valid game flow variation`);
         return;
@@ -979,6 +979,10 @@ The game is over with score 7:5.
       case 'take_successor':
         // Taking successor happens automatically when flipping the king
         // This is a result description, not a separate action
+        return null;
+
+      case 'game_end':
+        // Game end is just a final verification step, no action needed
         return null;
 
       case 'take_squire':
