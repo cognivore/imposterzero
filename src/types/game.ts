@@ -162,38 +162,38 @@ export type GameStatus =
 
 // Actions
 export type GameAction =
-  | { type: "ChooseSignatureCards"; cards: Array<[number, CardName]> }
-  | { type: "StartNewRound" }
-  | { type: "Discard"; card_idx: number; card: CardName }
-  | { type: "ChooseWhosFirst"; player_idx: number }
-  | { type: "Mulligan"; free: boolean }
-  | { type: "EndMuster" }
-  | { type: "Recruit"; army_card_idx: number; army_card: CardName }
-  | { type: "Exhaust"; army_card_idx: number; army_card: CardName }
-  | { type: "Unexhaust"; army_card_idx: number; army_card: CardName }
-  | { type: "Recommission"; army_card_idx: number; army_card: CardName }
-  | { type: "Rally"; army_card_idx: number; army_card: CardName }
-  | { type: "Unrally"; idx: number; card: CardName }
-  | { type: "SkipRally" }
-  | { type: "TakeDungeon"; card: CardName }
-  | { type: "ChooseSuccessor"; card_idx: number; card: CardName }
-  | { type: "ChooseSquire"; card_idx: number; card: CardName }
-  | { type: "PlayCard"; card_idx: { type: "Hand" | "Antechamber"; idx: number }; card: CardName; ability: AbilitySpec | null }
-  | { type: "ChangeKingFacet"; facet: KingFacet }
-  | { type: "FlipKing" }
-  | { type: "ChooseToTakeTwo" }
-  | { type: "ChooseToTakeOne" }
-  | { type: "TakeSuccessor" }
-  | { type: "TakeSquire" }
-  | { type: "Reaction"; card_idx: number; card: CardName; stranger_target?: CardName }
-  | { type: "NoReaction" }
-  | { type: "PickCardForSwap"; card_idx: number; card: CardName }
-  | { type: "MoveToAnte"; card_idx: number; card: CardName }
-  | { type: "MoveNothingToAnte" }
-  | { type: "SentrySwap"; court_card_idx: number; court_card: CardName; hand_card_idx: number; hand_card: CardName }
-  | { type: "Disgrace"; cards: Array<[number, CardName]> }
-  | { type: "CardInHandGuess"; present: boolean }
-  | { type: "Condemn"; owning_player_idx: number; card_idx: number; card: CardName };
+  | { type: "ChooseSignatureCards"; cards: Array<[number, CardName]>; for_player?: 0 | 1 }
+  | { type: "StartNewRound"; for_player?: 0 | 1 }
+  | { type: "Discard"; card_idx: number; card: CardName; for_player?: 0 | 1 }
+  | { type: "ChooseWhosFirst"; player_idx: number; for_player?: 0 | 1 }
+  | { type: "Mulligan"; free: boolean; for_player?: 0 | 1 }
+  | { type: "EndMuster"; for_player?: 0 | 1 }
+  | { type: "Recruit"; army_card_idx: number; army_card: CardName; for_player?: 0 | 1 }
+  | { type: "Exhaust"; army_card_idx: number; army_card: CardName; for_player?: 0 | 1 }
+  | { type: "Unexhaust"; army_card_idx: number; army_card: CardName; for_player?: 0 | 1 }
+  | { type: "Recommission"; army_card_idx: number; army_card: CardName; for_player?: 0 | 1 }
+  | { type: "Rally"; army_card_idx: number; army_card: CardName; for_player?: 0 | 1 }
+  | { type: "Unrally"; idx: number; card: CardName; for_player?: 0 | 1 }
+  | { type: "SkipRally"; for_player?: 0 | 1 }
+  | { type: "TakeDungeon"; card: CardName; for_player?: 0 | 1 }
+  | { type: "ChooseSuccessor"; card_idx: number; card: CardName; for_player?: 0 | 1 }
+  | { type: "ChooseSquire"; card_idx: number; card: CardName; for_player?: 0 | 1 }
+  | { type: "PlayCard"; card_idx: { type: "Hand" | "Antechamber"; idx: number }; card: CardName; ability: AbilitySpec | null; for_player?: 0 | 1 }
+  | { type: "ChangeKingFacet"; facet: KingFacet; for_player?: 0 | 1 }
+  | { type: "FlipKing"; for_player?: 0 | 1 }
+  | { type: "ChooseToTakeTwo"; for_player?: 0 | 1 }
+  | { type: "ChooseToTakeOne"; for_player?: 0 | 1 }
+  | { type: "TakeSuccessor"; for_player?: 0 | 1 }
+  | { type: "TakeSquire"; for_player?: 0 | 1 }
+  | { type: "Reaction"; card_idx: number; card: CardName; stranger_target?: CardName; for_player?: 0 | 1 }
+  | { type: "NoReaction"; for_player?: 0 | 1 }
+  | { type: "PickCardForSwap"; card_idx: number; card: CardName; for_player?: 0 | 1 }
+  | { type: "MoveToAnte"; card_idx: number; card: CardName; for_player?: 0 | 1 }
+  | { type: "MoveNothingToAnte"; for_player?: 0 | 1 }
+  | { type: "SentrySwap"; court_card_idx: number; court_card: CardName; hand_card_idx: number; hand_card: CardName; for_player?: 0 | 1 }
+  | { type: "Disgrace"; cards: Array<[number, CardName]>; for_player?: 0 | 1 }
+  | { type: "CardInHandGuess"; present: boolean; for_player?: 0 | 1 }
+  | { type: "Condemn"; owning_player_idx: number; card_idx: number; card: CardName; for_player?: 0 | 1 };
 
 // Messages
 export type GameMessage =

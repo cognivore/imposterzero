@@ -30,8 +30,7 @@ export const GAME_CONFIG = {
   // Stage 3: Available Signature Cards
   SIGNATURE_CARDS: [
     'FlagBearer', 'Stranger', 'Aegis', 'Nakturn',
-    'Ancestor', 'Informant', 'Lockshift', 'Conspiracist', 'Exile',
-    'Arbiter', 'Bard', 'Immortal'
+    'Ancestor', 'Informant', 'Lockshift', 'Conspiracist', 'Exile'
   ] as CardName[],
 
   // Stage 4: King Facets

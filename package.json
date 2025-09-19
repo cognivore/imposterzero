@@ -16,6 +16,9 @@
     "test:regression": "tsx src/test/regression.test.ts",
     "test:regression2": "tsx src/test/regression2.test.ts",
     "test:regression-unified": "tsx src/test/regression-unified.test.ts",
+    "play": "npx tsx src/test/human-vs-bot.ts",
+    "play-simple": "npx tsx src/test/simple-human-vs-bot.ts",
+    "play-working": "npx tsx src/test/working-human-vs-bot.ts",
     "clean": "rimraf dist"
   },
   "bin": {

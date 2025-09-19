@@ -203,6 +203,11 @@ export class SimpleBot {
   ): GameAction | null {
     this.logger.log(`${this.playerName}: Game status: ${status.type}, Available actions: ${availableActions.length}`);
 
+    // If no actions available, return null
+    if (availableActions.length === 0) {
+      return null;
+    }
+
     switch (status.type) {
       case 'SelectSignatureCards':
         const signatureAction = availableActions.find(a => a.type === 'ChooseSignatureCards');
@@ -238,14 +243,100 @@ export class SimpleBot {
           this.logger.log(`${this.playerName}: Choosing to go first`);
           return chooseFirstAction;
         }
+        // If can't choose self, choose first available option
+        const anyChooseFirstAction = availableActions.find(a => a.type === 'ChooseWhosFirst');
+        if (anyChooseFirstAction) {
+          this.logger.log(`${this.playerName}: Choosing first available option`);
+          return anyChooseFirstAction;
+        }
+        break;
+
+      case 'PickSuccessor':
+        // Debug: log all available action types
+        this.logger.log(`${this.playerName}: PickSuccessor available action types: ${availableActions.map(a => a.type).join(', ')}`);
+
+        // Pick first available successor action
+        const successorActions = availableActions.filter(a => a.type === 'ChooseSuccessor');
+        if (successorActions.length > 0) {
+          this.logger.log(`${this.playerName}: Picking successor from ${successorActions.length} options`);
+          return successorActions[0];
+        }
+
+        // If no ChooseSuccessor actions, just pick the first available action
+        this.logger.log(`${this.playerName}: No ChooseSuccessor actions found, picking first available: ${availableActions[0].type}`);
+        return availableActions[0];
+
+      case 'PickSquire':
+        // Pick first available squire action
+        const squireActions = availableActions.filter(a => a.type === 'ChooseSquire');
+        if (squireActions.length > 0) {
+          this.logger.log(`${this.playerName}: Picking squire from ${squireActions.length} options`);
+          return squireActions[0];
+        }
+        break;
+
+      case 'Discard':
+        // Pick lowest value card to discard
+        const discardActions = availableActions.filter(a => a.type === 'Discard');
+        if (discardActions.length > 0) {
+          const lowestValueAction = discardActions.reduce((lowest, action) => {
+            if (action.type === 'Discard' && lowest.type === 'Discard') {
+              return this.getCardValue(action.card) < this.getCardValue(lowest.card) ? action : lowest;
+            }
+            return action;
+          });
+          this.logger.log(`${this.playerName}: Discarding ${lowestValueAction.type === 'Discard' ? lowestValueAction.card : 'unknown'}`);
+          return lowestValueAction;
+        }
+        break;
+
+      case 'Exhaust':
+        // Choose first exhaust action
+        const exhaustAction = availableActions.find(a => a.type === 'Exhaust');
+        if (exhaustAction) {
+          this.logger.log(`${this.playerName}: Exhausting army card`);
+          return exhaustAction;
+        }
+        break;
+
+      case 'Rally':
+        // Choose first rally action
+        const rallyAction = availableActions.find(a => a.type === 'Rally');
+        if (rallyAction) {
+          this.logger.log(`${this.playerName}: Rallying army card`);
+          return rallyAction;
+        }
+        break;
+
+      case 'Recall':
+        // Choose first recall action
+        const recallAction = availableActions.find(a => a.type === 'Unexhaust');
+        if (recallAction) {
+          this.logger.log(`${this.playerName}: Recalling army card`);
+          return recallAction;
+        }
+        break;
+
+      case 'Reaction':
+        // Default to no reaction
+        const noReactionAction = availableActions.find(a => a.type === 'NoReaction');
+        if (noReactionAction) {
+          this.logger.log(`${this.playerName}: No reaction`);
+          return noReactionAction;
+        }
         break;
 
       case 'GameOver':
         this.logger.log(`${this.playerName}: Game over`);
         return null;
 
+      // Handle all other cases by picking the first available action
       default:
-        this.logger.log(`${this.playerName}: Unhandled status type: ${status.type}`);
+        this.logger.log(`${this.playerName}: Unhandled status type: ${status.type}, picking first action`);
+        if (availableActions.length > 0) {
+          this.logger.log(`${this.playerName}: Choosing first available action: ${availableActions[0].type}`);
+          return availableActions[0];
+        }
     }
 
     return null;

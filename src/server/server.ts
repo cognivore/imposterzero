@@ -7,6 +7,11 @@ import type { GameAction } from '../types/game.js';
 export class LocalGameServer {
   private server;
   private gameService: LocalGameService;
+
+  // Expose service for testing
+  getService(): LocalGameService {
+    return this.gameService;
+  }
   private logger: Logger;
   private port: number;
 

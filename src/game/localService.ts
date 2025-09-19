@@ -135,7 +135,50 @@ export class LocalGameService {
     const player = game.players.find(p => p?.token === playerToken);
     if (!player) return [];
 
-    return game.events.slice(startIndex);
+    const events = game.events.slice(startIndex);
+
+    // Filter actions in NewState events to show only actions for this viewer
+    const viewerIdx = this.getPlayerIndex(gameId, playerToken);
+    if (viewerIdx !== null) {
+      return events.map(event => {
+        if (event.type === 'NewState') {
+          const filteredActions = event.actions.filter(a =>
+            a.for_player === undefined || a.for_player === viewerIdx
+          );
+
+          // During setup phases, regenerate the board from this viewer's perspective
+          const gameState = game.engine.getGameState();
+          if (gameState.phase === 'select_successor_dungeon') {
+            const viewerBoard = game.engine.toGameBoard(viewerIdx);
+            return {
+              ...event,
+              board: viewerBoard,
+              actions: filteredActions
+            };
+          }
+
+          return {
+            ...event,
+            actions: filteredActions
+          };
+        }
+        return event;
+      });
+    }
+
+    return events;
+  }
+
+  getPlayerIndex(gameId: number, playerToken: string): number | null {
+    const game = this.games.get(gameId);
+    if (!game) return null;
+
+    for (let i = 0; i < game.players.length; i++) {
+      if (game.players[i]?.token === playerToken) {
+        return i;
+      }
+    }
+    return null;
   }
 
   sendAction(gameId: number, playerToken: string, eventCount: number, action: GameAction): boolean {
@@ -171,6 +214,15 @@ export class LocalGameService {
     this.addGameStateEvent(game);
 
     return true;
+  }
+
+  // Get the actual current player index from the engine
+  getCurrentPlayerIndex(gameId: number): number | null {
+    const game = this.games.get(gameId);
+    if (!game) return null;
+
+    const engineState: any = (game.engine as any).state;
+    return engineState?.currentPlayerIdx ?? null;
   }
 
   // Rich debug snapshot to include in error responses/logs

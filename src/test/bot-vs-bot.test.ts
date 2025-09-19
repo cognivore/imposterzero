@@ -1,6 +1,6 @@
 import { LocalGameServer } from '../server/server.js';
 import { ImposterKingsAPIClient } from '../api/client.js';
-import { SimpleBot } from '../ai/bot.js';
+import { ModernBot } from '../ai/modernBot.js';
 import { Logger } from '../utils/logger.js';
 import type { GameAction, GameEvent, GameBoard, GameStatus } from '../types/game.js';
 
@@ -10,8 +10,8 @@ export class BotVsBotTest {
   private gameLogger: Logger;
   private client1: ImposterKingsAPIClient;
   private client2: ImposterKingsAPIClient;
-  private bot1: SimpleBot;
-  private bot2: SimpleBot;
+  private bot1: ModernBot;
+  private bot2: ModernBot;
   private gameId: number = 0;
   private player1Token: string = '';
   private player2Token: string = '';
@@ -25,8 +25,8 @@ export class BotVsBotTest {
     this.client1 = new ImposterKingsAPIClient('http://localhost:3002');
     this.client2 = new ImposterKingsAPIClient('http://localhost:3002');
 
-    this.bot1 = new SimpleBot('Bot1');
-    this.bot2 = new SimpleBot('Bot2');
+    this.bot1 = new ModernBot('Bot1');
+    this.bot2 = new ModernBot('Bot2');
   }
 
   async runBotVsBotTest(): Promise<void> {
@@ -108,9 +108,13 @@ export class BotVsBotTest {
         break;
       }
 
-      const board = latestState1.board;
-      const status = latestState1.status;
-      const actions = latestState1.actions;
+      // Use the state from the current player's perspective
+      // We need to determine who should act based on the absolute player index
+      // For now, let's use Bot1's perspective and check if the turn logic works
+      const currentState = latestState1;
+      const board = currentState.board;
+      const status = currentState.status;
+      const actions = currentState.actions;
 
       this.gameLogger.log(`\n--- TURN ${turnCount} ---`);
       this.gameLogger.log(`Status: ${status.type}`);
@@ -153,30 +157,61 @@ export class BotVsBotTest {
         break;
       }
 
-      // Get bot action
-      const currentBot = board.player_idx === 0 ? this.bot1 : this.bot2;
-      const currentClient = board.player_idx === 0 ? this.client1 : this.client2;
-      const currentToken = board.player_idx === 0 ? this.player1Token : this.player2Token;
+      // Check if there are actions available
+      if (actions.length === 0) {
+        await this.sleep(100);
+        continue;
+      }
+
+      // CORRECT FIX: Use the actual engine current player index
+      const engineCurrentPlayerIdx = this.server.getService().getCurrentPlayerIndex(this.gameId);
+
+      if (engineCurrentPlayerIdx === null) {
+        this.logger.error('Cannot get current player index from engine');
+        break;
+      }
+
+      // Map engine player index to bot
+      // Player 0 = Bot1, Player 1 = Bot2
+      const isBot1Turn = engineCurrentPlayerIdx === 0;
+      const currentBot = isBot1Turn ? this.bot1 : this.bot2;
+      const currentClient = isBot1Turn ? this.client1 : this.client2;
+      const currentToken = isBot1Turn ? this.player1Token : this.player2Token;
+      const currentEvents = isBot1Turn ? events1 : events2;
+      const botName = isBot1Turn ? 'Bot1' : 'Bot2';
+
+      this.gameLogger.log(`Engine currentPlayerIdx=${engineCurrentPlayerIdx} → ${botName}'s turn`);
 
       const chosenAction = currentBot.chooseAction(board, status, actions);
 
       if (!chosenAction) {
-        this.logger.error(`Bot ${board.player_idx === 0 ? 'Bot1' : 'Bot2'} returned no action`);
+        this.logger.error(`${botName} returned no action`);
         break;
       }
 
-      this.gameLogger.log(`Action: ${JSON.stringify(chosenAction)}`);
+      this.gameLogger.log(`${botName} action: ${JSON.stringify(chosenAction)}`);
 
-      // Send action
+      // Fail-fast validation: verify the chosen action is present in possible_actions
+      const actionFound = actions.some(a => JSON.stringify(a) === JSON.stringify(chosenAction));
+      if (!actionFound) {
+        this.logger.error(`FAIL-FAST: ${botName} chose action not in possible_actions`);
+        this.logger.error(`Chosen action: ${JSON.stringify(chosenAction)}`);
+        this.logger.error(`Hand: ${board.hand.map(c => c.card.card).join(', ')}`);
+        this.logger.error(`Available actions: ${JSON.stringify(actions, null, 2)}`);
+        throw new Error(`Bot chose invalid action: ${JSON.stringify(chosenAction)}`);
+      }
+
       try {
-        await currentClient.sendAction(this.gameId, currentToken, events1.length, chosenAction);
-        this.gameLogger.log(`✅ Action sent successfully`);
+        await currentClient.sendAction(this.gameId, currentToken, currentEvents.length, chosenAction);
+        this.gameLogger.log(`✅ ${botName} action sent successfully`);
       } catch (error) {
-        this.logger.error(`Failed to send action`, error as Error);
-        break;
+        this.logger.error(`Failed to send ${botName} action`, error as Error);
+        this.logger.error(`Action was: ${JSON.stringify(chosenAction)}`);
+        this.logger.error(`Hand was: ${board.hand.map(c => c.card.card).join(', ')}`);
+        this.logger.error(`Available actions were: ${JSON.stringify(actions, null, 2)}`);
+        throw error;
       }
 
-      // Wait for update
       await this.sleep(50);
     }
 

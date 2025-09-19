@@ -145,6 +145,65 @@ export class LocalGameEngine {
     }
   }
 
+  // Dev-only validator to catch action/hand mismatches
+  private _assertSetupActionsMatchHands(actions: GameAction[]): void {
+    if (process.env.NODE_ENV === 'production') return;
+
+    for (const a of actions) {
+      if ((a.type === 'Discard' || a.type === 'ChooseSuccessor' || a.type === 'ChooseSquire')
+          && a.for_player !== undefined) {
+        const p = this.state.players[a.for_player];
+        if ('card_idx' in a && 'card' in a) {
+          if (a.card_idx < 0 || a.card_idx >= p.hand.length || p.hand[a.card_idx] !== a.card) {
+            this.logger?.log(`ASSERT FAIL: ${a.type} mismatch for P${a.for_player+1} @${a.card_idx}: action.card=${a.card}, hand=${p.hand[a.card_idx]}`);
+            // In tests, throw; in dev, log.
+            if (process.env.NODE_ENV === 'test') {
+              throw new Error(`Action/hand mismatch: ${a.type} for P${a.for_player+1} @${a.card_idx}: action.card=${a.card}, hand=${p.hand[a.card_idx]}`);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Update currentPlayerIdx to point to a player who still needs setup during setup phases
+  private updateCurrentPlayerForSetupPhase(): void {
+    if (this.state.phase !== 'select_successor_dungeon') return;
+
+    // Check if current player still needs setup
+    const currentPlayer = this.state.players[this.state.currentPlayerIdx];
+    const currentNeedsSuccessor = currentPlayer.successor === null;
+    const currentNeedsSquire = currentPlayer.kingFacet === 'MasterTactician' && currentPlayer.squire === null;
+    const currentNeedsDiscards = currentPlayer.hand.length > 7;
+
+    if (currentNeedsSuccessor || currentNeedsSquire || currentNeedsDiscards) {
+      // Current player still needs setup, keep them
+      this.logger?.log(`DEBUG: Current player ${this.state.currentPlayerIdx} (Player ${this.state.currentPlayerIdx + 1}) still needs setup`);
+      return;
+    }
+
+    // Current player is done, find another player who needs setup
+    for (let i = 0; i < this.state.players.length; i++) {
+      if (i === this.state.currentPlayerIdx) continue; // Skip current player, they're done
+
+      const player = this.state.players[i];
+      const needsSuccessor = player.successor === null;
+      const needsSquire = player.kingFacet === 'MasterTactician' && player.squire === null;
+      const needsDiscards = player.hand.length > 7;
+
+      if (needsSuccessor || needsSquire || needsDiscards) {
+        this.state.currentPlayerIdx = i;
+        this.logger?.log(`DEBUG: Updated currentPlayerIdx to ${i} (Player ${i + 1}) who needs setup`);
+        return;
+      }
+    }
+
+    // If no player needs setup, all setup is complete - transition to play phase
+    this.logger?.log(`DEBUG: All players completed setup, transitioning to play phase`);
+    this.state.phase = 'play';
+    this.state.currentPlayerIdx = this.state.firstPlayerIdx || 0;
+  }
+
   getGameState(): LocalGameState {
     return JSON.parse(JSON.stringify(this.state)); // Deep clone
   }
@@ -393,7 +452,22 @@ export class LocalGameEngine {
     } else {
       // First player finished; move to successor selection (first player picks successor)
       this.state.phase = 'select_successor_dungeon';
-      this.state.currentPlayerIdx = first;
+
+      // Find a player who needs setup and set them as current player
+      let playerNeedingSetup = first; // default to first player
+      for (let i = 0; i < this.state.players.length; i++) {
+        const player = this.state.players[i];
+        const needsSuccessor = player.successor === null;
+        const needsSquire = player.kingFacet === 'MasterTactician' && player.squire === null;
+        const needsDiscards = player.hand.length > 7;
+
+        if (needsSuccessor || needsSquire || needsDiscards) {
+          playerNeedingSetup = i;
+          break;
+        }
+      }
+
+      this.state.currentPlayerIdx = playerNeedingSetup;
       this.logger?.log(`Both players finished mustering, transitioning to successor selection phase`);
     }
   }
@@ -1761,6 +1835,25 @@ export class LocalGameEngine {
         // During setup phase, ANY player can make their choices in any order
         // Generate actions for ALL players who still need to complete setup
 
+        // First, find a player who needs setup and set them as current player
+        let playerNeedingSetup = -1;
+        for (let i = 0; i < this.state.players.length; i++) {
+          const player = this.state.players[i];
+          const needsSuccessor = player.successor === null;
+          const needsSquire = player.kingFacet === 'MasterTactician' && player.squire === null;
+          const needsDiscards = player.hand.length > 7;
+
+          if (needsSuccessor || needsSquire || needsDiscards) {
+            playerNeedingSetup = i;
+            break;
+          }
+        }
+
+        // Update currentPlayerIdx to point to a player who needs setup
+        if (playerNeedingSetup >= 0) {
+          this.state.currentPlayerIdx = playerNeedingSetup;
+        }
+
         this.state.players.forEach((player, playerIdx) => {
           const needsSuccessor = player.successor === null;
           const needsSquire = player.kingFacet === 'MasterTactician' && player.squire === null;
@@ -1775,38 +1868,46 @@ export class LocalGameEngine {
 
           // Allow discarding if player has too many cards
           if (needsDiscards && player.hand.length > 0) {
-            player.hand.forEach((card, cardIdx) => {
+            for (let cardIdx = 0; cardIdx < player.hand.length; cardIdx++) {
+              const card = player.hand[cardIdx]; // always use the live hand index here
               actions.push({
                 type: 'Discard',
                 card_idx: cardIdx,
-                card: card,
-                // Note: Server determines which player sent this action based on client/token
+                card,
+                for_player: playerIdx as 0 | 1,        // <— NEW
               });
-            });
+            }
           }
 
           // Allow choosing successor if ready (hand size <= 8)
           if (needsSuccessor && player.hand.length <= 8 && player.hand.length > 0) {
-            player.hand.forEach((card, cardIdx) => {
+            for (let cardIdx = 0; cardIdx < player.hand.length; cardIdx++) {
+              const card = player.hand[cardIdx];
               actions.push({
                 type: 'ChooseSuccessor',
                 card_idx: cardIdx,
-                card: card,
+                card,
+                for_player: playerIdx as 0 | 1,        // <— NEW
               });
-            });
+            }
           }
 
           // Allow choosing squire if Master Tactician has successor
           if (needsSquire && player.successor !== null && player.hand.length > 0) {
-            player.hand.forEach((card, cardIdx) => {
-              actions.push(({
+            for (let cardIdx = 0; cardIdx < player.hand.length; cardIdx++) {
+              const card = player.hand[cardIdx];
+              actions.push({
                 type: 'PickSquire',
                 card_idx: cardIdx,
-                card: card,
-              } as any));
-            });
+                card,
+                for_player: playerIdx as 0 | 1,        // <— NEW
+              } as any);
+            }
           }
         });
+
+        // Add dev-only assertion to catch action/hand mismatches
+        this._assertSetupActionsMatchHands(actions);
 
         // Important: Don't limit actions by currentPlayerIdx during setup phase!
         break;
@@ -2290,6 +2391,12 @@ export class LocalGameEngine {
     // Use actingPlayerIdx if provided, otherwise fall back to currentPlayerIdx
     const effectivePlayerIdx = actingPlayerIdx !== undefined ? actingPlayerIdx : this.state.currentPlayerIdx;
 
+    // Execution-time guard: reject any action whose for_player doesn't match the sender's token
+    if ('for_player' in action && action.for_player !== undefined && action.for_player !== effectivePlayerIdx) {
+      this.logger?.log(`ERROR: Action actor mismatch: token=${effectivePlayerIdx} tried to send action for ${action.for_player}`);
+      return false;
+    }
+
     this.logger?.log(`DEBUG: executeAction called with: ${JSON.stringify(action)}, actingPlayer: ${effectivePlayerIdx + 1}, currentPlayer: ${this.state.currentPlayerIdx + 1}`);
 
     // Guard: Only allow actions from the current player (except during specific phases)
@@ -2568,6 +2675,10 @@ export class LocalGameEngine {
               // Discard the card
               const discarded = player.hand.splice(handCardIdx, 1)[0];
               this.logger?.log(`Player ${effectivePlayerIdx + 1}: Discarded ${discarded} from hand`);
+
+              // Update currentPlayerIdx to point to a player who still needs setup
+              this.updateCurrentPlayerForSetupPhase();
+
               return true;
             }
           }
@@ -2698,6 +2809,9 @@ export class LocalGameEngine {
             player.successor = player.hand.splice(handCardIdx, 1)[0];
             this.logger?.log(`Player ${effectivePlayerIdx + 1}: Selected ${player.successor} as successor`);
 
+            // Update currentPlayerIdx to point to a player who still needs setup
+            this.updateCurrentPlayerForSetupPhase();
+
             // Check if both players have completed setup (successors + squires if needed)
             const allPlayersReady = this.state.players.every(p => {
               const hasSuccessor = p.successor !== null;
@@ -2755,6 +2869,9 @@ export class LocalGameEngine {
             // Set squire
             player.squire = player.hand.splice(handCardIdx, 1)[0];
             this.logger?.log(`Player ${effectivePlayerIdx + 1}: Selected ${player.squire} as squire (Master Tactician ability)`);
+
+            // Update currentPlayerIdx to point to a player who still needs setup
+            this.updateCurrentPlayerForSetupPhase();
 
             // Check if all players have completed setup (successors + squires if needed)
             const allPlayersReady = this.state.players.every(p => {

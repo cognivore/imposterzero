@@ -418,3 +418,4 @@ The King's Hand reaction handler needs to:
    - **Regular context**: Cancel ability, force replay
 
 This represents the final piece needed to achieve 100% test completion.
+
