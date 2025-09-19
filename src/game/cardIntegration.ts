@@ -88,30 +88,16 @@ export class CardAbilityManager {
 
   /**
    * Handle King flip with universal reaction checking
+   * WARNING: This method should NOT be used directly - it bypasses proper flip invariants.
+   * Use the engine's executeKingFlip method instead.
    */
   handleKingFlip(state: GameState, playerIdx: number): boolean {
-    this.logger?.log(`Player ${playerIdx + 1} attempts to flip their King`);
+    this.logger?.log(`ERROR: cardIntegration.handleKingFlip called - this bypasses proper flip logic!`);
+    this.logger?.log(`Use engine.executeKingFlip() instead to maintain state invariants`);
 
-    // Check for reactions from all opponents
-    const opponentIdx = 1 - playerIdx;
-    const reactionUsed = this.checkUniversalReactions(state, opponentIdx, playerIdx, 'kingFlip');
-
-    if (reactionUsed) {
-      this.logger?.log(`King flip prevented by reaction!`);
-      return false; // King flip was prevented
-    }
-
-    // King flip proceeds
-    const player = state.players[playerIdx];
-    player.kingFlipped = true;
-    this.logger?.log(`Player ${playerIdx + 1}: King flipped successfully`);
-
-    // Trigger king flip effects on cards
-    state.court.forEach(courtCard => {
-      this.handleKingFlip(courtCard.card, state, playerIdx);
-    });
-
-    return true; // King flip completed
+    // DO NOT set kingFlipped here - this would create invariant violations
+    // The proper engine method handles successor clearing and all state management
+    return false; // Reject this call
   }
 
   /**

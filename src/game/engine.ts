@@ -1352,9 +1352,33 @@ export class LocalGameEngine {
     return true;
   }
 
+  // Repair flip invariants to prevent impossible states
+  private repairFlipInvariants(): void {
+    for (let i = 0; i < this.state.players.length; i++) {
+      const p = this.state.players[i];
+      if (p.kingFlipped && p.successor) {
+        // Heal and warn
+        this.logger?.log(`WARN: Invariant break — player ${i+1} kingFlipped=${p.kingFlipped} with non-null successor=${p.successor}. Healing by moving successor to hand.`);
+        p.hand.push(p.successor);
+        p.successor = null;
+      }
+    }
+  }
+
   // Execute the actual king flip (called directly or after no reaction)
   private executeKingFlip(playerIdx: number): boolean {
     const player = this.state.players[playerIdx];
+
+    // Hard preconditions
+    if (this.state.phase !== 'play') {
+      this.logger?.log(`ERROR: executeKingFlip in phase ${this.state.phase}`);
+      return false;
+    }
+    const pending = (this.state as any).pendingKingFlip;
+    if (!pending || pending.flipperIdx !== playerIdx) {
+      this.logger?.log(`ERROR: executeKingFlip without matching pendingKingFlip (wanted ${playerIdx}, pending ${pending?.flipperIdx})`);
+      return false;
+    }
 
     this.logger?.log(`DEBUG: executeKingFlip - Player ${playerIdx + 1}: kingFlipped=${player.kingFlipped}, successor=${player.successor}`);
     this.logger?.log(`DEBUG: executeKingFlip - Phase: ${this.state.phase}, Court length: ${this.state.court.length}`);
@@ -1371,12 +1395,16 @@ export class LocalGameEngine {
 
     this.logger?.log(`DEBUG: executeKingFlip - Proceeding with flip`);
 
+    // Perform the flip
     player.kingFlipped = true;
-    const successorCard = player.successor;
+    this.logger?.log(`DEBUG: SETTING kingFlipped=true for Player ${playerIdx + 1} in Round ${this.state.round}`);
+
+    // MUST move successor to hand and clear it (in all cases)
     if (player.successor) {
-      player.hand.push(player.successor);
+      const succ = player.successor;
+      player.hand.push(succ);
       player.successor = null;
-      this.logger?.log(`DEBUG: executeKingFlip - Added ${successorCard} to hand, cleared successor`);
+      this.logger?.log(`DEBUG: executeKingFlip - added successor ${succ} to hand, cleared successor`);
     }
 
     // CRITICAL: When king is flipped, the current throne card becomes disgraced
@@ -1551,7 +1579,7 @@ export class LocalGameEngine {
       player.dungeon = null;
       player.successor = null; // Reset successor - players choose new one each round!
       player.kingFacet = 'Regular'; // Reset to Regular king every round
-      this.logger?.log(`DEBUG: Player ${idx + 1} reset for new round - successor: null, kingFacet: Regular`);
+      this.logger?.log(`DEBUG: Player ${idx + 1} reset for new round - kingFlipped: false, successor: null, kingFacet: Regular`);
     });
 
     this.state.phase = 'choose_first_player';
@@ -1566,6 +1594,8 @@ export class LocalGameEngine {
 
   // Get possible actions for current player
   getPossibleActions(): GameAction[] {
+    this.repairFlipInvariants();
+
     const actions: GameAction[] = [];
     const currentPlayer = this.getCurrentPlayer();
 
@@ -1911,9 +1941,12 @@ export class LocalGameEngine {
         });
 
         // Offer FlipKing only when legal (not flipped yet and has a successor)
+        this.logger?.log(`DEBUG: FlipKing check - Player ${this.state.currentPlayerIdx + 1}: kingFlipped=${currentPlayer.kingFlipped}, successor=${currentPlayer.successor}`);
         if (!currentPlayer.kingFlipped && currentPlayer.successor) {
           this.logger?.log(`DEBUG: FlipKing OFFERED - Player ${this.state.currentPlayerIdx + 1}: kingFlipped=${currentPlayer.kingFlipped}, successor=${currentPlayer.successor}`);
           actions.push({ type: 'FlipKing' });
+        } else {
+          this.logger?.log(`DEBUG: FlipKing NOT OFFERED - Player ${this.state.currentPlayerIdx + 1}: kingFlipped=${currentPlayer.kingFlipped}, successor=${currentPlayer.successor}`);
         }
 
         // Late compatibility: allow EndMuster as a no-op during play to match replay scripts
@@ -2804,38 +2837,71 @@ export class LocalGameEngine {
         return flipResult;
 
       case 'Reaction':
+        // --- UNIFIED handler for KH in the KH window ---
         if (action.type === 'Reaction' && action.card === 'KingsHand' && this.state.phase === 'reaction_kings_hand') {
-          // Execute King's Hand reaction
-          const reactingPlayerIdx = this.state.currentPlayerIdx;
-          const reactingPlayer = this.state.players[reactingPlayerIdx];
-          const pendingReaction = (this.state as any).pendingKingsHandReaction;
+          const reactingIdx = this.state.currentPlayerIdx;
+          const reactingPlayer = this.state.players[reactingIdx];
 
-          if (pendingReaction) {
-            // Remove King's Hand from reacting player's hand
-            const kingsHandIdx = reactingPlayer.hand.indexOf('KingsHand');
-            if (kingsHandIdx >= 0) {
-              const kingsHand = reactingPlayer.hand.splice(kingsHandIdx, 1)[0];
-              this.state.condemned.push(kingsHand);
-              this.logger?.log(`Player ${reactingPlayerIdx + 1}: Used King's Hand reaction - condemned King's Hand`);
-            }
+          // Must actually have KH (we still offer it for hidden info)
+          const khIdx = reactingPlayer.hand.indexOf('KingsHand');
+          if (khIdx === -1) {
+            this.logger?.log(`ERROR: Player ${reactingIdx + 1} tried King's Hand without holding it`);
+            return false;
+          }
 
-            // Remove the countered card from court and condemn it
-            const courtCard = this.state.court[pendingReaction.playedCardCourtIdx];
-            if (courtCard && courtCard.card === pendingReaction.playedCard) {
-              this.state.court.splice(pendingReaction.playedCardCourtIdx, 1);
-              this.state.condemned.push(pendingReaction.playedCard);
-              this.logger?.log(`Player ${reactingPlayerIdx + 1}: King's Hand countered ${pendingReaction.playedCard} - condemned ${pendingReaction.playedCard}`);
-            }
+          // Spend King's Hand
+          const kh = reactingPlayer.hand.splice(khIdx, 1)[0];
+          this.state.condemned.push(kh);
+          this.logger?.log(`Player ${reactingIdx + 1}: Used King's Hand reaction - condemned King's Hand`);
 
-            // Original player must play again
+          const pa = (this.state as any).pendingAssassinReaction;
+          const pr = (this.state as any).pendingKingsHandReaction;
+
+          this.logger?.log(`DEBUG: KH window context - assassin=${!!pa}, regular=${!!pr}`);
+
+          if (pa) {
+            // ---- Assassin context: cancel Assassin and return to normal turn flow
+            this.logger?.log(`Player ${reactingIdx + 1}: King's Hand cancels the Assassin reaction`);
+            delete (this.state as any).pendingAssassinReaction;
+            delete (this.state as any).pendingKingFlip;
+
+            // Return to play phase with normal turn flow
             this.state.phase = 'play';
-            this.state.currentPlayerIdx = pendingReaction.originalPlayerIdx;
-            delete (this.state as any).pendingKingsHandReaction;
-
-            this.logger?.log(`Player ${pendingReaction.originalPlayerIdx + 1}: Must play again after being countered`);
+            // Keep current player as the one who played King's Hand's opponent (normal turn flow)
+            this.state.currentPlayerIdx = 1 - reactingIdx;
+            this.logger?.log(`King's Hand canceled Assassin, continuing with normal turn flow - Player ${this.state.currentPlayerIdx + 1}'s turn`);
             return true;
           }
-        } else if (action.type === 'Reaction' && this.state.phase === 'reaction_assassin' && (action.card === 'Assassin' || action.card === 'Stranger')) {
+
+          if (pr) {
+            // ---- Regular KH context: counter the just-played card
+            const { playedCardCourtIdx, playedCard, originalPlayerIdx } = pr;
+
+            const courtCard = this.state.court[playedCardCourtIdx];
+            if (courtCard && courtCard.card === playedCard) {
+              this.state.court.splice(playedCardCourtIdx, 1);
+              this.state.condemned.push(playedCard);
+              this.logger?.log(`Player ${reactingIdx + 1}: King's Hand countered ${playedCard} - condemned ${playedCard}`);
+            } else {
+              this.logger?.log(`WARN: KH regular context: target card mismatch or missing`);
+            }
+
+            delete (this.state as any).pendingKingsHandReaction;
+
+            // The original player must play again
+            this.state.phase = 'play';
+            this.state.currentPlayerIdx = originalPlayerIdx;
+            this.logger?.log(`Player ${originalPlayerIdx + 1}: Must play again after being countered`);
+            return true;
+          }
+
+          // No pending context — invalid KH window
+          this.logger?.log(`ERROR: King's Hand reaction with no pending context`);
+          return false;
+        }
+
+        // --- Assassin selection (opens KH window) ---
+        if (action.type === 'Reaction' && this.state.phase === 'reaction_assassin' && (action.card === 'Assassin' || action.card === 'Stranger')) {
           // Assassin/Stranger chosen - condemn the card and open King's Hand window for flipper
           const responderIdx = this.state.currentPlayerIdx;
           const responder = this.state.players[responderIdx];
@@ -2871,28 +2937,6 @@ export class LocalGameEngine {
             return true;
           }
           return false;
-        } else if (action.type === 'Reaction' && this.state.phase === 'reaction_kings_hand' && action.card === 'KingsHand') {
-          // King's Hand played to cancel Assassin reaction
-          const flipperIdx = this.state.currentPlayerIdx;
-          const flipper = this.state.players[flipperIdx];
-
-          const khIdx = flipper.hand.indexOf('KingsHand');
-          if (khIdx >= 0) {
-            flipper.hand.splice(khIdx, 1);
-            this.state.condemned.push('KingsHand');
-            this.logger?.log(`Player ${flipperIdx + 1}: King's Hand cancels the Assassin reaction`);
-          }
-
-          delete (this.state as any).pendingAssassinReaction;
-
-          // Proceed with the original flip as if NoReaction had been chosen
-          const pending = (this.state as any).pendingKingFlip;
-          this.state.phase = 'play';
-          if (pending && typeof pending.flipperIdx === 'number') {
-            delete (this.state as any).pendingKingFlip;
-            return this.executeKingFlip(pending.flipperIdx);
-          }
-          return true;
         }
         return false;
 
@@ -3005,20 +3049,31 @@ export class LocalGameEngine {
           // No pending flip; just continue and check if the round should end
           this.checkForRoundEnd();
           return true;
-        } else if (this.state.phase === 'reaction_kings_hand') {
-          // NEW: No King's Hand played against Assassin — resolve Assassin/Stranger and abort the flip
+        }
+
+        if (this.state.phase === 'reaction_kings_hand') {
           const pa = (this.state as any).pendingAssassinReaction;
           if (pa) {
             this.logger?.log(`DEBUG: No King's Hand played — resolving ${pa.kind}`);
             delete (this.state as any).pendingAssassinReaction;
 
-            // The flip is prevented
+            // Cancel the flip
             delete (this.state as any).pendingKingFlip;
 
             this.state.phase = 'play';
             return this.resolveAssassinReaction(pa.responderIdx, pa.kind);
           }
-          return true;
+
+          const pr = (this.state as any).pendingKingsHandReaction;
+          if (pr) {
+            // Let the played card stand; resume normal flow
+            delete (this.state as any).pendingKingsHandReaction;
+            this.state.phase = 'play';
+            // currentPlayer will already be set to the non-reacting opponent by your play pipeline
+            return true;
+          }
+
+          return false; // nothing to react to
         }
         return false;
 

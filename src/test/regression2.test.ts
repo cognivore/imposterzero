@@ -935,8 +935,9 @@ The game is over with score 7:5.
         if (!flipAction) {
           const playerIdx = move.player === 'Calm' ? 0 : 1;
           const kingFlipped = board.kings_flipped[playerIdx];
-          const hand = board.hands[playerIdx];
-          const hasSuccessor = hand.some(c => typeof c.card === 'object' && c.card.card);
+          const successor = board.successors[playerIdx];
+          const hasSuccessor = successor !== null;
+          console.log(`DEBUG: FlipKing check for ${move.player}: kingFlipped=${kingFlipped}, successor=${JSON.stringify(successor)}, hasSuccessor=${hasSuccessor}`);
           throw new Error(`FlipKing expected but not offered for ${move.player} (kingFlipped=${kingFlipped}, hasSuccessor=${hasSuccessor})`);
         }
         return flipAction;
