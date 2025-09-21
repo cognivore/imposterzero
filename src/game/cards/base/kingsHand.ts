@@ -22,11 +22,8 @@ const kingsHandReactionAbility: CardAbility = {
 
       // The target card would also be condemned (handled by calling code)
       logger?.log(`Player ${playerIdx + 1}: King's Hand reaction - both cards condemned`);
-
-      return true; // Ability was prevented
     } else {
       logger?.log(`Player ${playerIdx + 1}: Tried to use King's Hand but doesn't have it in hand`);
-      return false;
     }
   }
 };

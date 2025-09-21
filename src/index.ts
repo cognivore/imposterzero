@@ -3,7 +3,10 @@
 import { GameClient } from './game/client.js';
 
 async function main(): Promise<void> {
-  const client = new GameClient();
+  // Create client with default configuration
+  const client = new GameClient({
+    playerNames: ['Human Player', 'Bot Player']
+  });
 
   // Handle graceful shutdown
   process.on('SIGINT', () => {

@@ -1,4 +1,4 @@
-import type { CardModule, GameState, CardAbility } from '../types.js';
+import type { CardModule, GameState, CardAbility, CardName } from '../types.js';
 
 const flagBearerAbility: CardAbility = {
   name: 'Disgrace for Army Actions',
@@ -44,10 +44,10 @@ const flagBearerAbility: CardAbility = {
 
           // Return one card back to army
           const returnedCard = ralliedCards[Math.floor(Math.random() * ralliedCards.length)];
-          const handIdx = player.hand.indexOf(returnedCard);
+          const handIdx = player.hand.indexOf(returnedCard as CardName);
           if (handIdx >= 0) {
             player.hand.splice(handIdx, 1);
-            player.army.push(returnedCard);
+            player.army.push(returnedCard as CardName);
             logger?.log(`Player ${playerIdx + 1}: Flag Bearer - secretly returned ${returnedCard} to army`);
           }
         }

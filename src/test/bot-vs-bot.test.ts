@@ -93,32 +93,151 @@ export class BotVsBotTest {
     let turnCount = 0;
     const maxTurns = 100; // Safety limit
 
+    // Define simultaneous phases
+    const SIMUL_PHASES = new Set([
+      'SelectSignatureCards',
+      'PickSuccessor',
+      'ChooseWhosFirst',
+    ]);
+
     while (!roundComplete && turnCount < maxTurns) {
       turnCount++;
 
-      // Get current game state
+      // Get current game state for both bots
       const events1 = await this.client1.getEvents(this.gameId, this.player1Token, 0);
       const events2 = await this.client2.getEvents(this.gameId, this.player2Token, 0);
 
       const latestState1 = events1.filter(e => e.type === 'NewState').pop();
       const latestState2 = events2.filter(e => e.type === 'NewState').pop();
 
-      if (!latestState1 || latestState1.type !== 'NewState') {
+      if (!latestState1 || latestState1.type !== 'NewState' || !latestState2 || latestState2.type !== 'NewState') {
         this.logger.error('No valid game state found');
         break;
       }
 
-      // Use the state from the current player's perspective
-      // We need to determine who should act based on the absolute player index
-      // For now, let's use Bot1's perspective and check if the turn logic works
-      const currentState = latestState1;
+      const status1 = latestState1.status;
+      const status2 = latestState2.status;
+
+      // Both players should see the same status
+      if (status1.type !== status2.type) {
+        this.logger.error(`Status mismatch: Bot1 sees ${status1.type}, Bot2 sees ${status2.type}`);
+        break;
+      }
+
+      this.gameLogger.log(`\n--- TURN ${turnCount} ---`);
+      this.gameLogger.log(`Status: ${status1.type}`);
+
+      // Check for game over
+      if (status1.type === 'GameOver') {
+        this.gameLogger.log('=== GAME OVER ===');
+        this.validateGameEnd(latestState1.board, status1);
+        roundComplete = true;
+        break;
+      }
+
+      // Handle simultaneous phases
+      if (SIMUL_PHASES.has(status1.type)) {
+        let progressed = false;
+
+        // Give both bots a chance to act (order: Bot1 then Bot2)
+        for (const botInfo of [
+          { name: 'Bot1', bot: this.bot1, client: this.client1, token: this.player1Token },
+          { name: 'Bot2', bot: this.bot2, client: this.client2, token: this.player2Token }
+        ]) {
+          const { name, bot, client, token } = botInfo;
+
+          // Refresh events for this bot before they act
+          const freshEvents = await client.getEvents(this.gameId, token, 0);
+          const freshState = freshEvents.filter(e => e.type === 'NewState').pop();
+
+          if (!freshState || freshState.type !== 'NewState') {
+            this.logger.error(`No fresh state for ${name}`);
+            continue;
+          }
+
+          const events = freshEvents;
+          const state = freshState;
+          const board = state.board;
+          const status = state.status;
+          const actions = state.actions;
+
+          this.gameLogger.log(`${name}: Status=${status.type}, Actions=${actions.length}`);
+
+          if (actions.length === 0) {
+            this.gameLogger.log(`${name}: No actions available`);
+            continue; // This bot has no actions available
+          }
+
+          if (board.hand.length > 0) {
+            this.gameLogger.log(`${name} Hand: ${board.hand.map(c => c.card.card).join(', ')}`);
+          }
+
+          this.gameLogger.log(`Score: Bot1=${board.points[0]}, Bot2=${board.points[1]}`);
+          this.gameLogger.log(`Accused: ${board.accused.length > 0 ? board.accused[0].card.card : 'none'}`);
+
+          const chosenAction = bot.chooseAction(board, status, actions);
+
+          if (!chosenAction) {
+            this.gameLogger.log(`${name}: No action chosen`);
+            continue;
+          }
+
+          this.gameLogger.log(`${name} action: ${JSON.stringify(chosenAction)}`);
+
+          // Fail-fast validation: verify the chosen action is present in possible_actions
+          const actionFound = actions.some(a => JSON.stringify(a) === JSON.stringify(chosenAction));
+          if (!actionFound) {
+            this.logger.error(`FAIL-FAST: ${name} chose action not in possible_actions`);
+            this.logger.error(`Chosen action: ${JSON.stringify(chosenAction)}`);
+            this.logger.error(`Hand: ${board.hand.map(c => c.card.card).join(', ')}`);
+            this.logger.error(`Available actions: ${JSON.stringify(actions, null, 2)}`);
+            throw new Error(`Bot chose invalid action: ${JSON.stringify(chosenAction)}`);
+          }
+
+          try {
+            await client.sendAction(this.gameId, token, events.length, chosenAction);
+            this.gameLogger.log(`✅ ${name} action sent successfully`);
+            progressed = true;
+
+            // Refresh events after each action in simultaneous phases
+            await this.sleep(50);
+          } catch (error) {
+            this.logger.error(`Failed to send ${name} action`, error as Error);
+            this.logger.error(`Action was: ${JSON.stringify(chosenAction)}`);
+            this.logger.error(`Hand was: ${board.hand.map(c => c.card.card).join(', ')}`);
+            this.logger.error(`Available actions were: ${JSON.stringify(actions, null, 2)}`);
+            throw error;
+          }
+        }
+
+        if (!progressed) {
+          throw new Error(`Deadlock: no actions available for either player in simultaneous phase ${status1.type}`);
+        }
+        continue; // Loop again for simultaneous phases
+      }
+
+      // Regular turn-based phases
+      const engineCurrentPlayerIdx = this.server.getService().getCurrentPlayerIndex(this.gameId);
+
+      if (engineCurrentPlayerIdx === null) {
+        this.logger.error('Cannot get current player index from engine');
+        break;
+      }
+
+      // Map engine player index to bot
+      const isBot1Turn = engineCurrentPlayerIdx === 0;
+      const currentBot = isBot1Turn ? this.bot1 : this.bot2;
+      const currentClient = isBot1Turn ? this.client1 : this.client2;
+      const currentToken = isBot1Turn ? this.player1Token : this.player2Token;
+      const currentEvents = isBot1Turn ? events1 : events2;
+      const currentState = isBot1Turn ? latestState1 : latestState2;
+      const botName = isBot1Turn ? 'Bot1' : 'Bot2';
+
       const board = currentState.board;
       const status = currentState.status;
       const actions = currentState.actions;
 
-      this.gameLogger.log(`\n--- TURN ${turnCount} ---`);
-      this.gameLogger.log(`Status: ${status.type}`);
-      this.gameLogger.log(`Current Player: ${board.player_idx === 0 ? 'Bot1' : 'Bot2'}`);
+      this.gameLogger.log(`Current Player: ${botName}`);
       this.gameLogger.log(`Available Actions: ${actions.length}`);
       this.gameLogger.log(`Score: Bot1=${board.points[0]}, Bot2=${board.points[1]}`);
 
@@ -149,36 +268,11 @@ export class BotVsBotTest {
         this.gameLogger.log(`Opponent Antechamber: ${opponentAntechamber.map(c => typeof c.card === 'object' ? c.card.card : 'hidden').join(', ')}`);
       }
 
-      // Check for game over
-      if (status.type === 'GameOver') {
-        this.gameLogger.log('=== GAME OVER ===');
-        this.validateGameEnd(board, status);
-        roundComplete = true;
-        break;
-      }
-
       // Check if there are actions available
       if (actions.length === 0) {
         await this.sleep(100);
         continue;
       }
-
-      // CORRECT FIX: Use the actual engine current player index
-      const engineCurrentPlayerIdx = this.server.getService().getCurrentPlayerIndex(this.gameId);
-
-      if (engineCurrentPlayerIdx === null) {
-        this.logger.error('Cannot get current player index from engine');
-        break;
-      }
-
-      // Map engine player index to bot
-      // Player 0 = Bot1, Player 1 = Bot2
-      const isBot1Turn = engineCurrentPlayerIdx === 0;
-      const currentBot = isBot1Turn ? this.bot1 : this.bot2;
-      const currentClient = isBot1Turn ? this.client1 : this.client2;
-      const currentToken = isBot1Turn ? this.player1Token : this.player2Token;
-      const currentEvents = isBot1Turn ? events1 : events2;
-      const botName = isBot1Turn ? 'Bot1' : 'Bot2';
 
       this.gameLogger.log(`Engine currentPlayerIdx=${engineCurrentPlayerIdx} → ${botName}'s turn`);
 

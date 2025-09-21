@@ -1666,6 +1666,14 @@ export class LocalGameEngine {
     this.shuffleDeck();
   }
 
+  // Get possible actions for viewer (filters by for_player field)
+  getPossibleActionsForViewer(viewerIdx: number): GameAction[] {
+    const all = this.getPossibleActions();
+    // Setup & reaction windows may include cross-player actions;
+    // keep only those intended for the viewer (or untagged global).
+    return all.filter(a => a.for_player === undefined || a.for_player === viewerIdx);
+  }
+
   // Get possible actions for current player
   getPossibleActions(): GameAction[] {
     this.repairFlipInvariants();
@@ -1675,25 +1683,28 @@ export class LocalGameEngine {
 
     switch (this.state.phase) {
       case 'signature_selection':
-        // Only allow signature card selection if current player hasn't selected yet
-        if (!this.state.signatureCardsSelected[this.state.currentPlayerIdx]) {
-          // Generate all possible signature card combinations
-          const availableCards = GAME_CONFIG.SIGNATURE_CARDS;
-          for (let i = 0; i < availableCards.length; i++) {
-            for (let j = i + 1; j < availableCards.length; j++) {
-              for (let k = j + 1; k < availableCards.length; k++) {
-                actions.push({
-                  type: 'ChooseSignatureCards',
-                  cards: [
-                    [i, availableCards[i]],
-                    [j, availableCards[j]],
-                    [k, availableCards[k]],
-                  ],
-                });
+        // Simultaneous phase: generate actions for ALL players who haven't selected yet
+        this.state.players.forEach((player, playerIdx) => {
+          if (!this.state.signatureCardsSelected[playerIdx]) {
+            // Generate all possible signature card combinations for this player
+            const availableCards = GAME_CONFIG.SIGNATURE_CARDS;
+            for (let i = 0; i < availableCards.length; i++) {
+              for (let j = i + 1; j < availableCards.length; j++) {
+                for (let k = j + 1; k < availableCards.length; k++) {
+                  actions.push({
+                    type: 'ChooseSignatureCards',
+                    cards: [
+                      [i, availableCards[i]],
+                      [j, availableCards[j]],
+                      [k, availableCards[k]],
+                    ],
+                    for_player: playerIdx as 0 | 1,  // Tag with player
+                  });
+                }
               }
             }
           }
-        }
+        });
         break;
 
       case 'choose_first_player':
@@ -1834,25 +1845,6 @@ export class LocalGameEngine {
       case 'select_successor_dungeon':
         // During setup phase, ANY player can make their choices in any order
         // Generate actions for ALL players who still need to complete setup
-
-        // First, find a player who needs setup and set them as current player
-        let playerNeedingSetup = -1;
-        for (let i = 0; i < this.state.players.length; i++) {
-          const player = this.state.players[i];
-          const needsSuccessor = player.successor === null;
-          const needsSquire = player.kingFacet === 'MasterTactician' && player.squire === null;
-          const needsDiscards = player.hand.length > 7;
-
-          if (needsSuccessor || needsSquire || needsDiscards) {
-            playerNeedingSetup = i;
-            break;
-          }
-        }
-
-        // Update currentPlayerIdx to point to a player who needs setup
-        if (playerNeedingSetup >= 0) {
-          this.state.currentPlayerIdx = playerNeedingSetup;
-        }
 
         this.state.players.forEach((player, playerIdx) => {
           const needsSuccessor = player.successor === null;
@@ -2676,9 +2668,6 @@ export class LocalGameEngine {
               const discarded = player.hand.splice(handCardIdx, 1)[0];
               this.logger?.log(`Player ${effectivePlayerIdx + 1}: Discarded ${discarded} from hand`);
 
-              // Update currentPlayerIdx to point to a player who still needs setup
-              this.updateCurrentPlayerForSetupPhase();
-
               return true;
             }
           }
@@ -2809,9 +2798,6 @@ export class LocalGameEngine {
             player.successor = player.hand.splice(handCardIdx, 1)[0];
             this.logger?.log(`Player ${effectivePlayerIdx + 1}: Selected ${player.successor} as successor`);
 
-            // Update currentPlayerIdx to point to a player who still needs setup
-            this.updateCurrentPlayerForSetupPhase();
-
             // Check if both players have completed setup (successors + squires if needed)
             const allPlayersReady = this.state.players.every(p => {
               const hasSuccessor = p.successor !== null;
@@ -2869,9 +2855,6 @@ export class LocalGameEngine {
             // Set squire
             player.squire = player.hand.splice(handCardIdx, 1)[0];
             this.logger?.log(`Player ${effectivePlayerIdx + 1}: Selected ${player.squire} as squire (Master Tactician ability)`);
-
-            // Update currentPlayerIdx to point to a player who still needs setup
-            this.updateCurrentPlayerForSetupPhase();
 
             // Check if all players have completed setup (successors + squires if needed)
             const allPlayersReady = this.state.players.every(p => {

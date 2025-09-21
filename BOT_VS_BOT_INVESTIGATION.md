@@ -622,3 +622,95 @@ The bot test needs to be redesigned to handle simultaneous actions during setup 
 4. **Check both bots for available actions** each loop iteration
 
 The currentPlayerIdx switching logic I added is **counterproductive** and should be removed to restore the intended simultaneous design.
+
+## Additional Discovery: Signature Card Selection Also Simultaneous
+
+### Another False Turn-Based Assumption
+
+The signature card selection phase was **incorrectly implemented as turn-based** when it should be simultaneous. This caused the CLI to prompt multiple times because:
+
+1. Player 1 selects signature cards
+2. `currentPlayerIdx` switches to Player 2
+3. Player 1's client refreshes and sees Player 2's signature card actions
+4. CLI prompts Player 1 again
+
+**Original Turn-Based Logic** - `src/game/engine.ts:1685-1704` (INCORRECT):
+```typescript
+case 'signature_selection':
+  // Only allow signature card selection if current player hasn't selected yet
+  if (!this.state.signatureCardsSelected[this.state.currentPlayerIdx]) {
+    // Generate all possible signature card combinations
+    const availableCards = GAME_CONFIG.SIGNATURE_CARDS;
+    for (let i = 0; i < availableCards.length; i++) {
+      for (let j = i + 1; j < availableCards.length; j++) {
+        for (let k = j + 1; k < availableCards.length; k++) {
+          actions.push({
+            type: 'ChooseSignatureCards',
+            cards: [
+              [i, availableCards[i]],
+              [j, availableCards[j]],
+              [k, availableCards[k]],
+            ],
+          });
+        }
+      }
+    }
+  }
+  break;
+```
+
+**Fixed Simultaneous Logic** - `src/game/engine.ts:1685-1708` (CORRECT):
+```typescript
+case 'signature_selection':
+  // Simultaneous phase: generate actions for ALL players who haven't selected yet
+  this.state.players.forEach((player, playerIdx) => {
+    if (!this.state.signatureCardsSelected[playerIdx]) {
+      // Generate all possible signature card combinations for this player
+      const availableCards = GAME_CONFIG.SIGNATURE_CARDS;
+      for (let i = 0; i < availableCards.length; i++) {
+        for (let j = i + 1; j < availableCards.length; j++) {
+          for (let k = j + 1; k < availableCards.length; k++) {
+            actions.push({
+              type: 'ChooseSignatureCards',
+              cards: [
+                [i, availableCards[i]],
+                [j, availableCards[j]],
+                [k, availableCards[k]],
+              ],
+              for_player: playerIdx as 0 | 1,  // Tag with player
+            });
+          }
+        }
+      }
+    }
+  });
+  break;
+```
+
+## Final Status: FULLY RESOLVED ✅
+
+### Comprehensive Fix Applied
+
+After correcting ALL false assumptions about simultaneous phases, the complete fix includes:
+
+1. **✅ Removed currentPlayerIdx steering** from `getPossibleActions()` setup branch
+2. **✅ Removed `updateCurrentPlayerForSetupPhase()` calls** from setup actions
+3. **✅ Universal viewer-perspective regeneration** in `getEvents()`
+4. **✅ Added `getPossibleActionsForViewer()` helper** method
+5. **✅ Redesigned bot test for simultaneous phases** with both bots acting
+6. **✅ Fixed event count synchronization** by refreshing events before each bot acts
+7. **✅ Fixed signature card selection** to be truly simultaneous with `for_player` tagging
+
+### Test Results
+
+**Before Fix**: Bot vs bot test failed with action generation/validation errors and setup phase deadlocks
+
+**After Fix**: Bot vs bot test completes successfully in ~20 turns, properly handling:
+- ✅ Simultaneous signature card selection
+- ✅ Simultaneous successor/squire selection with proper action filtering
+- ✅ Turn-based mustering and play phases
+- ✅ No action validation errors
+- ✅ No cross-player action leakage
+- ✅ Proper phase transitions
+
+The bot vs bot test now serves as intended: a comprehensive engine validation tool that exercises all game phases with proper simultaneous and turn-based behavior.

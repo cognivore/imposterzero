@@ -254,7 +254,7 @@ export class ModernBot {
     }
 
     // Pick squire - prefer medium-value cards
-    const squireActions = actions.filter(a => a.type === 'ChooseSquire' || a.type === 'PickSquire');
+    const squireActions = actions.filter(a => a.type === 'ChooseSquire');
     if (squireActions.length > 0) {
       this.logger.log(`${this.playerName}: Picking squire`);
       return squireActions[0];
@@ -593,6 +593,11 @@ export class ModernBot {
       'Arbiter': 4,
       'Bard': 4,
       'Immortal': 6,
+      'Herald': 5,
+      'Spy': 3,
+      'Oracle': 7,
+      'Impersonator': 4,
+      'Elocutionist': 3,
     };
 
     return baseValues[card] || 0;

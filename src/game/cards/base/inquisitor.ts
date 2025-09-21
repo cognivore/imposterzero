@@ -1,4 +1,4 @@
-import type { CardModule, GameState, CardAbility } from '../types.js';
+import type { CardModule, GameState, CardAbility, CardName } from '../types.js';
 
 const inquisitorAbility: CardAbility = {
   name: 'Say Card Name',
@@ -39,11 +39,11 @@ const inquisitorAbility: CardAbility = {
       logger?.log(`Player ${playerIdx + 1}: Visible cards: ${Array.from(visibleCards).join(', ')}`);
 
       // Check if opponent has the guessed card in hand
-      const opponentHasCard = opponent.hand.includes(guessedCard);
+      const opponentHasCard = opponent.hand.includes(guessedCard as CardName);
 
       if (opponentHasCard) {
         // Move card from opponent's hand to their antechamber
-        const cardIdx = opponent.hand.indexOf(guessedCard);
+        const cardIdx = opponent.hand.indexOf(guessedCard as CardName);
         const movedCard = opponent.hand.splice(cardIdx, 1)[0];
         opponent.antechamber.push(movedCard);
 

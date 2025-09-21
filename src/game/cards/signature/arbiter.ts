@@ -1,4 +1,4 @@
-import type { CardModule, GameState, CardAbility } from '../types.js';
+import type { CardModule, GameState, CardAbility, CardName } from '../types.js';
 
 const arbiterReactionAbility: CardAbility = {
   name: 'Say Card Name at Turn Start',
@@ -20,13 +20,13 @@ const arbiterReactionAbility: CardAbility = {
 
     logger?.log(`Player ${playerIdx + 1}: Arbiter reaction - guessing ally has ${guessedCard}`);
 
-    if (ally.hand.includes(guessedCard)) {
+    if (ally.hand.includes(guessedCard as CardName)) {
       logger?.log(`🎯 HIT! Ally has ${guessedCard}`);
 
       // Must exchange a card with the revealed card
       if (player.hand.length > 0) {
         const playerCardIdx = Math.floor(Math.random() * player.hand.length);
-        const allyCardIdx = ally.hand.indexOf(guessedCard);
+        const allyCardIdx = ally.hand.indexOf(guessedCard as CardName);
 
         const playerCard = player.hand[playerCardIdx];
         const allyCard = ally.hand[allyCardIdx];

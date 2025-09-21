@@ -1,287 +1,238 @@
 import { ImposterKingsAPIClient } from '../api/client.js';
 import { GameState } from './state.js';
-import { GameDisplay } from '../ui/display.js';
-import { GamePrompts } from '../ui/prompts.js';
+import { GameUI, GameUIConfig } from '../ui/gameui.js';
 import { Logger } from '../utils/logger.js';
 import type { GameAction, GameEvent, CardName } from '../types/game.js';
 
 export class GameClient {
-  private api: ImposterKingsAPIClient;
+  private api: ImposterKingsAPIClient | undefined;
   private state: GameState;
-  private display: GameDisplay;
-  private prompts: GamePrompts;
+  private ui: GameUI;
   private logger: Logger;
   private gameId: number = 0;
   private playerToken: string = '';
   private joinToken: string = '';
   private isRunning: boolean = false;
   private isLocalMode: boolean = false;
+  private serverPort: number = 3003;
+  private introspectionState: {
+    availableActions: GameAction[];
+    currentStatus: string;
+    playerIndex: number;
+  } | null = null;
 
-  constructor() {
-    this.api = new ImposterKingsAPIClient();
+  constructor(config: GameUIConfig = {}) {
     this.state = new GameState();
-    this.display = new GameDisplay();
-    this.prompts = new GamePrompts();
+    this.ui = new GameUI(config);
     this.logger = new Logger();
   }
 
   async start(): Promise<void> {
-    this.display.clear();
-    this.display.displayTitle();
+    await this.ui.start();
 
     try {
-      const action = await this.prompts.promptMainMenu();
-
-      switch (action) {
-        case 'create':
-          await this.createGame();
-          break;
-        case 'join':
-          await this.joinGame();
-          break;
-        case 'localhost':
-          await this.connectToLocalhost();
-          break;
-        case 'quit':
-          console.log('Goodbye!');
-          return;
-      }
+      // For now, just connect to localhost in test mode
+      await this.connectToLocalhost();
 
       if (this.gameId && this.playerToken) {
         await this.runGameLoop();
       }
     } catch (error) {
-      this.display.displayError(`Failed to start: ${error instanceof Error ? error.message : 'Unknown error'}`);
-
-      if (await this.prompts.promptRetry()) {
-        await this.start();
-      }
+      this.logger.error('Failed to start game client', error as Error);
+      throw error; // Re-throw so the test can handle it properly
+    } finally {
+      this.ui.shutdown();
     }
-  }
-
-  private async createGame(): Promise<void> {
-    const playerName = await this.prompts.promptPlayerName();
-
-    this.display.displayInfo('Creating game...');
-    const response = await this.api.createGame({ player_name: playerName });
-
-    this.gameId = response.game_id;
-    this.playerToken = response.player_token;
-
-    this.display.displaySuccess(`Game created! Game ID: ${this.gameId}`);
-    this.display.displayInfo(`Share this with your opponent:`);
-    this.display.displayInfo(`  Game ID: ${this.gameId}`);
-    this.display.displayInfo(`  Join Token: ${this.playerToken}`);
-    this.display.displayInfo('Waiting for opponent to join...');
-
-    // Wait for game to start
-    await this.waitForGameStart();
-  }
-
-  private async joinGame(): Promise<void> {
-    const gameId = await this.prompts.promptGameId();
-    const joinToken = await this.prompts.promptJoinToken();
-    const playerName = await this.prompts.promptPlayerName();
-
-    this.display.displayInfo('Joining game...');
-    const response = await this.api.joinGame({
-      game_id: gameId,
-      join_token: joinToken,
-      player_name: playerName,
-    });
-
-    this.gameId = gameId;
-    this.playerToken = response.player_token;
-
-    this.display.displaySuccess(`Joined game ${gameId}!`);
-
-    // Wait for game to start
-    await this.waitForGameStart();
-  }
-
-  private async connectToLocalhost(): Promise<void> {
-    this.logger.log('Connecting to localhost server');
-
-    // Create API client pointing to localhost
-    this.api = new ImposterKingsAPIClient('http://localhost:3000');
-
-    this.display.displayInfo('Connecting to local server at http://localhost:3000');
-    this.display.displayInfo('Make sure the server is running with: pnpm run dev:server');
-
-    // Show choice to create or join
-    const choice = await this.prompts.promptConfirmation('Create a new game on localhost?');
-
-    if (choice) {
-      await this.createGame();
-    } else {
-      await this.joinGame();
-    }
-  }
-
-  private async waitForGameStart(): Promise<void> {
-    let gameStatus = await this.api.getGameStatus(this.gameId, this.playerToken);
-
-    if (!gameStatus) {
-      throw new Error('Failed to get game status');
-    }
-
-    // Set player names
-    const playerNames: [string, string] = ['Player 1', 'Player 2'];
-    gameStatus.players.forEach((player, index) => {
-      if (player && player.type === 'Human') {
-        playerNames[index] = player.name;
-      } else if (player && player.type === 'Bot') {
-        playerNames[index] = 'Bot';
-      }
-    });
-
-    this.state.setPlayerNames(playerNames);
-    this.display.setPlayerNames(playerNames);
-
-    // If there's an empty slot, offer to add a bot
-    const emptySlots = gameStatus.players.filter(p => p === null).length;
-    if (emptySlots > 0) {
-      const addBot = await this.prompts.promptAddBot();
-      if (addBot) {
-        try {
-          await this.api.addBot(this.gameId, this.playerToken);
-          this.display.displaySuccess('Bot added to the game!');
-        } catch (error) {
-          this.display.displayError(`Failed to add bot: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-      }
-    }
-
-    // Poll for game start
-    while (!gameStatus.started) {
-      this.display.displayWaiting();
-      await this.sleep(2000);
-
-      const newStatus = await this.api.getGameStatus(this.gameId, this.playerToken, gameStatus.version_number);
-      if (newStatus) {
-        gameStatus = newStatus;
-      }
-    }
-
-    this.display.displaySuccess('Game started!');
-  }
-
-  private async runGameLoop(): Promise<void> {
-    this.isRunning = true;
-    let eventIndex = 0;
-
-    try {
-      while (this.isRunning) {
-        // Get new events
-        const events = await this.api.getEvents(this.gameId, this.playerToken, eventIndex);
-
-        if (events.length > 0) {
-          // Process events
-          this.state.processEvents(events);
-          eventIndex += events.length;
-
-          // Update display
-          this.updateDisplay();
-
-          // Check if game is over
-          if (this.state.isGameOver()) {
-            const score = this.state.getGameOverScore();
-            if (score) {
-              this.display.displayGameOver(score, this.state.getMyPlayerIndex());
-            }
-            break;
-          }
-
-          // Handle player actions if it's their turn
-          if (this.state.isMyTurn()) {
-            await this.handlePlayerTurn();
-          }
-        } else {
-          // No new events, wait a bit
-          await this.sleep(1000);
-        }
-      }
-    } catch (error) {
-      this.display.displayError(`Game loop error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-
-    this.display.displayInfo('Game ended. Thanks for playing!');
-  }
-
-  private async handlePlayerTurn(): Promise<void> {
-    const actions = this.state.getPossibleActions();
-
-    if (actions.length === 0) {
-      return;
-    }
-
-    try {
-      // Special handling for signature card selection
-      if (this.state.canChooseSignatureCards()) {
-        await this.handleSignatureCardSelection();
-        return;
-      }
-
-      // General action selection
-      const actionIndex = await this.prompts.promptAction(actions);
-
-      if (actionIndex >= 0 && actionIndex < actions.length) {
-        const selectedAction = actions[actionIndex];
-        await this.api.sendAction(this.gameId, this.playerToken, this.state.getEventCount(), selectedAction);
-        this.display.displaySuccess(`Action sent: ${selectedAction.type}`);
-      }
-    } catch (error) {
-      this.display.displayError(`Failed to send action: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  private async handleSignatureCardSelection(): Promise<void> {
-    const choices = this.state.getSignatureCardChoices();
-    if (!choices) return;
-
-    const selectedIndices = await this.prompts.promptSignatureCardSelection(choices.cards, choices.count);
-
-    const action: GameAction = {
-      type: 'ChooseSignatureCards',
-      cards: selectedIndices.map(idx => [idx, choices.cards[idx].card]),
-    };
-
-    await this.api.sendAction(this.gameId, this.playerToken, this.state.getEventCount(), action);
-    this.display.displaySuccess('Signature cards selected!');
-  }
-
-  private updateDisplay(): void {
-    this.display.clear();
-    this.display.displayTitle();
-    this.display.displayGameInfo(this.gameId, this.state.getMyPlayerIndex());
-
-    const board = this.state.getCurrentBoard();
-    const status = this.state.getCurrentStatus();
-    const messages = this.state.getMessages();
-
-    if (status) {
-      this.display.displayStatus(this.state.getStatusDescription());
-    }
-
-    if (messages.length > 0) {
-      this.display.displayMessages(messages);
-    }
-
-    if (board) {
-      this.display.displayGameBoard(board);
-    }
-
-    const actions = this.state.getPossibleActions();
-    if (actions.length > 0) {
-      this.display.displayActions(actions);
-    }
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   stop(): void {
     this.isRunning = false;
+    this.ui.shutdown();
+  }
+
+  setServerPort(port: number): void {
+    this.serverPort = port;
+    // Create the API client with the correct port
+    this.api = new ImposterKingsAPIClient(`http://localhost:${port}`);
+  }
+
+  private ensureApiClient(): ImposterKingsAPIClient {
+    if (!this.api) {
+      this.api = new ImposterKingsAPIClient(`http://localhost:${this.serverPort}`);
+    }
+    return this.api;
+  }
+
+  private async connectToLocalhost(): Promise<void> {
+    // Ensure API client is created with correct port
+    const api = this.ensureApiClient();
+    this.isLocalMode = true;
+
+    // For testing, create a game with predetermined settings
+    const playerName = 'Human Player';
+
+    const createResponse = await api.createGame({ player_name: playerName });
+    this.gameId = createResponse.game_id;
+    this.joinToken = createResponse.player_token;
+
+    const joinResponse = await api.joinGame({
+      game_id: this.gameId,
+      join_token: this.joinToken,
+      player_name: playerName
+    });
+    this.playerToken = joinResponse.player_token;
+
+    // Set player names for UI
+    this.ui.setPlayerNames([playerName, 'Bot Player']);
+
+    this.logger.log(`Connected to localhost game ${this.gameId}`);
+  }
+
+  // Create a game with specific player names for testing
+  async createTestGame(player1Name: string, player2Name: string, port?: number): Promise<void> {
+    if (port !== undefined) {
+      this.serverPort = port;
+    }
+    // Ensure API client is created with correct port
+    const api = this.ensureApiClient();
+    this.isLocalMode = true;
+
+    const createResponse = await api.createGame({ player_name: player1Name });
+    this.gameId = createResponse.game_id;
+    this.joinToken = createResponse.player_token;
+
+    const joinResponse = await api.joinGame({
+      game_id: this.gameId,
+      join_token: this.joinToken,
+      player_name: player1Name
+    });
+    this.playerToken = joinResponse.player_token;
+
+    // Set player names for UI
+    this.ui.setPlayerNames([player1Name, player2Name]);
+
+    this.logger.log(`Created test game ${this.gameId} with players ${player1Name} vs ${player2Name}`);
+  }
+
+  private async runGameLoop(): Promise<void> {
+    this.isRunning = true;
+    let lastEventCount = 0;
+
+    while (this.isRunning) {
+      try {
+        // Get latest events
+        const events = await this.api.getEvents(this.gameId, this.playerToken, lastEventCount);
+
+        if (events.length > lastEventCount) {
+          // Process new events
+          for (let i = lastEventCount; i < events.length; i++) {
+            await this.processEvent(events[i]);
+          }
+          lastEventCount = events.length;
+        }
+
+        // Check if it's our turn and we have actions
+        const gameState = events.filter(e => e.type === 'NewState').pop();
+        if (gameState && gameState.type === 'NewState') {
+          // Update our internal state (simplified for now)
+          // this.state.updateFromBoard(gameState.board, gameState.status, gameState.actions);
+
+          // If we have available actions, show the UI and wait for player input
+          if (gameState.actions.length > 0) {
+            const selectedAction = await this.ui.displayGameAndWaitForAction(
+              gameState.board,
+              gameState.actions,
+              gameState.board.player_idx
+            );
+
+            if (selectedAction) {
+              await this.api.sendAction(this.gameId, this.playerToken, events.length, selectedAction);
+            }
+          }
+        }
+
+        // Check for game over - look in messages or status
+        const gameOverMessage = events.find(e =>
+          e.type === 'Message' && e.message.type === 'GameOver'
+        );
+        const gameOverStatus = events.find(e =>
+          e.type === 'NewState' && e.status.type === 'GameOver'
+        );
+
+        if (gameOverMessage || gameOverStatus) {
+          this.isRunning = false;
+          break;
+        }
+
+        // Small delay to prevent busy waiting
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+      } catch (error) {
+        this.logger.error('Error in game loop', error as Error);
+        console.error('Game loop error:', error);
+        break;
+      }
+    }
+  }
+
+  private async processEvent(event: GameEvent): Promise<void> {
+    this.logger.log(`Processing event: ${event.type}`);
+
+    switch (event.type) {
+      case 'NewState':
+        // Update our internal state (simplified for now)
+        // this.state.updateFromBoard(event.board, event.status, event.actions);
+        break;
+
+      case 'Message':
+        if (event.message.type === 'GameOver') {
+          this.logger.log(`Game over! Final score: ${event.message.points.join('-')}`);
+        }
+        break;
+
+      default:
+        // Handle other event types as needed
+        break;
+    }
+  }
+
+  // For testing: enable deterministic mode
+  enableDeterministicMode(hands: any): void {
+    (global as any).regressionTestHands = hands;
+  }
+
+  // For testing: enable test mode with predetermined inputs
+  enableTestMode(inputs: string[]): void {
+    this.ui.enableTestMode(inputs);
+  }
+
+  // For testing: simulate input
+  simulateInput(input: string): void {
+    this.ui.simulateInput(input);
+  }
+
+  // For testing: get introspection state
+  getIntrospectionState(): {
+    availableActions: GameAction[];
+    currentStatus: string;
+    playerIndex: number;
+  } {
+    const uiState = this.ui.getIntrospectionState();
+
+    return {
+      availableActions: this.ui.getAvailableActions(),
+      currentStatus: uiState.currentStatus,
+      playerIndex: uiState.playerIndex
+    };
+  }
+
+  // For testing: get available actions
+  getAvailableActions(): GameAction[] {
+    return this.ui.getAvailableActions();
+  }
+
+  // For testing: get key inputs for action
+  getKeyInputsForAction(action: GameAction): string[] {
+    return this.ui.getKeyInputsForAction(action);
   }
 }

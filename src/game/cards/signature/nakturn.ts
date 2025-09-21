@@ -1,4 +1,4 @@
-import type { CardModule, GameState, CardAbility } from '../types.js';
+import type { CardModule, GameState, CardAbility, CardName } from '../types.js';
 
 const nakturnAbility: CardAbility = {
   name: 'Mind Game with Opponent',
@@ -20,7 +20,7 @@ const nakturnAbility: CardAbility = {
       logger?.log(`Player ${playerIdx + 1}: Nakturn ability - says card name "${namedCard}"`);
 
       // Opponent guesses whether player has that card
-      const playerActuallyHasCard = player.hand.includes(namedCard);
+      const playerActuallyHasCard = player.hand.includes(namedCard as CardName);
       const opponentGuess = Math.random() < 0.5; // Random guess for bot
 
       logger?.log(`Player ${opponentIdx + 1}: Guesses player ${playerActuallyHasCard ? 'has' : 'does not have'} ${namedCard} (actual: ${playerActuallyHasCard ? 'has' : 'does not have'})`);

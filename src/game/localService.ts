@@ -137,29 +137,19 @@ export class LocalGameService {
 
     const events = game.events.slice(startIndex);
 
-    // Filter actions in NewState events to show only actions for this viewer
+    // Regenerate board and actions from viewer's perspective for all phases
     const viewerIdx = this.getPlayerIndex(gameId, playerToken);
     if (viewerIdx !== null) {
       return events.map(event => {
         if (event.type === 'NewState') {
-          const filteredActions = event.actions.filter(a =>
-            a.for_player === undefined || a.for_player === viewerIdx
-          );
-
-          // During setup phases, regenerate the board from this viewer's perspective
-          const gameState = game.engine.getGameState();
-          if (gameState.phase === 'select_successor_dungeon') {
-            const viewerBoard = game.engine.toGameBoard(viewerIdx);
-            return {
-              ...event,
-              board: viewerBoard,
-              actions: filteredActions
-            };
-          }
+          // Always regenerate board and actions from this viewer's perspective
+          const viewerBoard = game.engine.toGameBoard(viewerIdx);
+          const viewerActions = game.engine.getPossibleActionsForViewer(viewerIdx);
 
           return {
             ...event,
-            actions: filteredActions
+            board: viewerBoard,
+            actions: viewerActions
           };
         }
         return event;

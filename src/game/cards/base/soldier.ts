@@ -1,4 +1,4 @@
-import type { CardModule, GameState, CardAbility } from '../types.js';
+import type { CardModule, GameState, CardAbility, CardName } from '../types.js';
 
 const soldierAbility: CardAbility = {
   name: 'Say Card Name for Bonus',
@@ -20,7 +20,7 @@ const soldierAbility: CardAbility = {
 
     logger?.log(`Player ${playerIdx + 1}: Soldier ability - guessing ${guessedCard}`);
 
-    const opponentHasCard = opponent.hand.includes(guessedCard);
+    const opponentHasCard = opponent.hand.includes(guessedCard as CardName);
 
     if (opponentHasCard) {
       logger?.log(`🎯 HIT! Opponent has ${guessedCard}`);
