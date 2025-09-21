@@ -111,6 +111,12 @@ export class GameUI {
     return null;
   }
 
+  // Render current state even if there are no actions (for visual mode)
+  renderBoard(board: GameBoard, playerIdx: number): void {
+    this.screen.setSelectableItems([]);
+    this.screen.drawGameScreen(board, playerIdx, this.playerNames);
+  }
+
   private createSelectableItems(
     board: GameBoard,
     availableActions: GameAction[],

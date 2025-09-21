@@ -22,6 +22,8 @@ export class CLIRegressionTmuxTest {
   private serverWindow: TmuxWindow = { name: 'server' };
   private calmWindow: TmuxWindow = { name: 'calm' };
   private melissaWindow: TmuxWindow = { name: 'melissa' };
+  private keepSession: boolean;
+  private visualMode: boolean;
 
   private gameId: number = 0;
   private calmToken: string = '';
@@ -34,6 +36,8 @@ export class CLIRegressionTmuxTest {
     this.sessionName = `imposter-regression-${timestamp}`;
     this.logger = new Logger(`cli-regression-tmux-${timestamp}.log`);
     this.api = new ImposterKingsAPIClient(`http://localhost:${this.serverPort}`);
+    this.visualMode = process.argv.includes('--visual');
+    this.keepSession = this.visualMode || process.argv.includes('--no-cleanup');
   }
 
   async runRegressionTest(): Promise<void> {
@@ -168,8 +172,8 @@ export class CLIRegressionTmuxTest {
     // Start melissa client
     await this.startClient('melissa', 'melissa', this.melissaToken, 3);
 
-    // Wait for clients to initialize
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // Give clients a moment to render initial UI
+    await new Promise(resolve => setTimeout(resolve, 1500));
 
     this.logger.log('CLI clients started successfully');
   }
@@ -178,7 +182,9 @@ export class CLIRegressionTmuxTest {
     this.logger.log(`Starting ${player} client...`);
 
     return new Promise((resolve, reject) => {
-      const clientCmd = `cd ${process.cwd()} && npx -y tsx src/cli-multiplayer-client.ts ${this.serverPort} ${this.gameId} ${token} ${playerName}`;
+      // Launch the client in interactive (visual) mode so the curses UI renders in tmux
+      // Force a clean, non-nested tmux-aware environment and 256-color term
+      const clientCmd = `cd ${process.cwd()} && export TMUX='' && export TERM=xterm-256color && export KEEP_UI=1 && npx -y tsx src/cli-multiplayer-client.ts ${this.serverPort} ${this.gameId} ${token} ${playerName}`;
 
       const startClient = spawn('tmux', [
         'new-window', '-t', `${this.sessionName}:${windowIndex}`,
@@ -227,6 +233,10 @@ export class CLIRegressionTmuxTest {
         console.error(`   Error: ${error}`);
         this.logger.error(`Move ${i + 1} failed`, error as Error);
         throw error;
+      }
+      // Slow down in visual mode so UI is observable
+      if (this.visualMode) {
+        await new Promise(r => setTimeout(r, 500));
       }
     }
 
@@ -384,7 +394,11 @@ export class CLIRegressionTmuxTest {
 
   private async sendInputToWindow(windowName: string, input: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const sendKeys = spawn('tmux', ['send-keys', '-t', `${this.sessionName}:${windowName}`, input, 'Enter']);
+      const key = input === 'return' ? 'Enter' : input;
+      // Target pane 0 of the named window to be explicit
+      const target = `${this.sessionName}:${windowName}.0`;
+      // Send and then force a redraw by sending Enter only when needed
+      const sendKeys = spawn('tmux', ['send-keys', '-t', target, key]);
 
       sendKeys.on('close', (code) => {
         if (code === 0) {
@@ -405,6 +419,10 @@ export class CLIRegressionTmuxTest {
     this.logger.log('Cleaning up tmux session...');
 
     try {
+      if (this.keepSession) {
+        this.logger.log('Keeping tmux session open for inspection (use --no-cleanup to disable).');
+        return;
+      }
       // Kill tmux session
       await new Promise<void>((resolve) => {
         const killSession = spawn('tmux', ['kill-session', '-t', this.sessionName]);

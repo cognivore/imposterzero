@@ -82,10 +82,7 @@ class CLIFullRegressionTest {
     console.log('💡 Watch as inputs are sent to coordinate the exact game scenario');
     console.log('');
 
-    // Add visual delay to show the interfaces
-    await new Promise(resolve => setTimeout(resolve, 3000));
-
-    await this.runFullTest();
+    await this.tmuxTest.runRegressionTest();
   }
 
   async runDebugMode(): Promise<void> {

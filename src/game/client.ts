@@ -31,8 +31,10 @@ export class GameClient {
     await this.ui.start();
 
     try {
-      // For now, just connect to localhost in test mode
-      await this.connectToLocalhost();
+      // If no existing session was provided, create one locally
+      if (!this.gameId || !this.playerToken) {
+        await this.connectToLocalhost();
+      }
 
       if (this.gameId && this.playerToken) {
         await this.runGameLoop();
@@ -41,7 +43,10 @@ export class GameClient {
       this.logger.error('Failed to start game client', error as Error);
       throw error; // Re-throw so the test can handle it properly
     } finally {
-      this.ui.shutdown();
+      // In visual inspection mode, keep the UI on screen
+      if (!process.env.KEEP_UI) {
+        this.ui.shutdown();
+      }
     }
   }
 
@@ -54,6 +59,17 @@ export class GameClient {
     this.serverPort = port;
     // Create the API client with the correct port
     this.api = new ImposterKingsAPIClient(`http://localhost:${port}`);
+  }
+
+  // Attach to an existing game session (e.g., created externally)
+  attachToExistingGame(gameId: number, playerToken: string, playerNames?: [string, string]): void {
+    this.gameId = gameId;
+    this.playerToken = playerToken;
+    if (playerNames) {
+      this.ui.setPlayerNames(playerNames);
+    }
+    // Ensure API client is ready
+    this.ensureApiClient();
   }
 
   private ensureApiClient(): ImposterKingsAPIClient {
@@ -136,6 +152,9 @@ export class GameClient {
         if (gameState && gameState.type === 'NewState') {
           // Update our internal state (simplified for now)
           // this.state.updateFromBoard(gameState.board, gameState.status, gameState.actions);
+
+          // Always render the board for visual mode
+          this.ui.renderBoard(gameState.board, gameState.board.player_idx);
 
           // If we have available actions, show the UI and wait for player input
           if (gameState.actions.length > 0) {

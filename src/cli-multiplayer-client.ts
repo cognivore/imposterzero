@@ -20,12 +20,9 @@ class MultiplayerCLIClient {
       playerNames: ['Calm', 'melissa']
     });
 
-    // Set up the connection
+    // Set up the connection and attach to the existing game so the UI renders
     this.client.setServerPort(serverPort);
-
-    // Override the game ID and token for this specific game
-    (this.client as any).gameId = gameId;
-    (this.client as any).playerToken = playerToken;
+    this.client.attachToExistingGame(gameId, playerToken, ['Calm', 'melissa']);
 
     this.logger.log(`Created multiplayer CLI client for ${playerName}`);
   }
