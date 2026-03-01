@@ -1,58 +1,13 @@
 {
-  "name": "imposter-kings-cli",
-  "version": "1.0.0",
-  "description": "CLI client for The Imposter Kings card game",
-  "main": "dist/index.js",
+  "name": "imposter-zero",
+  "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/index.ts",
-    "dev:server": "tsx src/server/index.ts",
-    "start": "node dist/index.js",
-    "start:server": "node dist/server/index.js",
-    "test": "tsx src/test/e2e.test.ts",
-    "test:bots": "tsx src/test/bot-vs-bot.test.ts",
-    "test:all": "tsx src/test/e2e.test.ts && tsx src/test/bot-vs-bot.test.ts",
-    "test:regression": "tsx src/test/regression.test.ts",
-    "test:regression2": "tsx src/test/regression2.test.ts",
-    "test:regression-unified": "tsx src/test/regression-unified.test.ts",
-    "test:cli-regression": "tsx src/test/cli-regression.test.ts",
-    "test:cli-stepped": "tsx src/test/cli-regression.test.ts --stepped",
-    "test:cli-tmux": "tsx src/test/cli-regression-tmux.test.ts",
-    "test:cli-tmux-debug": "tsx src/test/cli-regression-tmux.test.ts --debug",
-    "test:cli-tmux-visual": "tsx src/test/cli-regression-tmux.test.ts --visual",
-    "test:cli-full": "tsx src/cli-regression-full.test.ts",
-    "test:cli-full-debug": "tsx src/cli-regression-full.test.ts --debug",
-    "test:cli-full-visual": "tsx src/cli-regression-full.test.ts --visual",
-    "demo:cli-multiplayer": "tsx src/cli-multiplayer-client.ts",
-    "demo:cli": "tsx src/simple-cli-demo.ts",
-    "demo:cli-server": "tsx src/cli-with-server-demo.ts",
-    "demo:cli-standalone": "tsx src/standalone-cli-demo.ts",
-    "demo:cli-pure": "tsx src/pure-cli-demo.ts",
-    "test:visual-cli": "tsx src/visual-cli-test.ts",
-    "test:full-cli": "tsx src/full-cli-integration.ts",
-    "test:cli-visual-regression": "tsx src/cli-regression-visual.ts",
-    "play": "npx tsx src/test/human-vs-bot.ts",
-    "play-simple": "npx tsx src/test/simple-human-vs-bot.ts",
-    "play-working": "npx tsx src/test/working-human-vs-bot.ts",
-    "clean": "rimraf dist"
-  },
-  "bin": {
-    "imposter-kings": "./dist/index.js"
-  },
-  "keywords": ["game", "cli", "cards", "imposter-kings"],
-  "author": "CLI Client",
-  "license": "MIT",
-  "dependencies": {
-    "chalk": "^5.3.0",
-    "inquirer": "^9.2.12",
-    "node-fetch": "^3.3.2"
+    "build": "tsc --build",
+    "clean": "tsc --build --clean",
+    "typecheck": "tsc --build --noEmit"
   },
   "devDependencies": {
-    "@types/inquirer": "^9.0.7",
-    "@types/node": "^20.8.0",
-    "rimraf": "^5.0.5",
-    "tsx": "^4.0.0",
-    "typescript": "^5.2.2"
+    "typescript": "^5.9.3"
   }
 }

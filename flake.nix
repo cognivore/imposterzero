@@ -1,5 +1,5 @@
 {
-  description = "Imposter Kings CLI Client - TypeScript development environment";
+  description = "Imposter Zero – generic card game engine with OpenSpiel training";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -10,26 +10,29 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        python = pkgs.python312;
       in
       {
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
-            # Node.js and package managers
-            nodejs  # Node.js LTS (22.x)
+            nodejs_22
             pnpm
 
-            # TypeScript toolchain
-            typescript
+            python
+            python.pkgs.pip
+            python.pkgs.virtualenv
 
-            # Development tools
-            nodePackages.rimraf
-
-            # Optional: helpful development utilities
             git
             jq
           ];
-        };
 
+          shellHook = ''
+            echo "imposter-zero dev shell"
+            echo "  node $(node --version)"
+            echo "  pnpm $(pnpm --version)"
+            echo "  python $(python3 --version 2>&1 | cut -d' ' -f2)"
+          '';
+        };
       }
     );
 }
