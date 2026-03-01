@@ -1,0 +1,220 @@
+{
+  "seed": 123,
+  "numPlayers": 2,
+  "deckSize": 20,
+  "maxCardId": 21,
+  "initialHands": [
+    [
+      14,
+      5,
+      19,
+      15,
+      17,
+      10,
+      6,
+      13,
+      7
+    ],
+    [
+      4,
+      2,
+      18,
+      9,
+      1,
+      12,
+      11,
+      8,
+      16
+    ]
+  ],
+  "initialHandValues": [
+    [
+      7,
+      4,
+      9,
+      7,
+      8,
+      6,
+      4,
+      7,
+      5
+    ],
+    [
+      3,
+      3,
+      9,
+      5,
+      2,
+      6,
+      6,
+      5,
+      8
+    ]
+  ],
+  "accused": 3,
+  "accusedValue": 3,
+  "forgotten": 0,
+  "steps": [
+    {
+      "activePlayer": 0,
+      "phase": "setup",
+      "legalActionCount": 72,
+      "encodedAction": 336,
+      "throneValue": 0,
+      "courtSize": 0,
+      "handSizes": [
+        9,
+        9
+      ]
+    },
+    {
+      "activePlayer": 1,
+      "phase": "setup",
+      "legalActionCount": 72,
+      "encodedAction": 113,
+      "throneValue": 0,
+      "courtSize": 0,
+      "handSizes": [
+        7,
+        9
+      ]
+    },
+    {
+      "activePlayer": 0,
+      "phase": "play",
+      "legalActionCount": 7,
+      "encodedAction": 19,
+      "throneValue": 0,
+      "courtSize": 0,
+      "handSizes": [
+        7,
+        7
+      ]
+    },
+    {
+      "activePlayer": 1,
+      "phase": "play",
+      "legalActionCount": 2,
+      "encodedAction": 18,
+      "throneValue": 9,
+      "courtSize": 1,
+      "handSizes": [
+        6,
+        7
+      ]
+    },
+    {
+      "activePlayer": 0,
+      "phase": "play",
+      "legalActionCount": 1,
+      "encodedAction": 22,
+      "throneValue": 9,
+      "courtSize": 2,
+      "handSizes": [
+        6,
+        6
+      ]
+    },
+    {
+      "activePlayer": 1,
+      "phase": "play",
+      "legalActionCount": 7,
+      "encodedAction": 9,
+      "throneValue": 1,
+      "courtSize": 2,
+      "handSizes": [
+        6,
+        6
+      ]
+    },
+    {
+      "activePlayer": 0,
+      "phase": "play",
+      "legalActionCount": 5,
+      "encodedAction": 15,
+      "throneValue": 5,
+      "courtSize": 3,
+      "handSizes": [
+        6,
+        5
+      ]
+    },
+    {
+      "activePlayer": 1,
+      "phase": "play",
+      "legalActionCount": 2,
+      "encodedAction": 16,
+      "throneValue": 7,
+      "courtSize": 4,
+      "handSizes": [
+        5,
+        5
+      ]
+    },
+    {
+      "activePlayer": 0,
+      "phase": "play",
+      "legalActionCount": 1,
+      "encodedAction": 17,
+      "throneValue": 8,
+      "courtSize": 5,
+      "handSizes": [
+        5,
+        4
+      ]
+    },
+    {
+      "activePlayer": 1,
+      "phase": "play",
+      "legalActionCount": 1,
+      "encodedAction": 22,
+      "throneValue": 8,
+      "courtSize": 6,
+      "handSizes": [
+        4,
+        4
+      ]
+    },
+    {
+      "activePlayer": 0,
+      "phase": "play",
+      "legalActionCount": 4,
+      "encodedAction": 10,
+      "throneValue": 1,
+      "courtSize": 6,
+      "handSizes": [
+        4,
+        4
+      ]
+    },
+    {
+      "activePlayer": 1,
+      "phase": "play",
+      "legalActionCount": 2,
+      "encodedAction": 12,
+      "throneValue": 6,
+      "courtSize": 7,
+      "handSizes": [
+        3,
+        4
+      ]
+    },
+    {
+      "activePlayer": 0,
+      "phase": "play",
+      "legalActionCount": 1,
+      "encodedAction": 13,
+      "throneValue": 6,
+      "courtSize": 8,
+      "handSizes": [
+        3,
+        3
+      ]
+    }
+  ],
+  "terminalReturns": [
+    1,
+    -1
+  ],
+  "totalSteps": 13
+}

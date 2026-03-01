@@ -1,27 +1,134 @@
 """
 Imposter Zero — OpenSpiel game definition.
 
-Mirrors the TypeScript GameDef<S, A> protocol:
-  - create(n)          -> initial state
-  - currentPlayer(s)   -> active player
-  - legalActions(s)    -> available actions
-  - apply(s, a)        -> next state
-  - isTerminal(s)      -> bool
-  - returns(s)         -> per-player utilities
-
-Populate this file as game rules are defined.
+Faithful port of the TypeScript engine (packages/engine/src/imposter-kings).
+Phases: setup (commit successor + dungeon) then play (play card or disgrace).
+Terminal: active player has no legal play actions during play phase.
 """
+
+import random
+from typing import Optional
 
 import numpy as np
 import pyspiel
 
 _NUM_PLAYERS = 2
 
+# ---------------------------------------------------------------------------
+# Card definitions — mirrors card.ts
+# ---------------------------------------------------------------------------
+
+_BASE_DECK = [
+    ("Fool", 1),
+    ("Assassin", 2),
+    ("Elder", 3), ("Elder", 3),
+    ("Zealot", 3),
+    ("Inquisitor", 4), ("Inquisitor", 4),
+    ("Soldier", 5), ("Soldier", 5),
+    ("Judge", 5),
+    ("Oathbound", 6), ("Oathbound", 6),
+    ("Immortal", 6),
+    ("Warlord", 7),
+    ("Mystic", 7),
+    ("Warden", 7),
+    ("Sentry", 8),
+    ("King's Hand", 8),
+    ("Princess", 9),
+    ("Queen", 9),
+]
+
+_THREE_PLAYER_EXTRAS = [
+    ("Executioner", 4),
+    ("Bard", 4), ("Bard", 4),
+    ("Herald", 6),
+    ("Spy", 8),
+]
+
+_FOUR_PLAYER_EXTRAS = [
+    ("Fool", 1),
+    ("Assassin", 2),
+    ("Executioner", 4),
+    ("Arbiter", 5),
+]
+
+
+def _regulation_deck(num_players):
+    if num_players == 2:
+        return list(_BASE_DECK)
+    if num_players == 3:
+        return list(_BASE_DECK) + list(_THREE_PLAYER_EXTRAS)
+    return list(_BASE_DECK) + list(_THREE_PLAYER_EXTRAS) + list(_FOUR_PLAYER_EXTRAS)
+
+
+def _reserve_count(num_players):
+    return 1 if num_players == 4 else 2
+
+
+# ---------------------------------------------------------------------------
+# Action codec — mirrors actions.ts
+# ---------------------------------------------------------------------------
+
+def _max_card_id(deck_size, num_players):
+    """King IDs start at deck_size, one per player."""
+    return deck_size + num_players - 1
+
+
+def _span(max_card_id):
+    return max_card_id + 1
+
+
+def _commit_offset(max_card_id):
+    return _span(max_card_id) + 1
+
+
+def _num_distinct_actions(max_card_id):
+    s = _span(max_card_id)
+    return s + 1 + s * s
+
+
+def _encode_play(card_id):
+    return card_id
+
+
+def _encode_disgrace(max_card_id):
+    return _span(max_card_id)
+
+
+def _encode_commit(successor_id, dungeon_id, max_card_id):
+    s = _span(max_card_id)
+    return _commit_offset(max_card_id) + successor_id * s + dungeon_id
+
+
+def _decode_action(encoded, max_card_id):
+    """Returns (kind, *args): ('play', card_id) | ('disgrace',) | ('commit', succ, dung)."""
+    s = _span(max_card_id)
+    if encoded < s:
+        return ("play", encoded)
+    if encoded == s:
+        return ("disgrace",)
+    raw = encoded - _commit_offset(max_card_id)
+    successor_id = raw // s
+    dungeon_id = raw % s
+    return ("commit", successor_id, dungeon_id)
+
+
+# ---------------------------------------------------------------------------
+# Compute game dimensions for 2-player
+# ---------------------------------------------------------------------------
+
+_DECK_2P = _regulation_deck(2)
+_MAX_CARD_ID_2P = _max_card_id(len(_DECK_2P), _NUM_PLAYERS)
+
+_MAX_SETUP_ACTIONS = _NUM_PLAYERS
+_MAX_HAND_CARDS = (len(_DECK_2P) - _reserve_count(_NUM_PLAYERS)) // _NUM_PLAYERS
+_MAX_PLAY_ACTIONS = 2 * _MAX_HAND_CARDS + _NUM_PLAYERS
+_MAX_GAME_LENGTH = _MAX_SETUP_ACTIONS + _MAX_PLAY_ACTIONS
+
 _GAME_TYPE = pyspiel.GameType(
     short_name="imposter_zero",
     long_name="Imposter Zero",
     dynamics=pyspiel.GameType.Dynamics.SEQUENTIAL,
-    chance_mode=pyspiel.GameType.ChanceMode.EXPLICIT_STOCHASTIC,
+    chance_mode=pyspiel.GameType.ChanceMode.SAMPLED_STOCHASTIC,
     information=pyspiel.GameType.Information.IMPERFECT_INFORMATION,
     utility=pyspiel.GameType.Utility.ZERO_SUM,
     reward_model=pyspiel.GameType.RewardModel.TERMINAL,
@@ -34,54 +141,255 @@ _GAME_TYPE = pyspiel.GameType(
 )
 
 _GAME_INFO = pyspiel.GameInfo(
-    num_distinct_actions=1,  # placeholder
-    max_chance_outcomes=0,   # placeholder
+    num_distinct_actions=_num_distinct_actions(_MAX_CARD_ID_2P),
+    max_chance_outcomes=0,
     num_players=_NUM_PLAYERS,
     min_utility=-1.0,
     max_utility=1.0,
     utility_sum=0.0,
-    max_game_length=1,       # placeholder
+    max_game_length=_MAX_GAME_LENGTH,
 )
 
+
+# ---------------------------------------------------------------------------
+# Game and State
+# ---------------------------------------------------------------------------
 
 class ImposterZeroGame(pyspiel.Game):
     def __init__(self, params=None):
         super().__init__(_GAME_TYPE, _GAME_INFO, params or {})
+        self._seed = int(params.get("seed", -1)) if params else -1
 
     def new_initial_state(self):
-        return ImposterZeroState(self)
+        return ImposterZeroState(self, seed=self._seed)
+
+    def observation_tensor_size(self):
+        return _NUM_PLAYERS + 8
+
+    def information_state_tensor_size(self):
+        return _NUM_PLAYERS + 8
 
 
 class ImposterZeroState(pyspiel.State):
-    def __init__(self, game):
+    def __init__(self, game, seed=-1):
         super().__init__(game)
-        self._game_over = False
-        self._current_player = 0
+        self._num_players = _NUM_PLAYERS
+
+        deck_kinds = _regulation_deck(self._num_players)
+        self._deck_size = len(deck_kinds)
+        self._max_card_id = _max_card_id(self._deck_size, self._num_players)
+
+        rng = random.Random(seed) if seed >= 0 else random.Random()
+        self._deal(deck_kinds, rng)
+
+    def _deal(self, deck_kinds, rng):
+        """Mirrors deal.ts: shuffle, reserve, round-robin deal, assign kings."""
+        cards = list(range(self._deck_size))
+        rng.shuffle(cards)
+
+        self._card_values = {}
+        self._card_names = {}
+        for card_id in range(self._deck_size):
+            name, value = deck_kinds[card_id]
+            self._card_values[card_id] = value
+            self._card_names[card_id] = name
+
+        king_base = self._deck_size
+        for p in range(self._num_players):
+            kid = king_base + p
+            self._card_values[kid] = 0
+            self._card_names[kid] = "King"
+
+        reserved = _reserve_count(self._num_players)
+        if self._num_players == 4:
+            self._accused = cards[-1]
+            self._forgotten = None
+        else:
+            self._accused = cards[-2]
+            self._forgotten = cards[-1]
+
+        playable = cards[:len(cards) - reserved]
+        self._hands = [[] for _ in range(self._num_players)]
+        for i, card_id in enumerate(playable):
+            self._hands[i % self._num_players].append(card_id)
+
+        self._king_face_up = [True] * self._num_players
+        self._successors = [None] * self._num_players
+        self._dungeons = [None] * self._num_players
+        self._court = []
+        self._phase = "setup"
+        self._active_player = 0
+        self._turn_count = 0
+
+    # -- OpenSpiel interface --
 
     def current_player(self):
-        if self._game_over:
+        if self._phase == "play" and self._legal_actions_internal() == []:
             return pyspiel.PlayerId.TERMINAL
-        return self._current_player
+        return self._active_player
+
+    def _legal_actions_internal(self):
+        """Compute legal actions without calling is_terminal (avoids recursion)."""
+        p = self._active_player
+        if self._phase == "setup":
+            if self._successors[p] is not None:
+                return []
+            hand = self._hands[p]
+            actions = []
+            for s in hand:
+                for d in hand:
+                    if s != d:
+                        actions.append(_encode_commit(s, d, self._max_card_id))
+            return sorted(actions)
+
+        threshold = self._throne_value()
+        hand = self._hands[p]
+        actions = []
+        for card_id in hand:
+            if self._card_values[card_id] >= threshold:
+                actions.append(_encode_play(card_id))
+
+        if self._king_face_up[p] and len(self._court) > 0:
+            actions.append(_encode_disgrace(self._max_card_id))
+
+        return sorted(actions)
 
     def legal_actions(self, player=None):
-        if self._game_over:
+        if self.is_terminal():
             return []
-        return [0]
+        return self._legal_actions_internal()
+
+
+        return sorted(actions)
 
     def _apply_action(self, action):
-        self._game_over = True
+        decoded = _decode_action(action, self._max_card_id)
 
-    def _action_to_string(self, player, action):
-        return f"p{player}:a{action}"
+        if decoded[0] == "commit":
+            self._apply_commit(decoded[1], decoded[2])
+        elif decoded[0] == "play":
+            self._apply_play(decoded[1])
+        else:
+            self._apply_disgrace()
+
+    def _apply_commit(self, successor_id, dungeon_id):
+        p = self._active_player
+        self._hands[p] = [c for c in self._hands[p] if c not in (successor_id, dungeon_id)]
+        self._successors[p] = successor_id
+        self._dungeons[p] = dungeon_id
+        self._active_player = (self._active_player + 1) % self._num_players
+        self._turn_count += 1
+
+        if all(s is not None for s in self._successors):
+            self._phase = "play"
+            self._active_player = 0
+
+    def _apply_play(self, card_id):
+        p = self._active_player
+        self._hands[p] = [c for c in self._hands[p] if c != card_id]
+        self._court.append((card_id, True, p))
+        self._active_player = (self._active_player + 1) % self._num_players
+        self._turn_count += 1
+
+    def _apply_disgrace(self):
+        p = self._active_player
+        self._king_face_up[p] = False
+
+        if self._court:
+            card_id, _, played_by = self._court[-1]
+            self._court[-1] = (card_id, False, played_by)
+
+        self._active_player = (self._active_player + 1) % self._num_players
+        self._turn_count += 1
+
+    def _throne_value(self):
+        if not self._court:
+            return 0
+        card_id, face_up, _ = self._court[-1]
+        return self._card_values[card_id] if face_up else 1
 
     def is_terminal(self):
-        return self._game_over
+        if self._phase != "play":
+            return False
+        return len(self._legal_actions_internal()) == 0
 
     def returns(self):
-        return [0.0] * self.get_game().num_players()
+        if not self.is_terminal():
+            return [0.0] * self._num_players
+
+        stuck = self._active_player
+        winner = (stuck - 1 + self._num_players) % self._num_players
+        result = [0.0] * self._num_players
+        result[winner] = 1.0
+        result[stuck] = -1.0
+        return result
+
+    def _action_to_string(self, player, action):
+        decoded = _decode_action(action, self._max_card_id)
+        if decoded[0] == "commit":
+            s_name = self._card_names.get(decoded[1], f"?{decoded[1]}")
+            d_name = self._card_names.get(decoded[2], f"?{decoded[2]}")
+            return f"p{player}:commit({s_name},{d_name})"
+        if decoded[0] == "play":
+            c_name = self._card_names.get(decoded[1], f"?{decoded[1]}")
+            return f"p{player}:play({c_name})"
+        return f"p{player}:disgrace"
+
+    def information_state_string(self, player=None):
+        if player is None:
+            player = self._active_player
+        hand = self._hands[player]
+        hand_str = ",".join(
+            f"{self._card_names[c]}:{self._card_values[c]}" for c in hand
+        )
+        throne_str = "none"
+        if self._court:
+            cid, face_up, _ = self._court[-1]
+            val = self._card_values[cid] if face_up else 1
+            throne_str = f"{self._card_names[cid]}:{val}:{'up' if face_up else 'down'}"
+
+        return ";".join([
+            f"phase={self._phase}",
+            f"active={self._active_player}",
+            f"player={player}",
+            f"hand=[{hand_str}]",
+            f"kingFace={'up' if self._king_face_up[player] else 'down'}",
+            f"successor={'set' if self._successors[player] is not None else 'none'}",
+            f"dungeon={'set' if self._dungeons[player] is not None else 'none'}",
+            f"throne={throne_str}",
+            f"courtSize={len(self._court)}",
+            f"accused={'none' if self._accused is None else self._card_names[self._accused]}",
+            f"forgotten={'none' if self._forgotten is None else 'set'}",
+        ])
+
+    def observation_string(self, player=None):
+        return self.information_state_string(player)
+
+    def information_state_tensor(self, player=None):
+        if player is None:
+            player = self._active_player
+        hand = self._hands[player]
+        active_one_hot = [1.0 if p == self._active_player else 0.0 for p in range(self._num_players)]
+        return active_one_hot + [
+            float(len(hand)),
+            1.0 if self._king_face_up[player] else 0.0,
+            1.0 if self._successors[player] is not None else 0.0,
+            1.0 if self._dungeons[player] is not None else 0.0,
+            float(self._throne_value()),
+            float(len(self._court)),
+            float(self._card_values[self._accused]) if self._accused is not None else 0.0,
+            1.0 if self._forgotten is not None else 0.0,
+        ]
+
+    def observation_tensor(self, player=None):
+        return self.information_state_tensor(player)
 
     def __str__(self):
-        return f"ImposterZero(player={self._current_player}, terminal={self._game_over})"
+        return (
+            f"ImposterZero(phase={self._phase}, player={self._active_player}, "
+            f"turn={self._turn_count}, court={len(self._court)}, "
+            f"terminal={self.is_terminal()})"
+        )
 
 
 pyspiel.register_game(_GAME_TYPE, ImposterZeroGame)

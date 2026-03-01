@@ -13,12 +13,21 @@ def main():
     state = game.new_initial_state()
 
     print(f"Game:    {game}")
-    print(f"State:   {state}")
-    print(f"Player:  {state.current_player()}")
-    print(f"Actions: {state.legal_actions()}")
+    print(f"Players: {game.num_players()}")
+    print(f"Actions: {game.num_distinct_actions()}")
 
-    # TODO: add training loops (tabular, DQN, PPO, etc.)
-    # See collapsization/training/train.py for reference.
+    step = 0
+    while not state.is_terminal():
+        player = state.current_player()
+        actions = state.legal_actions()
+        action = actions[0]
+        print(f"  Step {step}: player={player}, legal={len(actions)}, "
+              f"action={state.action_to_string(player, action)}")
+        state.apply_action(action)
+        step += 1
+
+    print(f"Terminal after {step} steps")
+    print(f"Returns: {state.returns()}")
 
 
 if __name__ == "__main__":

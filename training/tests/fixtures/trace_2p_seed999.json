@@ -1,0 +1,160 @@
+{
+  "seed": 999,
+  "numPlayers": 2,
+  "deckSize": 20,
+  "maxCardId": 21,
+  "initialHands": [
+    [
+      6,
+      5,
+      19,
+      17,
+      10,
+      8,
+      2,
+      11,
+      3
+    ],
+    [
+      4,
+      14,
+      12,
+      9,
+      1,
+      18,
+      13,
+      16,
+      15
+    ]
+  ],
+  "initialHandValues": [
+    [
+      4,
+      4,
+      9,
+      8,
+      6,
+      5,
+      3,
+      6,
+      3
+    ],
+    [
+      3,
+      7,
+      6,
+      5,
+      2,
+      9,
+      7,
+      8,
+      7
+    ]
+  ],
+  "accused": 7,
+  "accusedValue": 5,
+  "forgotten": 0,
+  "steps": [
+    {
+      "activePlayer": 0,
+      "phase": "setup",
+      "legalActionCount": 72,
+      "encodedAction": 160,
+      "throneValue": 0,
+      "courtSize": 0,
+      "handSizes": [
+        9,
+        9
+      ]
+    },
+    {
+      "activePlayer": 1,
+      "phase": "setup",
+      "legalActionCount": 72,
+      "encodedAction": 125,
+      "throneValue": 0,
+      "courtSize": 0,
+      "handSizes": [
+        7,
+        9
+      ]
+    },
+    {
+      "activePlayer": 0,
+      "phase": "play",
+      "legalActionCount": 7,
+      "encodedAction": 19,
+      "throneValue": 0,
+      "courtSize": 0,
+      "handSizes": [
+        7,
+        7
+      ]
+    },
+    {
+      "activePlayer": 1,
+      "phase": "play",
+      "legalActionCount": 2,
+      "encodedAction": 18,
+      "throneValue": 9,
+      "courtSize": 1,
+      "handSizes": [
+        6,
+        7
+      ]
+    },
+    {
+      "activePlayer": 0,
+      "phase": "play",
+      "legalActionCount": 1,
+      "encodedAction": 22,
+      "throneValue": 9,
+      "courtSize": 2,
+      "handSizes": [
+        6,
+        6
+      ]
+    },
+    {
+      "activePlayer": 1,
+      "phase": "play",
+      "legalActionCount": 7,
+      "encodedAction": 12,
+      "throneValue": 1,
+      "courtSize": 2,
+      "handSizes": [
+        6,
+        6
+      ]
+    },
+    {
+      "activePlayer": 0,
+      "phase": "play",
+      "legalActionCount": 3,
+      "encodedAction": 17,
+      "throneValue": 6,
+      "courtSize": 3,
+      "handSizes": [
+        6,
+        5
+      ]
+    },
+    {
+      "activePlayer": 1,
+      "phase": "play",
+      "legalActionCount": 2,
+      "encodedAction": 16,
+      "throneValue": 8,
+      "courtSize": 4,
+      "handSizes": [
+        5,
+        5
+      ]
+    }
+  ],
+  "terminalReturns": [
+    -1,
+    1
+  ],
+  "totalSteps": 8
+}

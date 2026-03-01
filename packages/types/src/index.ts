@@ -23,3 +23,15 @@ export {
   type ClientMessage,
   type ServerMessage,
 } from "./events.js";
+
+export {
+  type Result,
+  ok,
+  err,
+  map,
+  flatMap,
+  mapError,
+  unwrap,
+  unwrapOr,
+  fromTryCatch,
+} from "./result.js";

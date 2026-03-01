@@ -14,3 +14,29 @@ export type ServerConfig<S, A> = {
 };
 
 export type { ServerMessage, ClientMessage, ActionSelector };
+
+export {
+  createLobby,
+  createLobbyForGame,
+  lobbyTransition,
+  lobbyTransitionSafe,
+  type LobbyPlayer,
+  type WaitingLobbyState,
+  type StartingLobbyState,
+  type InGameLobbyState,
+  type PostGameLobbyState,
+  type LobbyState,
+  type LobbyAction,
+  type LobbyError,
+} from "./lobby.js";
+
+export {
+  startSession,
+  applySessionAction,
+  applyPlayerAction,
+  applyTimeout,
+  isTimedOut,
+  type GameSession,
+  type SessionError,
+  type TimeoutPolicy,
+} from "./session.js";
