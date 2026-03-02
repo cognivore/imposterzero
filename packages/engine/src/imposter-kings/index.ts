@@ -75,6 +75,18 @@ export {
 
 export { validateState } from "./invariants.js";
 
+export { roundScore } from "./scoring.js";
+
+export {
+  type MatchState,
+  type MatchResult,
+  createMatch,
+  applyRoundResult,
+  matchWinners,
+  isMatchOver,
+  playMatch,
+} from "./match.js";
+
 export {
   IMPOSTER_KINGS_GAME_TYPE,
   createImposterKingsGame,

@@ -40,3 +40,25 @@ export {
   type SessionError,
   type TimeoutPolicy,
 } from "./session.js";
+
+export {
+  createRoom,
+  roomTransition,
+  continueAfterScoring,
+  type Room,
+  type LobbyRoom,
+  type PlayingRoom,
+  type ScoringRoom,
+  type FinishedRoom,
+  type RoomPhase,
+  type RoomAction,
+  type RoomError,
+  type OutboundMessage,
+  type RoomTransitionResult,
+} from "./room.js";
+
+export {
+  startServer,
+  type ServerHandle,
+  type ServerOptions,
+} from "./ws-server.js";

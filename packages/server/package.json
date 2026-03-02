@@ -16,7 +16,11 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@imposter-zero/engine": "workspace:*",
     "@imposter-zero/types": "workspace:*",
-    "@imposter-zero/engine": "workspace:*"
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
   }
 }
