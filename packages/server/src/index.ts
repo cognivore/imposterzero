@@ -68,3 +68,28 @@ export {
   type RegistryEntry,
   type RegistryOptions,
 } from "./connection-registry.js";
+
+export {
+  type BotRegistry,
+  type NonEmptyReadonlyArray,
+  emptyBotRegistry,
+  addBot,
+  isBot,
+  pickRandom,
+} from "./bot-player.js";
+
+export {
+  type ManagedRoom,
+  type RoomStore,
+  emptyStore,
+  createManagedRoom,
+  findRoomOfPlayer,
+  addPlayerToRoom,
+  removePlayerFromRoom,
+  playersInRoom,
+  browsersOnly,
+  destroyRoom,
+  toRoomSummary,
+  listRoomSummaries,
+  pruneEmptyRooms,
+} from "./room-manager.js";

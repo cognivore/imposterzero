@@ -1,4 +1,4 @@
-import type { GameDef, PlayerId, Result } from "@imposter-zero/types";
+import type { GameDef, PlayerId, Result, ServerMessage } from "@imposter-zero/types";
 import { ok, err, TERMINAL } from "@imposter-zero/types";
 import {
   type IKState,
@@ -14,7 +14,7 @@ import {
 import {
   type LobbyState,
   type LobbyError,
-  createLobbyForGame,
+  createLobby,
   lobbyTransitionSafe,
 } from "./lobby.js";
 import {
@@ -75,14 +75,7 @@ export type RoomAction =
   | { readonly kind: "action"; readonly playerId: string; readonly action: IKAction; readonly now: number }
   | { readonly kind: "timeout"; readonly now: number };
 
-export type OutboundMessage =
-  | { readonly type: "welcome"; readonly token: string; readonly playerId: string }
-  | { readonly type: "lobby_state"; readonly lobby: LobbyState }
-  | { readonly type: "game_start"; readonly numPlayers: number }
-  | { readonly type: "state"; readonly state: IKState; readonly legalActions: ReadonlyArray<IKAction>; readonly activePlayer: PlayerId }
-  | { readonly type: "round_over"; readonly scores: ReadonlyArray<number>; readonly matchScores: ReadonlyArray<number>; readonly roundsPlayed: number }
-  | { readonly type: "match_over"; readonly winners: ReadonlyArray<PlayerId>; readonly finalScores: ReadonlyArray<number> }
-  | { readonly type: "error"; readonly message: string };
+export type OutboundMessage = ServerMessage<IKState, IKAction, LobbyState>;
 
 export type RoomError =
   | { readonly kind: "lobby_error"; readonly lobbyError: LobbyError }
@@ -97,16 +90,20 @@ export interface RoomTransitionResult {
 
 export const createRoom = (
   game: GameDef<IKState, IKAction>,
+  maxPlayers?: number,
   targetScore: number = 7,
   turnDuration: number = 30_000,
-): LobbyRoom => ({
-  phase: "lobby",
-  lobby: createLobbyForGame(game),
-  match: createMatch(game.gameType.minPlayers, targetScore),
-  game,
-  turnDuration,
-  targetScore,
-});
+): LobbyRoom => {
+  const max = maxPlayers ?? game.gameType.maxPlayers;
+  return {
+    phase: "lobby",
+    lobby: createLobby(game.gameType.minPlayers, max),
+    match: createMatch(game.gameType.minPlayers, targetScore),
+    game,
+    turnDuration,
+    targetScore,
+  };
+};
 
 const buildPlayerMapping = (lobby: LobbyState): ReadonlyMap<string, PlayerId> =>
   new Map(lobby.players.map((p, i) => [p.id, i as PlayerId]));

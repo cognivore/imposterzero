@@ -1,0 +1,131 @@
+import { randomBytes } from "node:crypto";
+import type { GameDef, RoomSummary } from "@imposter-zero/types";
+import type { IKState, IKAction } from "@imposter-zero/engine";
+import {
+  type Room,
+  type OutboundMessage,
+  type RoomTransitionResult,
+  createRoom,
+  roomTransition,
+  continueAfterScoring,
+} from "./room.js";
+import {
+  type BotRegistry,
+  emptyBotRegistry,
+} from "./bot-player.js";
+
+// ---------------------------------------------------------------------------
+// ManagedRoom — per-room state wrapper
+// ---------------------------------------------------------------------------
+
+export interface ManagedRoom {
+  readonly id: string;
+  readonly createdBy: string;
+  readonly createdAt: number;
+  readonly maxPlayers: number;
+  readonly targetScore: number;
+  readonly turnDuration: number;
+  room: Room;
+  botRegistry: BotRegistry;
+  botCounter: number;
+  turnTimer: ReturnType<typeof setTimeout> | null;
+  botTimer: ReturnType<typeof setTimeout> | null;
+}
+
+const generateRoomId = (): string => randomBytes(4).toString("hex");
+
+// ---------------------------------------------------------------------------
+// RoomStore — multi-room state container
+// ---------------------------------------------------------------------------
+
+export interface RoomStore {
+  readonly rooms: Map<string, ManagedRoom>;
+  readonly playerRoomMap: Map<string, string>;
+}
+
+export const emptyStore = (): RoomStore => ({
+  rooms: new Map(),
+  playerRoomMap: new Map(),
+});
+
+export const createManagedRoom = (
+  store: RoomStore,
+  game: GameDef<IKState, IKAction>,
+  createdBy: string,
+  maxPlayers: number,
+  targetScore: number,
+  turnDuration: number,
+  now: number,
+): ManagedRoom => {
+  const id = generateRoomId();
+  const managed: ManagedRoom = {
+    id,
+    createdBy,
+    createdAt: now,
+    maxPlayers,
+    targetScore,
+    turnDuration,
+    room: createRoom(game, maxPlayers, targetScore, turnDuration),
+    botRegistry: emptyBotRegistry,
+    botCounter: 0,
+    turnTimer: null,
+    botTimer: null,
+  };
+  store.rooms.set(id, managed);
+  return managed;
+};
+
+export const findRoomOfPlayer = (store: RoomStore, playerId: string): ManagedRoom | undefined => {
+  const roomId = store.playerRoomMap.get(playerId);
+  return roomId !== undefined ? store.rooms.get(roomId) : undefined;
+};
+
+export const addPlayerToRoom = (store: RoomStore, playerId: string, roomId: string): void => {
+  store.playerRoomMap.set(playerId, roomId);
+};
+
+export const removePlayerFromRoom = (store: RoomStore, playerId: string): void => {
+  store.playerRoomMap.delete(playerId);
+};
+
+export const playersInRoom = (store: RoomStore, roomId: string): ReadonlyArray<string> =>
+  [...store.playerRoomMap.entries()]
+    .filter(([, rid]) => rid === roomId)
+    .map(([pid]) => pid);
+
+export const browsersOnly = (store: RoomStore, allPlayerIds: ReadonlyArray<string>): ReadonlyArray<string> =>
+  allPlayerIds.filter((pid) => !store.playerRoomMap.has(pid));
+
+export const destroyRoom = (store: RoomStore, managed: ManagedRoom): void => {
+  if (managed.turnTimer !== null) clearTimeout(managed.turnTimer);
+  if (managed.botTimer !== null) clearTimeout(managed.botTimer);
+
+  for (const [pid, rid] of store.playerRoomMap) {
+    if (rid === managed.id) store.playerRoomMap.delete(pid);
+  }
+
+  store.rooms.delete(managed.id);
+};
+
+export const toRoomSummary = (managed: ManagedRoom): RoomSummary => ({
+  id: managed.id,
+  playerCount: managed.room.lobby.players.length,
+  maxPlayers: managed.maxPlayers,
+  targetScore: managed.targetScore,
+  phase: managed.room.phase,
+  players: managed.room.lobby.players.map((p) => ({ id: p.id, ready: p.ready })),
+});
+
+export const listRoomSummaries = (store: RoomStore): ReadonlyArray<RoomSummary> =>
+  [...store.rooms.values()].map(toRoomSummary);
+
+const EMPTY_ROOM_TTL_MS = 5 * 60 * 1000;
+
+export const pruneEmptyRooms = (store: RoomStore, now: number): void => {
+  for (const [, managed] of store.rooms) {
+    const playerCount = playersInRoom(store, managed.id).length;
+    if (playerCount === 0 && now - managed.createdAt > EMPTY_ROOM_TTL_MS) {
+      destroyRoom(store, managed);
+    }
+  }
+};

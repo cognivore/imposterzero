@@ -3,18 +3,121 @@
  * Generic over the game's State and Action representations.
  */
 
+import type { PlayerId } from "./protocol.js";
+import type { Result } from "./result.js";
+import { ok, err } from "./result.js";
+
+// ---------------------------------------------------------------------------
+// Branded Token newtype
+// ---------------------------------------------------------------------------
+
+declare const TokenBrand: unique symbol;
+export type Token = string & { readonly [TokenBrand]: never };
+export const mkToken = (raw: string): Token => raw as Token;
+
+// ---------------------------------------------------------------------------
+// Room summary (shared between client and server)
+// ---------------------------------------------------------------------------
+
+export interface RoomSummary {
+  readonly id: string;
+  readonly playerCount: number;
+  readonly maxPlayers: number;
+  readonly targetScore: number;
+  readonly phase: "lobby" | "playing" | "scoring" | "finished";
+  readonly players: ReadonlyArray<{ readonly id: string; readonly ready: boolean }>;
+}
+
+// ---------------------------------------------------------------------------
+// Client -> Server
+// ---------------------------------------------------------------------------
+
 export type ClientMessage<A = unknown> =
+  | { readonly type: "list_rooms" }
+  | { readonly type: "create_room"; readonly maxPlayers: number; readonly targetScore: number }
+  | { readonly type: "join_room"; readonly roomId: string }
+  | { readonly type: "leave_room" }
   | { readonly type: "join"; readonly gameId: string }
   | { readonly type: "ready"; readonly ready: boolean }
   | { readonly type: "action"; readonly action: A }
   | { readonly type: "reconnect"; readonly token: string }
+  | { readonly type: "add_bot" }
   | { readonly type: "observe" };
+
+// ---------------------------------------------------------------------------
+// Server -> Client
+// ---------------------------------------------------------------------------
 
 export type ServerMessage<S = unknown, A = unknown, L = unknown> =
   | { readonly type: "welcome"; readonly token: string; readonly playerId: string }
-  | { readonly type: "state"; readonly state: S }
-  | { readonly type: "legal_actions"; readonly actions: ReadonlyArray<A> }
+  | { readonly type: "room_list"; readonly rooms: ReadonlyArray<RoomSummary> }
+  | { readonly type: "room_created"; readonly roomId: string }
+  | { readonly type: "room_joined"; readonly roomId: string }
   | { readonly type: "lobby_state"; readonly lobby: L }
-  | { readonly type: "turn_timer"; readonly deadline: number; readonly remainingMs: number }
-  | { readonly type: "error"; readonly message: string }
-  | { readonly type: "game_over"; readonly returns: ReadonlyArray<number> };
+  | { readonly type: "game_start"; readonly numPlayers: number }
+  | {
+      readonly type: "state";
+      readonly state: S;
+      readonly legalActions: ReadonlyArray<A>;
+      readonly activePlayer: PlayerId;
+    }
+  | {
+      readonly type: "round_over";
+      readonly scores: ReadonlyArray<number>;
+      readonly matchScores: ReadonlyArray<number>;
+      readonly roundsPlayed: number;
+    }
+  | {
+      readonly type: "match_over";
+      readonly winners: ReadonlyArray<PlayerId>;
+      readonly finalScores: ReadonlyArray<number>;
+    }
+  | { readonly type: "error"; readonly message: string };
+
+export type ServerMessageType = ServerMessage["type"];
+
+// ---------------------------------------------------------------------------
+// Total decoder for JSON boundary
+// ---------------------------------------------------------------------------
+
+export type ParseError =
+  | { readonly kind: "invalid_json"; readonly raw: string }
+  | { readonly kind: "missing_type" }
+  | { readonly kind: "unknown_type"; readonly type: string };
+
+const KNOWN_TYPES: ReadonlySet<string> = new Set([
+  "welcome",
+  "room_list",
+  "room_created",
+  "room_joined",
+  "lobby_state",
+  "game_start",
+  "state",
+  "round_over",
+  "match_over",
+  "error",
+]);
+
+export const parseServerMessage = <S = unknown, A = unknown, L = unknown>(
+  raw: string,
+): Result<ParseError, ServerMessage<S, A, L>> => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return err({ kind: "invalid_json", raw });
+  }
+
+  if (typeof parsed !== "object" || parsed === null || !("type" in parsed)) {
+    return err({ kind: "missing_type" });
+  }
+
+  const type: unknown = parsed.type;
+  if (typeof type !== "string" || !KNOWN_TYPES.has(type)) {
+    return err({ kind: "unknown_type", type: String(type) });
+  }
+
+  // The final `as` is intentional: we validate `type` against KNOWN_TYPES
+  // but don't decode each field — the generic boundary trusts the serializer.
+  return ok(parsed as ServerMessage<S, A, L>);
+};

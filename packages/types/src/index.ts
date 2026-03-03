@@ -20,8 +20,14 @@ export {
 } from "./cards.js";
 
 export {
+  type Token,
+  mkToken,
+  type RoomSummary,
   type ClientMessage,
   type ServerMessage,
+  type ServerMessageType,
+  type ParseError,
+  parseServerMessage,
 } from "./events.js";
 
 export {

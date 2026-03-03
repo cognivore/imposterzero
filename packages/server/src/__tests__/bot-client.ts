@@ -2,14 +2,17 @@ import WebSocket from "ws";
 import type { IKAction } from "@imposter-zero/engine";
 import type { OutboundMessage } from "../room.js";
 
+type AnyServerMessage = OutboundMessage | { readonly type: string; [k: string]: unknown };
+
 export class BotClient {
   private ws: WebSocket | null = null;
-  private messageQueue: OutboundMessage[] = [];
-  private waiters: Array<(msg: OutboundMessage) => void> = [];
-  readonly received: OutboundMessage[] = [];
+  private messageQueue: AnyServerMessage[] = [];
+  private waiters: Array<(msg: AnyServerMessage) => void> = [];
+  readonly received: AnyServerMessage[] = [];
   readonly id: string;
   token: string | null = null;
   playerId: string | null = null;
+  roomId: string | null = null;
 
   constructor(
     private readonly url: string,
@@ -20,14 +23,17 @@ export class BotClient {
 
   private attachListeners(ws: WebSocket): void {
     ws.on("message", (raw: Buffer | string) => {
-      const msg: OutboundMessage = JSON.parse(
+      const msg: AnyServerMessage = JSON.parse(
         typeof raw === "string" ? raw : raw.toString("utf-8"),
       );
       this.received.push(msg);
       if (msg.type === "welcome") {
-        const w = msg as OutboundMessage & { type: "welcome" };
+        const w = msg as { type: "welcome"; token: string; playerId: string };
         this.token = w.token;
         this.playerId = w.playerId;
+      }
+      if (msg.type === "room_created" || msg.type === "room_joined") {
+        this.roomId = (msg as { roomId: string }).roomId;
       }
       const waiter = this.waiters.shift();
       if (waiter) {
@@ -101,7 +107,7 @@ export class BotClient {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
   }
 
-  private nextMessage(timeoutMs: number = 5000): Promise<OutboundMessage> {
+  private nextMessage(timeoutMs: number = 5000): Promise<AnyServerMessage> {
     const queued = this.messageQueue.shift();
     if (queued) return Promise.resolve(queued);
     return new Promise((resolve, reject) => {
@@ -120,17 +126,27 @@ export class BotClient {
     this.ws!.send(JSON.stringify(msg));
   }
 
-  async join(): Promise<OutboundMessage> {
+  async createRoom(maxPlayers: number = 4, targetScore: number = 7): Promise<AnyServerMessage> {
+    this.send({ type: "create_room", maxPlayers, targetScore });
+    return this.drainUntil((m) => m.type === "room_created" || m.type === "error");
+  }
+
+  async joinRoom(roomId: string): Promise<AnyServerMessage> {
+    this.send({ type: "join_room", roomId });
+    return this.drainUntil((m) => m.type === "room_joined" || m.type === "error");
+  }
+
+  async join(): Promise<AnyServerMessage> {
     this.send({ type: "join" });
     return this.nextMessage();
   }
 
-  async ready(): Promise<OutboundMessage> {
+  async ready(): Promise<AnyServerMessage> {
     this.send({ type: "ready", ready: true });
     return this.nextMessage();
   }
 
-  async sendAction(action: IKAction): Promise<OutboundMessage> {
+  async sendAction(action: IKAction): Promise<AnyServerMessage> {
     this.send({ type: "action", action });
     return this.nextMessage();
   }
@@ -147,16 +163,26 @@ export class BotClient {
     this.send({ type: "ready", ready: true });
   }
 
-  async waitForMessage(timeoutMs: number = 5000): Promise<OutboundMessage> {
+  async waitForMessage(timeoutMs: number = 5000): Promise<AnyServerMessage> {
     return this.nextMessage(timeoutMs);
   }
 
-  async drainMessages(count: number, timeoutMs: number = 5000): Promise<OutboundMessage[]> {
-    const msgs: OutboundMessage[] = [];
+  async drainMessages(count: number, timeoutMs: number = 5000): Promise<AnyServerMessage[]> {
+    const msgs: AnyServerMessage[] = [];
     for (let i = 0; i < count; i++) {
       msgs.push(await this.nextMessage(timeoutMs));
     }
     return msgs;
+  }
+
+  async drainUntil(predicate: (msg: AnyServerMessage) => boolean, timeoutMs: number = 5000): Promise<AnyServerMessage> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const remaining = Math.max(1, deadline - Date.now());
+      const msg = await this.nextMessage(remaining);
+      if (predicate(msg)) return msg;
+    }
+    throw new Error(`BotClient ${this.id}: drainUntil timed out`);
   }
 
   close(): void {
@@ -189,6 +215,52 @@ export const createBots = async (
     await bot.connect();
     bots.push(bot);
   }
+  return bots;
+};
+
+/**
+ * Create bots, have bot[0] create a room, and all others join it.
+ * Drains the room_list/room_created/room_joined/lobby_state messages.
+ * After this, all bots are in the room lobby as players (already joined).
+ */
+export const createBotsInRoom = async (
+  url: string,
+  count: number,
+  maxPlayers: number = 4,
+  targetScore: number = 7,
+): Promise<BotClient[]> => {
+  const bots = await createBots(url, count);
+
+  // Each bot received room_list after welcome — drain it
+  for (const bot of bots) {
+    await bot.drainUntil((m) => m.type === "room_list");
+  }
+
+  // Bot[0] creates the room (auto-joins as lobby player)
+  const created = await bots[0]!.createRoom(maxPlayers, targetScore);
+  if (created.type !== "room_created") {
+    throw new Error(`Expected room_created, got ${created.type}`);
+  }
+  const roomId = bots[0]!.roomId!;
+  // Drain the lobby_state that follows room_created
+  await bots[0]!.drainUntil((m) => m.type === "lobby_state");
+
+  // Other bots join the same room sequentially.
+  // Each join triggers room_list broadcasts to remaining browsers,
+  // which joinRoom's drainUntil handles by skipping non-room_joined messages.
+  for (let i = 1; i < count; i++) {
+    const joined = await bots[i]!.joinRoom(roomId);
+    if (joined.type !== "room_joined") {
+      throw new Error(`Bot ${i} expected room_joined, got ${joined.type}`);
+    }
+    // Drain lobby_state for the joiner
+    await bots[i]!.drainUntil((m) => m.type === "lobby_state");
+    // Drain lobby_state broadcast to each already-joined member
+    for (let j = 0; j < i; j++) {
+      await bots[j]!.drainUntil((m) => m.type === "lobby_state");
+    }
+  }
+
   return bots;
 };
 

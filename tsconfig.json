@@ -4,6 +4,7 @@
     { "path": "packages/types" },
     { "path": "packages/engine" },
     { "path": "packages/server" },
-    { "path": "packages/client" }
+    { "path": "packages/client" },
+    { "path": "packages/web" }
   ]
 }

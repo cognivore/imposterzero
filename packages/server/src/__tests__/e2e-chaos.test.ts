@@ -4,6 +4,7 @@ import { startServer, type ServerHandle } from "../ws-server.js";
 import {
   BotClient,
   createBots,
+  createBotsInRoom,
   closeBots,
   sleep,
   randomInRange,
@@ -44,13 +45,9 @@ const setupAndStart = async (
     reconnectWindowMs,
   });
   const url = `ws://127.0.0.1:${server.port}`;
-  bots = await createBots(url, numPlayers);
+  bots = await createBotsInRoom(url, numPlayers, numPlayers, targetScore);
 
-  for (const bot of bots) await bot.waitForMessage();
-
-  for (let i = 0; i < numPlayers; i++) bots[i]!.fireJoin();
-  for (const bot of bots) await bot.drainMessages(numPlayers);
-
+  // All ready
   for (let i = 0; i < numPlayers; i++) bots[i]!.fireReady();
   for (const bot of bots) await bot.drainMessages(numPlayers + 1);
 };
@@ -112,10 +109,15 @@ const playChaosMatch = async (
       continue;
     }
 
-    let msg: OutboundMessage;
+    let msg: OutboundMessage | { type: string; [k: string]: unknown };
     try {
       msg = await observer.waitForMessage(500);
     } catch {
+      continue;
+    }
+
+    // Skip room management messages that may arrive after reconnect
+    if (msg.type === "room_list" || msg.type === "room_joined" || msg.type === "room_created" || msg.type === "lobby_state" || msg.type === "welcome") {
       continue;
     }
 
@@ -182,7 +184,6 @@ const assertMatchInvariants = (
   expect(Math.max(...result.finalScores)).toBeGreaterThanOrEqual(targetScore);
   expect(result.roundsPlayed).toBeGreaterThanOrEqual(1);
 
-  // Observer may miss round_over broadcasts while disconnected
   expect(result.roundScores.length).toBeLessThanOrEqual(result.roundsPlayed);
 
   for (const round of result.roundScores) {
@@ -241,7 +242,7 @@ describe("Chaos Monkey E2E", () => {
         initialStateSeen = true;
         const stateMsg = msg as OutboundMessage & { type: "state" };
         if (stateMsg.legalActions.length > 0) {
-          bots[stateMsg.activePlayer]!.fireAction(stateMsg.legalActions[0]!);
+          bots[stateMsg.activePlayer as number]!.fireAction(stateMsg.legalActions[0]!);
         }
       }
     }
@@ -293,8 +294,12 @@ describe("Chaos Monkey E2E", () => {
     });
     const url = `ws://127.0.0.1:${server.port}`;
     bots = await createBots(url, 1);
-    await bots[0]!.waitForMessage();
-    await bots[0]!.join();
+    // Drain room_list
+    await bots[0]!.drainUntil((m) => m.type === "room_list");
+
+    // Create a room so the bot has something to do
+    await bots[0]!.createRoom();
+    await bots[0]!.drainUntil((m) => m.type === "lobby_state");
 
     const savedToken = bots[0]!.token;
     bots[0]!.simulateDisconnect();
@@ -303,7 +308,7 @@ describe("Chaos Monkey E2E", () => {
     const freshBot = new BotClient(url, "fresh");
     await freshBot.connect();
     bots.push(freshBot);
-    await freshBot.waitForMessage();
+    await freshBot.drainUntil((m) => m.type === "room_list");
 
     freshBot.token = savedToken;
     const ws = (freshBot as unknown as { ws: import("ws").WebSocket }).ws;
@@ -314,7 +319,7 @@ describe("Chaos Monkey E2E", () => {
 
     expect(response.type).toBe("error");
     if (response.type === "error") {
-      expect(response.message).toBe("invalid_token");
+      expect((response as { message: string }).message).toBe("invalid_token");
     }
   }, 15_000);
 
@@ -342,7 +347,7 @@ describe("Chaos Monkey E2E", () => {
         firstStateSeen = true;
         const stateMsg = msg as OutboundMessage & { type: "state" };
         if (stateMsg.legalActions.length > 0) {
-          bots[stateMsg.activePlayer]!.fireAction(stateMsg.legalActions[0]!);
+          bots[stateMsg.activePlayer as number]!.fireAction(stateMsg.legalActions[0]!);
         }
       }
     }

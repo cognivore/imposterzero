@@ -1,0 +1,919 @@
+/* =========================================================================
+   Imposter Kings — card game UI
+   ========================================================================= */
+
+:root {
+  --felt: #1a3a2a;
+  --felt-light: #245038;
+  --surface: #1e1e2e;
+  --surface-raised: #2a2a3e;
+  --surface-hover: #33334a;
+  --text: #e0e0e0;
+  --text-muted: #888;
+  --text-dim: #555;
+  --accent: #6dbf8b;
+  --accent-hover: #8ed4a6;
+  --danger: #e05555;
+  --danger-hover: #f06666;
+  --gold: #d4a843;
+  --card-bg: #faf5e6;
+  --card-border: #c4b67d;
+  --card-back-bg: #3a2a6b;
+  --card-back-pattern: #4a3a7b;
+  --positive: #6dbf8b;
+  --negative: #e05555;
+  --radius: 8px;
+  --radius-lg: 12px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  background: var(--felt);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ---- Layout ---- */
+
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.center-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-size: 1.25rem;
+  color: var(--text-muted);
+}
+
+/* ---- Buttons ---- */
+
+.btn {
+  padding: 0.6rem 1.4rem;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s, transform 0.1s;
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #111;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btn-secondary {
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--text-dim);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--accent);
+  border: 1px dashed var(--accent);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: rgba(109, 191, 139, 0.1);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--danger-hover);
+}
+
+.btn-large {
+  padding: 0.8rem 2rem;
+  font-size: 1.1rem;
+}
+
+/* =========================================================================
+   Lobby
+   ========================================================================= */
+
+.lobby {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 2rem;
+}
+
+.lobby-title {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: var(--gold);
+  letter-spacing: -0.02em;
+}
+
+.lobby-subtitle {
+  color: var(--text-muted);
+  margin-bottom: 2rem;
+}
+
+.lobby-card {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 2rem;
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.lobby-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.2rem;
+}
+
+.lobby-header h2 {
+  font-size: 1.3rem;
+}
+
+.player-count {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.player-list {
+  list-style: none;
+  margin-bottom: 1.5rem;
+}
+
+.player-entry {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--radius);
+  margin-bottom: 0.3rem;
+}
+
+.player-entry.is-me {
+  background: var(--surface-raised);
+}
+
+.player-entry.empty {
+  color: var(--text-dim);
+  justify-content: center;
+  font-style: italic;
+}
+
+.player-name {
+  font-weight: 500;
+}
+
+.ready-badge {
+  font-size: 0.8rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 99px;
+  font-weight: 600;
+}
+
+.ready-badge.ready {
+  background: rgba(109, 191, 139, 0.2);
+  color: var(--accent);
+}
+
+.ready-badge.not-ready {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+}
+
+.lobby-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.lobby-hint {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* =========================================================================
+   Game Board (shared)
+   ========================================================================= */
+
+.game-board {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  padding: 1rem 1.5rem;
+  gap: 1rem;
+}
+
+.phase-banner {
+  text-align: center;
+  padding: 0.8rem;
+}
+
+.phase-banner h2 {
+  color: var(--gold);
+  margin-bottom: 0.3rem;
+}
+
+.phase-banner p {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+/* ---- Opponents ---- */
+
+.opponents-area {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.opponent {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 0.8rem 1rem;
+  min-width: 160px;
+  transition: box-shadow 0.2s;
+}
+
+.opponent.active-player {
+  box-shadow: 0 0 0 2px var(--gold);
+}
+
+.opponent-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: var(--text-muted);
+}
+
+.turn-indicator {
+  color: var(--gold);
+  font-weight: 700;
+}
+
+.opponent-info {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.zone-label {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.2rem;
+}
+
+/* ---- Board center ---- */
+
+.board-center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 2rem;
+  padding: 1rem 0;
+}
+
+.court-area {
+  text-align: center;
+}
+
+.court-area h3 {
+  margin-bottom: 0.4rem;
+}
+
+.throne-value {
+  color: var(--gold);
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+}
+
+.court-top {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.court-depth {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.court-empty {
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 2rem 3rem;
+  border: 1px dashed var(--text-dim);
+  border-radius: var(--radius);
+}
+
+.accused-area {
+  text-align: center;
+}
+
+/* ---- My area ---- */
+
+.my-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  margin-top: auto;
+  padding-bottom: 1rem;
+}
+
+.my-king {
+  text-align: center;
+}
+
+.hand-area {
+  text-align: center;
+  width: 100%;
+}
+
+.hand-area h3 {
+  margin-bottom: 0.6rem;
+}
+
+.hand {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.action-bar {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  padding: 0.5rem 0;
+}
+
+.status-bar {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  padding: 0.5rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* ---- Setup slots ---- */
+
+.setup-slots {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  padding: 1rem 0;
+}
+
+.setup-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 1rem;
+  border: 2px dashed var(--text-dim);
+  border-radius: var(--radius-lg);
+  min-width: 100px;
+  min-height: 160px;
+  justify-content: center;
+  transition: border-color 0.2s;
+}
+
+.setup-slot.filled {
+  border-color: var(--accent);
+  border-style: solid;
+}
+
+.slot-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+/* =========================================================================
+   Cards
+   ========================================================================= */
+
+.card {
+  width: 80px;
+  height: 112px;
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+  position: relative;
+  user-select: none;
+}
+
+.card:hover:not(.card-disabled) {
+  transform: translateY(-4px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+}
+
+.card-small {
+  width: 52px;
+  height: 73px;
+}
+
+.card-small .card-value {
+  font-size: 1rem;
+}
+
+.card-small .card-name {
+  font-size: 0.55rem;
+}
+
+/* Front */
+.card-front {
+  background: var(--card-bg);
+  border: 2px solid var(--card-border);
+  color: #2a2a2a;
+}
+
+.card-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.card-name {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-top: 0.25rem;
+  text-align: center;
+  line-height: 1.1;
+}
+
+.card-val-low .card-value {
+  color: #6b7b6b;
+}
+
+.card-val-mid .card-value {
+  color: #3a6b9f;
+}
+
+.card-val-high .card-value {
+  color: #8b4daa;
+}
+
+.card-val-elite .card-value {
+  color: #c4872a;
+}
+
+/* Back */
+.card-back {
+  background: var(--card-back-bg);
+  border: 2px solid var(--card-back-pattern);
+}
+
+.card-back-pattern {
+  width: 60%;
+  height: 60%;
+  border-radius: 4px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    rgba(255, 255, 255, 0.05) 4px,
+    rgba(255, 255, 255, 0.05) 8px
+  );
+}
+
+/* States */
+.card-selected {
+  box-shadow: 0 0 0 3px var(--accent);
+  transform: translateY(-6px);
+}
+
+.card-dimmed {
+  opacity: 0.4;
+}
+
+.card-disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.card-disabled:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* Stack */
+.card-stack {
+  position: relative;
+  display: inline-flex;
+}
+
+.card-stack-count {
+  position: absolute;
+  bottom: -6px;
+  right: -6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 0.7rem;
+  font-weight: 700;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* =========================================================================
+   Scoring / Match Over
+   ========================================================================= */
+
+.scoring,
+.match-over {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 2rem;
+  gap: 1.5rem;
+}
+
+.scoring h1,
+.match-over h1 {
+  color: var(--gold);
+  font-size: 2rem;
+}
+
+.winner-banner {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--accent);
+  text-align: center;
+  padding: 1rem 2rem;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+}
+
+.score-table {
+  border-collapse: collapse;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  min-width: 320px;
+}
+
+.score-table th,
+.score-table td {
+  padding: 0.7rem 1.2rem;
+  text-align: left;
+}
+
+.score-table th {
+  background: var(--surface-raised);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.score-table tr.is-me {
+  background: rgba(109, 191, 139, 0.08);
+}
+
+.score-table tr.winner-row {
+  background: rgba(212, 168, 67, 0.1);
+}
+
+.score-table tr.winner-row td:last-child {
+  color: var(--gold);
+  font-weight: 700;
+}
+
+.score-positive {
+  color: var(--positive);
+  font-weight: 700;
+}
+
+.score-negative {
+  color: var(--negative);
+  font-weight: 700;
+}
+
+.scoring-hint {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+/* =========================================================================
+   Room Browser
+   ========================================================================= */
+
+.browser {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  padding: 2rem;
+}
+
+.browser-title {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: var(--gold);
+  letter-spacing: -0.02em;
+}
+
+.browser-subtitle {
+  color: var(--text-muted);
+  margin-bottom: 2rem;
+}
+
+.browser-layout {
+  display: flex;
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 860px;
+  align-items: flex-start;
+}
+
+.browser-card {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.create-card {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.create-card h2 {
+  font-size: 1.2rem;
+  margin-bottom: 0.2rem;
+}
+
+.create-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.create-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.player-selector {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.btn-selector {
+  width: 44px;
+  height: 40px;
+  border-radius: var(--radius);
+  border: 1px solid var(--text-dim);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn-selector:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.btn-selector.selected {
+  background: var(--accent);
+  color: #111;
+  border-color: var(--accent);
+}
+
+.score-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.score-value {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--gold);
+  min-width: 2ch;
+  text-align: center;
+}
+
+.create-btn {
+  margin-top: 0.4rem;
+}
+
+.rooms-card {
+  flex: 1;
+  min-width: 0;
+}
+
+.rooms-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.rooms-header h2 {
+  font-size: 1.2rem;
+}
+
+.rooms-empty {
+  color: var(--text-dim);
+  font-style: italic;
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
+.rooms-section-label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  margin: 1rem 0 0.5rem;
+  font-weight: 600;
+}
+
+.room-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.room-entry {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: var(--surface-raised);
+  border-radius: var(--radius);
+  transition: background 0.15s;
+}
+
+.room-entry:hover {
+  background: var(--surface-hover);
+}
+
+.room-entry.room-active {
+  opacity: 0.6;
+}
+
+.room-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.room-id {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.room-meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.room-status-badge {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.browser-footer {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  margin-top: 1.5rem;
+}
+
+/* ---- Lobby settings row ---- */
+
+.lobby-settings {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.setting-pill {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.7rem;
+  border-radius: 99px;
+  background: rgba(212, 168, 67, 0.12);
+  color: var(--gold);
+  font-weight: 600;
+}
+
+/* ---- Responsive ---- */
+
+@media (max-width: 640px) {
+  .lobby-card {
+    padding: 1.5rem;
+  }
+
+  .card {
+    width: 64px;
+    height: 90px;
+  }
+
+  .card-value {
+    font-size: 1.2rem;
+  }
+
+  .card-name {
+    font-size: 0.55rem;
+  }
+
+  .card-small {
+    width: 44px;
+    height: 62px;
+  }
+
+  .opponents-area {
+    gap: 0.75rem;
+  }
+
+  .opponent {
+    min-width: 120px;
+    padding: 0.5rem 0.6rem;
+  }
+
+  .browser-layout {
+    flex-direction: column;
+  }
+
+  .create-card {
+    width: 100%;
+  }
+}

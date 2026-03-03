@@ -13,7 +13,8 @@
   },
   "scripts": {
     "build": "tsc --build",
-    "clean": "rm -rf dist *.tsbuildinfo"
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "serve": "node dist/serve.js"
   },
   "dependencies": {
     "@imposter-zero/engine": "workspace:*",
