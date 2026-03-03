@@ -12,6 +12,7 @@ export class BotClient {
   readonly id: string;
   token: string | null = null;
   playerId: string | null = null;
+  name: string | null = null;
   roomId: string | null = null;
 
   constructor(
@@ -31,6 +32,9 @@ export class BotClient {
         const w = msg as { type: "welcome"; token: string; playerId: string };
         this.token = w.token;
         this.playerId = w.playerId;
+      }
+      if (msg.type === "name_accepted") {
+        this.name = (msg as { name: string }).name;
       }
       if (msg.type === "room_created" || msg.type === "room_joined") {
         this.roomId = (msg as { roomId: string }).roomId;
@@ -136,6 +140,11 @@ export class BotClient {
     return this.drainUntil((m) => m.type === "room_joined" || m.type === "error");
   }
 
+  async setName(name: string): Promise<AnyServerMessage> {
+    this.send({ type: "set_name", name });
+    return this.drainUntil((m) => m.type === "name_accepted" || m.type === "error");
+  }
+
   async join(): Promise<AnyServerMessage> {
     this.send({ type: "join" });
     return this.nextMessage();
@@ -213,15 +222,16 @@ export const createBots = async (
   for (let i = 0; i < count; i++) {
     const bot = new BotClient(url, `bot-${i}`);
     await bot.connect();
+    await bot.setName(`Bot${i}`);
     bots.push(bot);
   }
   return bots;
 };
 
 /**
- * Create bots, have bot[0] create a room, and all others join it.
- * Drains the room_list/room_created/room_joined/lobby_state messages.
- * After this, all bots are in the room lobby as players (already joined).
+ * Create bots (with names set), have bot[0] create a room, and all others join.
+ * Drains room_created/room_settings/room_joined/lobby_state messages.
+ * After this, all bots are in the room lobby as named players.
  */
 export const createBotsInRoom = async (
   url: string,
@@ -231,29 +241,22 @@ export const createBotsInRoom = async (
 ): Promise<BotClient[]> => {
   const bots = await createBots(url, count);
 
-  // Each bot received room_list after welcome — drain it
-  for (const bot of bots) {
-    await bot.drainUntil((m) => m.type === "room_list");
-  }
-
   // Bot[0] creates the room (auto-joins as lobby player)
   const created = await bots[0]!.createRoom(maxPlayers, targetScore);
   if (created.type !== "room_created") {
     throw new Error(`Expected room_created, got ${created.type}`);
   }
   const roomId = bots[0]!.roomId!;
-  // Drain the lobby_state that follows room_created
+  // Drain room_settings + lobby_state that follow room_created
   await bots[0]!.drainUntil((m) => m.type === "lobby_state");
 
   // Other bots join the same room sequentially.
-  // Each join triggers room_list broadcasts to remaining browsers,
-  // which joinRoom's drainUntil handles by skipping non-room_joined messages.
   for (let i = 1; i < count; i++) {
     const joined = await bots[i]!.joinRoom(roomId);
     if (joined.type !== "room_joined") {
       throw new Error(`Bot ${i} expected room_joined, got ${joined.type}`);
     }
-    // Drain lobby_state for the joiner
+    // Drain room_settings + lobby_state for the joiner
     await bots[i]!.drainUntil((m) => m.type === "lobby_state");
     // Drain lobby_state broadcast to each already-joined member
     for (let j = 0; j < i; j++) {

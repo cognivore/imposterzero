@@ -15,6 +15,20 @@ const DEFAULT_TARGET = 7;
 export const BrowserView: React.FC<Props> = ({ phase, send }) => {
   const [maxPlayers, setMaxPlayers] = useState<number>(4);
   const [targetScore, setTargetScore] = useState<number>(DEFAULT_TARGET);
+  const [nameInput, setNameInput] = useState<string>("");
+  const [nameError, setNameError] = useState<string | null>(null);
+
+  const hasName = phase.name !== null;
+
+  const handleSetName = () => {
+    const trimmed = nameInput.trim();
+    if (trimmed.length < 1 || trimmed.length > 20) {
+      setNameError("Name must be 1-20 characters");
+      return;
+    }
+    setNameError(null);
+    send({ type: "set_name", name: trimmed });
+  };
 
   const handleCreate = () => {
     send({ type: "create_room", maxPlayers, targetScore });
@@ -35,6 +49,31 @@ export const BrowserView: React.FC<Props> = ({ phase, send }) => {
     <div className="browser">
       <h1 className="browser-title">Imposter Kings</h1>
       <p className="browser-subtitle">A card game of deception and strategy</p>
+
+      {!hasName && (
+        <div className="browser-card name-card">
+          <h2>Choose Your Name</h2>
+          <div className="name-input-row">
+            <input
+              className="name-input"
+              type="text"
+              placeholder="Enter a unique name..."
+              maxLength={20}
+              value={nameInput}
+              onChange={(e) => { setNameInput(e.target.value); setNameError(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") handleSetName(); }}
+            />
+            <button
+              className="btn btn-primary"
+              onClick={handleSetName}
+              disabled={nameInput.trim().length === 0}
+            >
+              Set Name
+            </button>
+          </div>
+          {nameError && <p className="name-error">{nameError}</p>}
+        </div>
+      )}
 
       <div className="browser-layout">
         <div className="browser-card create-card">
@@ -76,7 +115,12 @@ export const BrowserView: React.FC<Props> = ({ phase, send }) => {
             </div>
           </div>
 
-          <button className="btn btn-primary btn-large create-btn" onClick={handleCreate}>
+          <button
+            className="btn btn-primary btn-large create-btn"
+            onClick={handleCreate}
+            disabled={!hasName}
+            title={hasName ? undefined : "Set your name first"}
+          >
             Create Room
           </button>
         </div>
@@ -103,7 +147,12 @@ export const BrowserView: React.FC<Props> = ({ phase, send }) => {
                       {room.playerCount}/{room.maxPlayers} players &middot; first to {room.targetScore}
                     </span>
                   </div>
-                  <button className="btn btn-primary" onClick={() => handleJoin(room.id)}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => handleJoin(room.id)}
+                    disabled={!hasName}
+                    title={hasName ? undefined : "Set your name first"}
+                  >
                     Join
                   </button>
                 </li>
@@ -132,7 +181,12 @@ export const BrowserView: React.FC<Props> = ({ phase, send }) => {
         </div>
       </div>
 
-      <p className="browser-footer">Signed in as <strong>{phase.me}</strong></p>
+      <p className="browser-footer">
+        {hasName
+          ? <>Playing as <strong>{phase.name}</strong></>
+          : <>Connected as <strong>{phase.me}</strong></>
+        }
+      </p>
     </div>
   );
 };

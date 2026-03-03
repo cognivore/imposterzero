@@ -35,14 +35,12 @@ describe("E2E lobby", () => {
     server = startServer(createImposterKingsGame(), { port: 0 });
     bots = await createBotsInRoom(url(), 1);
 
-    // Late joiner connects, gets room_list, then joins the room
     const late = new BotClient(url(), "late");
     await late.connect();
+    await late.setName("LateJoiner");
     bots.push(late);
 
-    await late.drainUntil((m) => m.type === "room_list");
     const roomId = bots[0]!.roomId!;
-
     const joined = await late.joinRoom(roomId);
     expect(joined.type).toBe("room_joined");
 
@@ -66,14 +64,12 @@ describe("E2E lobby", () => {
 
   it("lobby full rejection for > maxPlayers", async () => {
     server = startServer(createImposterKingsGame(), { port: 0 });
-    // Create a room with maxPlayers=4 and 4 bots
     bots = await createBotsInRoom(url(), 4, 4);
 
-    // 5th bot connects and tries to join the same room
     const extra = new BotClient(url(), "extra");
     await extra.connect();
+    await extra.setName("ExtraBot");
     bots.push(extra);
-    await extra.drainUntil((m) => m.type === "room_list");
 
     const roomId = bots[0]!.roomId!;
     const errorMsg = await extra.joinRoom(roomId);

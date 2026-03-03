@@ -33,10 +33,12 @@ export interface RoomSummary {
 // ---------------------------------------------------------------------------
 
 export type ClientMessage<A = unknown> =
+  | { readonly type: "set_name"; readonly name: string }
   | { readonly type: "list_rooms" }
   | { readonly type: "create_room"; readonly maxPlayers: number; readonly targetScore: number }
   | { readonly type: "join_room"; readonly roomId: string }
   | { readonly type: "leave_room" }
+  | { readonly type: "update_settings"; readonly targetScore: number }
   | { readonly type: "join"; readonly gameId: string }
   | { readonly type: "ready"; readonly ready: boolean }
   | { readonly type: "action"; readonly action: A }
@@ -49,10 +51,12 @@ export type ClientMessage<A = unknown> =
 // ---------------------------------------------------------------------------
 
 export type ServerMessage<S = unknown, A = unknown, L = unknown> =
-  | { readonly type: "welcome"; readonly token: string; readonly playerId: string }
+  | { readonly type: "welcome"; readonly token: string; readonly playerId: string; readonly name: string | null }
+  | { readonly type: "name_accepted"; readonly name: string }
   | { readonly type: "room_list"; readonly rooms: ReadonlyArray<RoomSummary> }
   | { readonly type: "room_created"; readonly roomId: string }
   | { readonly type: "room_joined"; readonly roomId: string }
+  | { readonly type: "room_settings"; readonly targetScore: number; readonly maxPlayers: number; readonly hostId: string }
   | { readonly type: "lobby_state"; readonly lobby: L }
   | { readonly type: "game_start"; readonly numPlayers: number }
   | {
@@ -87,9 +91,11 @@ export type ParseError =
 
 const KNOWN_TYPES: ReadonlySet<string> = new Set([
   "welcome",
+  "name_accepted",
   "room_list",
   "room_created",
   "room_joined",
+  "room_settings",
   "lobby_state",
   "game_start",
   "state",

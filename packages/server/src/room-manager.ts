@@ -107,6 +107,16 @@ export const destroyRoom = (store: RoomStore, managed: ManagedRoom): void => {
   store.rooms.delete(managed.id);
 };
 
+export const updateManagedRoomTargetScore = (managed: ManagedRoom, targetScore: number): void => {
+  if (managed.room.phase !== "lobby") return;
+  (managed as { targetScore: number }).targetScore = targetScore;
+  managed.room = {
+    ...managed.room,
+    targetScore,
+    match: { ...managed.room.match, targetScore },
+  };
+};
+
 export const toRoomSummary = (managed: ManagedRoom): RoomSummary => ({
   id: managed.id,
   playerCount: managed.room.lobby.players.length,

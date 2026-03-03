@@ -13,20 +13,26 @@ export type ClientPhase =
   | {
       readonly _tag: "browser";
       readonly me: string;
+      readonly name: string | null;
       readonly token: string;
       readonly rooms: readonly RoomSummary[];
     }
   | {
       readonly _tag: "lobby";
       readonly me: string;
+      readonly name: string;
       readonly myIndex: PlayerId | null;
       readonly token: string;
       readonly roomId: string;
       readonly lobby: LobbyState;
+      readonly targetScore: number;
+      readonly maxPlayers: number;
+      readonly hostId: string;
     }
   | {
       readonly _tag: "setup";
       readonly me: string;
+      readonly name: string;
       readonly myIndex: PlayerId;
       readonly token: string;
       readonly roomId: string;
@@ -38,6 +44,7 @@ export type ClientPhase =
   | {
       readonly _tag: "play";
       readonly me: string;
+      readonly name: string;
       readonly myIndex: PlayerId;
       readonly token: string;
       readonly roomId: string;
@@ -49,6 +56,7 @@ export type ClientPhase =
   | {
       readonly _tag: "scoring";
       readonly me: string;
+      readonly name: string;
       readonly token: string;
       readonly roomId: string;
       readonly roundScores: readonly number[];
@@ -59,6 +67,7 @@ export type ClientPhase =
   | {
       readonly _tag: "finished";
       readonly me: string;
+      readonly name: string;
       readonly token: string;
       readonly roomId: string;
       readonly winners: readonly PlayerId[];
@@ -79,8 +88,8 @@ export type GameAction =
 // Phase accessors — safe alternatives to structural `in` checks
 // ---------------------------------------------------------------------------
 
-const identity = (phase: ClientPhase): { readonly me: string; readonly token: string } =>
-  phase._tag === "connecting" ? { me: "", token: "" } : { me: phase.me, token: phase.token };
+const identity = (phase: ClientPhase): { readonly me: string; readonly token: string; readonly name: string | null } =>
+  phase._tag === "connecting" ? { me: "", token: "", name: null } : { me: phase.me, token: phase.token, name: phase.name ?? null };
 
 const roomIdOf = (phase: ClientPhase): string => {
   switch (phase._tag) {
@@ -141,18 +150,25 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
       return {
         _tag: "browser",
         me: msg.playerId,
+        name: msg.name ?? null,
         token: msg.token,
         rooms: [],
       };
 
+    case "name_accepted": {
+      if (phase._tag === "connecting") return phase;
+      return { ...phase, name: msg.name } as ClientPhase;
+    }
+
     case "room_list": {
-      const { me, token } = identity(phase);
+      const { me, token, name } = identity(phase);
       if (phase._tag === "browser") {
         return { ...phase, rooms: msg.rooms };
       }
       return {
         _tag: "browser",
         me,
+        name,
         token,
         rooms: msg.rooms,
       };
@@ -160,27 +176,43 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
 
     case "room_created":
     case "room_joined": {
-      const { me, token } = identity(phase);
+      const { me, token, name } = identity(phase);
       return {
         _tag: "lobby",
         me,
+        name: name ?? "",
         myIndex: null,
         token,
         roomId: msg.roomId,
         lobby: { kind: "waiting", minPlayers: 2, maxPlayers: 4, players: [] },
+        targetScore: 7,
+        maxPlayers: 4,
+        hostId: "",
       };
     }
 
+    case "room_settings": {
+      if (phase._tag === "lobby") {
+        return { ...phase, targetScore: msg.targetScore, maxPlayers: msg.maxPlayers, hostId: msg.hostId };
+      }
+      return phase;
+    }
+
     case "lobby_state": {
-      const { me, token } = identity(phase);
+      const { me, token, name } = identity(phase);
       const rid = roomIdOf(phase);
+      const lobbySettings = phase._tag === "lobby"
+        ? { targetScore: phase.targetScore, maxPlayers: phase.maxPlayers, hostId: phase.hostId }
+        : { targetScore: 7, maxPlayers: 4, hostId: "" };
       return {
         _tag: "lobby",
         me,
-        myIndex: findMyIndex(msg.lobby, me),
+        name: name ?? "",
+        myIndex: findMyIndex(msg.lobby, name ?? me),
         token,
         roomId: rid,
         lobby: msg.lobby,
+        ...lobbySettings,
       };
     }
 
@@ -188,7 +220,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
       return phase;
 
     case "state": {
-      const { me, token } = identity(phase);
+      const { me, token, name } = identity(phase);
       const myIndex = myIndexOf(phase);
       const numPlayers = msg.state.numPlayers;
       const rid = roomIdOf(phase);
@@ -197,6 +229,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
         return {
           _tag: "setup",
           me,
+          name: name ?? "",
           myIndex,
           token,
           roomId: rid,
@@ -210,6 +243,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
       return {
         _tag: "play",
         me,
+        name: name ?? "",
         myIndex,
         token,
         roomId: rid,
@@ -221,11 +255,12 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
     }
 
     case "round_over": {
-      const { me, token } = identity(phase);
+      const { me, token, name } = identity(phase);
       const rid = roomIdOf(phase);
       return {
         _tag: "scoring",
         me,
+        name: name ?? "",
         token,
         roomId: rid,
         roundScores: msg.scores,
@@ -236,11 +271,12 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
     }
 
     case "match_over": {
-      const { me, token } = identity(phase);
+      const { me, token, name } = identity(phase);
       const rid = roomIdOf(phase);
       return {
         _tag: "finished",
         me,
+        name: name ?? "",
         token,
         roomId: rid,
         winners: msg.winners,

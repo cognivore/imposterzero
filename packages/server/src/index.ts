@@ -92,4 +92,5 @@ export {
   toRoomSummary,
   listRoomSummaries,
   pruneEmptyRooms,
+  updateManagedRoomTargetScore,
 } from "./room-manager.js";

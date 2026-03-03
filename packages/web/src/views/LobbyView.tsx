@@ -9,15 +9,19 @@ interface Props {
 }
 
 export const LobbyView: React.FC<Props> = ({ phase, send }) => {
-  const { lobby, me } = phase;
-  const isMeInLobby = lobby.players.some((p) => p.id === me);
-  const amIReady = lobby.players.find((p) => p.id === me)?.ready ?? false;
+  const { lobby, name } = phase;
+  const isMeInLobby = lobby.players.some((p) => p.id === name);
+  const amIReady = lobby.players.find((p) => p.id === name)?.ready ?? false;
   const isFull = lobby.players.length >= lobby.maxPlayers;
+  const isHost = phase.hostId === name;
 
-  const handleJoin = () => send({ type: "join", gameId: "default" });
   const handleReady = () => send({ type: "ready", ready: !amIReady });
   const handleAddBot = () => send({ type: "add_bot" });
   const handleLeave = () => send({ type: "leave_room" });
+  const handleTargetChange = (delta: number) => {
+    const next = Math.min(99, Math.max(1, phase.targetScore + delta));
+    if (next !== phase.targetScore) send({ type: "update_settings", targetScore: next });
+  };
 
   return (
     <div className="lobby">
@@ -28,19 +32,42 @@ export const LobbyView: React.FC<Props> = ({ phase, send }) => {
         <div className="lobby-header">
           <h2>Lobby</h2>
           <span className="player-count">
-            {lobby.players.length} / {lobby.maxPlayers} players
+            {lobby.players.length} / {phase.maxPlayers} players
           </span>
         </div>
 
         <div className="lobby-settings">
-          <span className="setting-pill">First to {phase.lobby.maxPlayers} players max</span>
+          <span className="setting-pill">{phase.maxPlayers} players max</span>
+          {isHost ? (
+            <div className="score-input-row compact">
+              <span className="setting-label">First to</span>
+              <button
+                className="btn btn-selector btn-sm"
+                onClick={() => handleTargetChange(-1)}
+                disabled={phase.targetScore <= 1}
+              >
+                &minus;
+              </button>
+              <span className="score-value">{phase.targetScore}</span>
+              <button
+                className="btn btn-selector btn-sm"
+                onClick={() => handleTargetChange(1)}
+                disabled={phase.targetScore >= 99}
+              >
+                +
+              </button>
+            </div>
+          ) : (
+            <span className="setting-pill">First to {phase.targetScore}</span>
+          )}
         </div>
 
         <ul className="player-list">
           {lobby.players.map((p) => (
-            <li key={p.id} className={`player-entry ${p.id === me ? "is-me" : ""}`}>
+            <li key={p.id} className={`player-entry ${p.id === name ? "is-me" : ""}`}>
               <span className="player-name">
-                {p.id === me ? `${p.id} (you)` : p.id}
+                {p.id === name ? `${p.id} (you)` : p.id}
+                {p.id === phase.hostId && <span className="host-badge">host</span>}
               </span>
               <span className={`ready-badge ${p.ready ? "ready" : "not-ready"}`}>
                 {p.ready ? "Ready" : "Waiting"}
@@ -53,11 +80,6 @@ export const LobbyView: React.FC<Props> = ({ phase, send }) => {
         </ul>
 
         <div className="lobby-actions">
-          {!isMeInLobby && (
-            <button className="btn btn-primary" onClick={handleJoin}>
-              Join Game
-            </button>
-          )}
           {isMeInLobby && (
             <button
               className={`btn ${amIReady ? "btn-secondary" : "btn-primary"}`}
@@ -66,14 +88,16 @@ export const LobbyView: React.FC<Props> = ({ phase, send }) => {
               {amIReady ? "Unready" : "Ready"}
             </button>
           )}
-          <button
-            className="btn btn-ghost"
-            onClick={handleAddBot}
-            disabled={isFull}
-            title={isFull ? "Lobby is full" : "Add a bot player"}
-          >
-            + Add Bot
-          </button>
+          {isHost && (
+            <button
+              className="btn btn-ghost"
+              onClick={handleAddBot}
+              disabled={isFull}
+              title={isFull ? "Lobby is full" : "Add a bot player"}
+            >
+              + Add Bot
+            </button>
+          )}
           <button className="btn btn-danger" onClick={handleLeave}>
             Leave Room
           </button>

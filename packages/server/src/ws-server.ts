@@ -29,6 +29,7 @@ import {
   destroyRoom,
   listRoomSummaries,
   pruneEmptyRooms,
+  updateManagedRoomTargetScore,
 } from "./room-manager.js";
 
 export interface ServerOptions {
@@ -240,7 +241,7 @@ export const startServer = (
     const initialEntry = registry.register(ws, now);
     let activeEntry = initialEntry;
 
-    sendJson(ws, { type: "welcome", token: initialEntry.token, playerId: initialEntry.playerId });
+    sendJson(ws, { type: "welcome", token: initialEntry.token, playerId: initialEntry.playerId, name: initialEntry.name });
     sendRoomListTo(ws);
 
     ws.on("message", (raw: Buffer | string) => {
@@ -267,11 +268,12 @@ export const startServer = (
           registry.remove(activeEntry.token);
         }
         activeEntry = reconnected;
-        sendJson(ws, { type: "welcome", token: reconnected.token, playerId: reconnected.playerId });
+        sendJson(ws, { type: "welcome", token: reconnected.token, playerId: reconnected.playerId, name: reconnected.name });
 
         const managed = findRoomOfPlayer(store, reconnected.playerId);
         if (managed) {
           sendJson(ws, { type: "room_joined", roomId: managed.id });
+          sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy });
           sendStateSnapshot(ws, managed);
         } else {
           sendRoomListTo(ws);
@@ -281,12 +283,31 @@ export const startServer = (
 
       // ---- Room browser messages ----
 
+      if (msg.type === "set_name") {
+        const raw = String(msg.name ?? "").trim();
+        if (raw.length < 1 || raw.length > 20) {
+          sendJson(ws, { type: "error", message: "name_invalid" });
+          return;
+        }
+        if (!registry.setName(activeEntry.token, raw)) {
+          sendJson(ws, { type: "error", message: "name_taken" });
+          return;
+        }
+        sendJson(ws, { type: "name_accepted", name: raw });
+        return;
+      }
+
       if (msg.type === "list_rooms") {
         sendRoomListTo(ws);
         return;
       }
 
       if (msg.type === "create_room") {
+        const name = activeEntry.name;
+        if (!name) {
+          sendJson(ws, { type: "error", message: "name_required" });
+          return;
+        }
         if (findRoomOfPlayer(store, playerId)) {
           sendJson(ws, { type: "error", message: "already_in_room" });
           return;
@@ -295,21 +316,27 @@ export const startServer = (
         const maxPlayers = Math.min(4, Math.max(2, Number(msg.maxPlayers) || 4));
         const targetScore = Math.min(99, Math.max(1, Number(msg.targetScore) || 7));
 
-        const managed = createManagedRoom(store, game, playerId, maxPlayers, targetScore, turnDuration, msgNow);
+        const managed = createManagedRoom(store, game, name, maxPlayers, targetScore, turnDuration, msgNow);
 
-        const joinResult = roomTransition(managed.room, { kind: "join", playerId }, msgNow);
+        const joinResult = roomTransition(managed.room, { kind: "join", playerId: name }, msgNow);
         if (joinResult.ok) {
           managed.room = joinResult.value.room;
         }
         addPlayerToRoom(store, playerId, managed.id);
 
         sendJson(ws, { type: "room_created", roomId: managed.id });
+        sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy });
         sendJson(ws, { type: "lobby_state", lobby: managed.room.lobby });
         broadcastRoomListToBrowsers();
         return;
       }
 
       if (msg.type === "join_room") {
+        const name = activeEntry.name;
+        if (!name) {
+          sendJson(ws, { type: "error", message: "name_required" });
+          return;
+        }
         if (findRoomOfPlayer(store, playerId)) {
           sendJson(ws, { type: "error", message: "already_in_room" });
           return;
@@ -322,7 +349,7 @@ export const startServer = (
           return;
         }
 
-        const result = roomTransition(managed.room, { kind: "join", playerId }, msgNow);
+        const result = roomTransition(managed.room, { kind: "join", playerId: name }, msgNow);
         if (!result.ok) {
           sendJson(ws, { type: "error", message: result.error.kind });
           return;
@@ -331,6 +358,7 @@ export const startServer = (
         addPlayerToRoom(store, playerId, managed.id);
 
         sendJson(ws, { type: "room_joined", roomId: managed.id });
+        sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy });
         broadcastToRoom(managed, result.value.messages);
         broadcastRoomListToBrowsers();
         return;
@@ -343,8 +371,9 @@ export const startServer = (
           return;
         }
 
+        const name = activeEntry.name ?? playerId;
         if (managed.room.phase === "lobby") {
-          const result = roomTransition(managed.room, { kind: "leave", playerId }, msgNow);
+          const result = roomTransition(managed.room, { kind: "leave", playerId: name }, msgNow);
           if (result.ok) {
             managed.room = result.value.room;
             broadcastToRoom(managed, result.value.messages);
@@ -363,6 +392,33 @@ export const startServer = (
         return;
       }
 
+      if (msg.type === "update_settings") {
+        const managed = findRoomOfPlayer(store, playerId);
+        if (!managed) {
+          sendJson(ws, { type: "error", message: "not_in_room" });
+          return;
+        }
+        const name = activeEntry.name ?? playerId;
+        if (managed.createdBy !== name) {
+          sendJson(ws, { type: "error", message: "not_host" });
+          return;
+        }
+        if (managed.room.phase !== "lobby") {
+          sendJson(ws, { type: "error", message: "game_in_progress" });
+          return;
+        }
+        const newTarget = Math.min(99, Math.max(1, Number(msg.targetScore) || 7));
+        updateManagedRoomTargetScore(managed, newTarget);
+        const settingsMsg = { type: "room_settings" as const, targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy };
+        const pids = playersInRoom(store, managed.id);
+        for (const pid of pids) {
+          const w = wsForPlayer(pid);
+          if (w !== null && w.readyState === WebSocket.OPEN) sendJson(w, settingsMsg);
+        }
+        broadcastRoomListToBrowsers();
+        return;
+      }
+
       // ---- In-room messages (require player to be in a room) ----
 
       const managed = findRoomOfPlayer(store, playerId);
@@ -371,13 +427,15 @@ export const startServer = (
         return;
       }
 
+      const name = activeEntry.name ?? playerId;
+
       if (msg.type === "add_bot") {
         handleAddBot(ws, managed, msgNow);
         return;
       }
 
       if (msg.type === "join") {
-        const result = roomTransition(managed.room, { kind: "join", playerId }, msgNow);
+        const result = roomTransition(managed.room, { kind: "join", playerId: name }, msgNow);
         if (!result.ok) {
           sendJson(ws, { type: "error", message: result.error.kind });
           return;
@@ -390,7 +448,7 @@ export const startServer = (
       }
 
       if (msg.type === "ready") {
-        const result = roomTransition(managed.room, { kind: "ready", playerId, now: msgNow }, msgNow);
+        const result = roomTransition(managed.room, { kind: "ready", playerId: name, now: msgNow }, msgNow);
         if (!result.ok) {
           sendJson(ws, { type: "error", message: result.error.kind });
           return;
@@ -411,7 +469,7 @@ export const startServer = (
         }
 
         const action = msg.action as IKAction;
-        const result = roomTransition(managed.room, { kind: "action", playerId, action, now: msgNow }, msgNow);
+        const result = roomTransition(managed.room, { kind: "action", playerId: name, action, now: msgNow }, msgNow);
         if (!result.ok) {
           sendJson(ws, { type: "error", message: result.error.kind });
           return;

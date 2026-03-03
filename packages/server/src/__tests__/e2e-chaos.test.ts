@@ -116,8 +116,7 @@ const playChaosMatch = async (
       continue;
     }
 
-    // Skip room management messages that may arrive after reconnect
-    if (msg.type === "room_list" || msg.type === "room_joined" || msg.type === "room_created" || msg.type === "lobby_state" || msg.type === "welcome") {
+    if (msg.type === "room_list" || msg.type === "room_joined" || msg.type === "room_created" || msg.type === "room_settings" || msg.type === "lobby_state" || msg.type === "welcome" || msg.type === "name_accepted") {
       continue;
     }
 
@@ -249,7 +248,7 @@ describe("Chaos Monkey E2E", () => {
 
     await sleep(50);
     for (const bot of bots) bot.simulateDisconnect();
-    await sleep(800);
+    await sleep(150);
     for (const bot of bots) await bot.reconnectToServer();
 
     const result = await playChaosMatch(2, {
@@ -294,10 +293,7 @@ describe("Chaos Monkey E2E", () => {
     });
     const url = `ws://127.0.0.1:${server.port}`;
     bots = await createBots(url, 1);
-    // Drain room_list
-    await bots[0]!.drainUntil((m) => m.type === "room_list");
 
-    // Create a room so the bot has something to do
     await bots[0]!.createRoom();
     await bots[0]!.drainUntil((m) => m.type === "lobby_state");
 
@@ -307,8 +303,8 @@ describe("Chaos Monkey E2E", () => {
 
     const freshBot = new BotClient(url, "fresh");
     await freshBot.connect();
+    await freshBot.setName("FreshBot");
     bots.push(freshBot);
-    await freshBot.drainUntil((m) => m.type === "room_list");
 
     freshBot.token = savedToken;
     const ws = (freshBot as unknown as { ws: import("ws").WebSocket }).ws;

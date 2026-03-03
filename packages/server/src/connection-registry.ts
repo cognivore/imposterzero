@@ -4,6 +4,7 @@ import type { WebSocket } from "ws";
 export interface RegistryEntry {
   readonly playerId: string;
   readonly token: string;
+  name: string | null;
   ws: WebSocket | null;
   connectedAt: number;
   disconnectedAt: number | null;
@@ -31,6 +32,7 @@ export class ConnectionRegistry {
     const entry: RegistryEntry = {
       playerId,
       token,
+      name: null,
       ws,
       connectedAt: now,
       disconnectedAt: null,
@@ -81,6 +83,22 @@ export class ConnectionRegistry {
     return [...this.entries.values()].filter(
       (e) => e.ws !== null && e.ws.readyState === 1,
     );
+  }
+
+  isNameTaken(name: string): boolean {
+    for (const entry of this.entries.values()) {
+      if (entry.name !== null && entry.name.toLowerCase() === name.toLowerCase()) return true;
+    }
+    return false;
+  }
+
+  setName(token: string, name: string): boolean {
+    const entry = this.entries.get(token);
+    if (!entry) return false;
+    if (entry.name !== null && entry.name.toLowerCase() === name.toLowerCase()) return true;
+    if (this.isNameTaken(name)) return false;
+    entry.name = name;
+    return true;
   }
 
   remove(token: string): void {
