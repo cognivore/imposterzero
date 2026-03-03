@@ -143,4 +143,4 @@ export const applyTimeout = <S, A>(
 };
 
 export const isTimedOut = <S, A>(session: GameSession<S, A>, now: number): boolean =>
-  session.turnDeadline < now;
+  session.turnDeadline <= now;

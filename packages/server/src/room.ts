@@ -21,6 +21,8 @@ import {
   type GameSession,
   startSession,
   applyPlayerAction,
+  applyTimeout,
+  type TimeoutPolicy,
 } from "./session.js";
 
 export type RoomPhase = "lobby" | "playing" | "scoring" | "finished";
@@ -70,9 +72,11 @@ export type RoomAction =
   | { readonly kind: "join"; readonly playerId: string }
   | { readonly kind: "leave"; readonly playerId: string }
   | { readonly kind: "ready"; readonly playerId: string; readonly now: number }
-  | { readonly kind: "action"; readonly playerId: string; readonly action: IKAction; readonly now: number };
+  | { readonly kind: "action"; readonly playerId: string; readonly action: IKAction; readonly now: number }
+  | { readonly kind: "timeout"; readonly now: number };
 
 export type OutboundMessage =
+  | { readonly type: "welcome"; readonly token: string; readonly playerId: string }
   | { readonly type: "lobby_state"; readonly lobby: LobbyState }
   | { readonly type: "game_start"; readonly numPlayers: number }
   | { readonly type: "state"; readonly state: IKState; readonly legalActions: ReadonlyArray<IKAction>; readonly activePlayer: PlayerId }
@@ -214,11 +218,78 @@ const handleGameAction = (
   });
 };
 
+const handleTimeout = (
+  room: PlayingRoom,
+  now: number,
+): RoomTransitionResult => {
+  const newSession = applyTimeout(room.session, now, "pass");
+
+  if (newSession === room.session) {
+    return { room, messages: [] };
+  }
+
+  if (room.game.isTerminal(newSession.state)) {
+    const scores = roundScore(newSession.state);
+    const newMatch = applyRoundResult(room.match, scores);
+
+    if (isMatchOver(newMatch)) {
+      const winners = matchWinners(newMatch);
+      return {
+        room: {
+          phase: "finished",
+          lobby: room.lobby,
+          match: newMatch,
+          winners,
+          game: room.game,
+          turnDuration: room.turnDuration,
+          targetScore: room.targetScore,
+        },
+        messages: [
+          { type: "round_over", scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed },
+          { type: "match_over", winners, finalScores: [...newMatch.scores] },
+        ],
+      };
+    }
+
+    return {
+      room: {
+        phase: "scoring",
+        lobby: room.lobby,
+        match: newMatch,
+        lastRoundScores: scores,
+        game: room.game,
+        turnDuration: room.turnDuration,
+        targetScore: room.targetScore,
+      },
+      messages: [
+        { type: "round_over", scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed },
+      ],
+    };
+  }
+
+  const legalActions = room.game.legalActions(newSession.state);
+  const activePlayer = room.game.currentPlayer(newSession.state) as PlayerId;
+
+  return {
+    room: { ...room, session: newSession },
+    messages: [
+      { type: "state", state: newSession.state, legalActions, activePlayer },
+    ],
+  };
+};
+
 export const roomTransition = (
   room: Room,
   action: RoomAction,
   now: number,
 ): Result<RoomError, RoomTransitionResult> => {
+  if (action.kind === "timeout") {
+    if (room.phase !== "playing") {
+      return ok({ room, messages: [] });
+    }
+    return ok(handleTimeout(room, now));
+  }
+
   if (action.kind === "action") {
     if (room.phase !== "playing") {
       return err({ kind: "not_in_game" });

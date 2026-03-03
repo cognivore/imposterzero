@@ -185,9 +185,9 @@ describe("isTimedOut", () => {
     expect(isTimedOut(session, 30999)).toBe(false);
   });
 
-  it("returns false at exactly the deadline", () => {
+  it("returns true at exactly the deadline", () => {
     const session = startSession(toyGame, 2, mapping, 30000, 1000);
-    expect(isTimedOut(session, 31000)).toBe(false);
+    expect(isTimedOut(session, 31000)).toBe(true);
   });
 
   it("returns true after deadline", () => {

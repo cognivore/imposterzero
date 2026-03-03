@@ -8,6 +8,8 @@ export class BotClient {
   private waiters: Array<(msg: OutboundMessage) => void> = [];
   readonly received: OutboundMessage[] = [];
   readonly id: string;
+  token: string | null = null;
+  playerId: string | null = null;
 
   constructor(
     private readonly url: string,
@@ -16,24 +18,87 @@ export class BotClient {
     this.id = id;
   }
 
+  private attachListeners(ws: WebSocket): void {
+    ws.on("message", (raw: Buffer | string) => {
+      const msg: OutboundMessage = JSON.parse(
+        typeof raw === "string" ? raw : raw.toString("utf-8"),
+      );
+      this.received.push(msg);
+      if (msg.type === "welcome") {
+        const w = msg as OutboundMessage & { type: "welcome" };
+        this.token = w.token;
+        this.playerId = w.playerId;
+      }
+      const waiter = this.waiters.shift();
+      if (waiter) {
+        waiter(msg);
+      } else {
+        this.messageQueue.push(msg);
+      }
+    });
+  }
+
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(this.url);
-      this.ws.on("open", resolve);
-      this.ws.on("error", reject);
-      this.ws.on("message", (raw: Buffer | string) => {
-        const msg: OutboundMessage = JSON.parse(
-          typeof raw === "string" ? raw : raw.toString("utf-8"),
-        );
-        this.received.push(msg);
-        const waiter = this.waiters.shift();
-        if (waiter) {
-          waiter(msg);
-        } else {
-          this.messageQueue.push(msg);
-        }
+      this.ws.on("open", () => {
+        this.attachListeners(this.ws!);
+        const consumeWelcome = (): void => {
+          const queued = this.messageQueue.shift();
+          if (queued && queued.type === "welcome") {
+            resolve();
+            return;
+          }
+          if (queued) {
+            this.messageQueue.unshift(queued);
+          }
+          this.waiters.push((msg) => {
+            if (msg.type === "welcome") {
+              resolve();
+            } else {
+              this.messageQueue.push(msg);
+              consumeWelcome();
+            }
+          });
+        };
+        consumeWelcome();
       });
+      this.ws.on("error", reject);
     });
+  }
+
+  async reconnectToServer(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.messageQueue = [];
+      this.waiters = [];
+      this.ws = new WebSocket(this.url);
+      this.ws.on("open", () => {
+        this.attachListeners(this.ws!);
+        const drainUntilWelcome = (): void => {
+          this.waiters.push((msg) => {
+            if (msg.type === "welcome") {
+              resolve();
+            } else {
+              drainUntilWelcome();
+            }
+          });
+        };
+        this.ws!.send(JSON.stringify({ type: "reconnect", token: this.token }));
+        drainUntilWelcome();
+      });
+      this.ws.on("error", reject);
+    });
+  }
+
+  simulateDisconnect(): void {
+    this.ws?.close();
+    this.ws = null;
+    this.messageQueue = [];
+    this.waiters = [];
+  }
+
+  get isConnected(): boolean {
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
   }
 
   private nextMessage(timeoutMs: number = 5000): Promise<OutboundMessage> {
@@ -100,6 +165,20 @@ export class BotClient {
   }
 }
 
+export interface ChaosPolicy {
+  readonly disconnectProbability: number;
+  readonly reconnectDelayMs: [number, number];
+  readonly actionDelayMs: [number, number];
+  readonly dropMessageProbability: number;
+}
+
+export const defaultChaosPolicy: ChaosPolicy = {
+  disconnectProbability: 0,
+  reconnectDelayMs: [50, 200],
+  actionDelayMs: [0, 0],
+  dropMessageProbability: 0,
+};
+
 export const createBots = async (
   url: string,
   count: number,
@@ -116,3 +195,9 @@ export const createBots = async (
 export const closeBots = (bots: BotClient[]): void => {
   for (const bot of bots) bot.close();
 };
+
+export const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+export const randomInRange = (min: number, max: number): number =>
+  min + Math.random() * (max - min);

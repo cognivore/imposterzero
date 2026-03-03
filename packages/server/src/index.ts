@@ -62,3 +62,9 @@ export {
   type ServerHandle,
   type ServerOptions,
 } from "./ws-server.js";
+
+export {
+  ConnectionRegistry,
+  type RegistryEntry,
+  type RegistryOptions,
+} from "./connection-registry.js";
