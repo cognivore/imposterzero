@@ -52,6 +52,9 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
     config: { tension: 600, friction: 36 },
   });
 
+  const { accused, forgotten } = gameState.shared;
+  const hasSideCards = accused !== null || forgotten !== null;
+
   return (
     <div className="game-board">
       <div className="opponents-row">
@@ -97,17 +100,6 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
           playerNames={playerNames}
           throneValue={throneValue(phase)}
         />
-
-        {gameState.shared.accused !== null && (
-          <div className="accused-area">
-            <span className="zone-label">Accused</span>
-            <Card
-              visual={toCardVisual(gameState.shared.accused)}
-              orientation="front"
-              size="small"
-            />
-          </div>
-        )}
       </div>
 
       <div className="player-area">
@@ -167,6 +159,31 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
         <span>{myZones.king.card.kind.name} is your King</span>
         <span>King is {myZones.king.face === "up" ? "face up" : "face down"}</span>
       </div>
+
+      {hasSideCards && (
+        <div className="side-zones">
+          {accused !== null && (
+            <div className="side-zone">
+              <span className="zone-label">Accused</span>
+              <Card
+                visual={toCardVisual(accused)}
+                orientation="front"
+                size="small"
+              />
+            </div>
+          )}
+          {forgotten !== null && (
+            <div className="side-zone">
+              <span className="zone-label">Forgotten</span>
+              <Card
+                visual={toCardVisual(forgotten.card)}
+                orientation="back"
+                size="small"
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       <GameLogPanel />
     </div>

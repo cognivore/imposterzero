@@ -9,7 +9,7 @@ export const GameLogPanel: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const { x } = useSpring({
-    x: isOpen ? 0 : 280,
+    x: isOpen ? 0 : -280,
     config: { tension: 450, friction: 32 },
   });
 
