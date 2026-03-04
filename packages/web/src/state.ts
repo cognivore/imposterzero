@@ -63,6 +63,7 @@ export type ClientPhase =
       readonly myIndex: PlayerId;
       readonly token: string;
       readonly roomId: string;
+      readonly gameState: IKState;
       readonly roundScores: readonly number[];
       readonly matchScores: readonly number[];
       readonly roundsPlayed: number;
@@ -290,6 +291,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
         myIndex: myIndexOf(phase),
         token,
         roomId: rid,
+        gameState: msg.state,
         roundScores: msg.scores,
         matchScores: msg.matchScores,
         roundsPlayed: msg.roundsPlayed,
@@ -326,4 +328,81 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
 export const useGameReducer = () => {
   const [phase, dispatch] = useReducer(reduce, initialPhase);
   return { phase, dispatch } as const;
+};
+
+// ---------------------------------------------------------------------------
+// Game log event detection — pure function comparing state transitions
+// ---------------------------------------------------------------------------
+
+export interface GameLogEvent {
+  readonly kind: "play" | "disgrace" | "round_start" | "round_end";
+  readonly turnNumber: number;
+  readonly playerName: string;
+  readonly playerIndex: number;
+  readonly description: string;
+}
+
+export const detectLogEvents = (
+  prev: ClientPhase,
+  next: ClientPhase,
+): ReadonlyArray<GameLogEvent> => {
+  const events: GameLogEvent[] = [];
+
+  if (prev._tag === "setup" && next._tag === "play") {
+    events.push({
+      kind: "round_start",
+      turnNumber: 0,
+      playerName: "",
+      playerIndex: -1,
+      description: "Round started",
+    });
+  }
+
+  if (prev._tag === "play" && next._tag === "play") {
+    const prevCourt = prev.gameState.shared.court;
+    const nextCourt = next.gameState.shared.court;
+    const actingPlayer = prev.activePlayer;
+    const playerName = prev.playerNames[actingPlayer] ?? `Player ${actingPlayer}`;
+
+    if (nextCourt.length > prevCourt.length) {
+      const newEntry = nextCourt[nextCourt.length - 1];
+      if (newEntry) {
+        events.push({
+          kind: "play",
+          turnNumber: prev.gameState.turnCount,
+          playerName,
+          playerIndex: actingPlayer,
+          description: `played ${newEntry.card.kind.name} (${newEntry.card.kind.props.value})`,
+        });
+      }
+    }
+
+    if (
+      nextCourt.length === prevCourt.length &&
+      nextCourt.length > 0 &&
+      prevCourt[prevCourt.length - 1]?.face === "up" &&
+      nextCourt[nextCourt.length - 1]?.face === "down"
+    ) {
+      events.push({
+        kind: "disgrace",
+        turnNumber: prev.gameState.turnCount,
+        playerName,
+        playerIndex: actingPlayer,
+        description: "disgraced",
+      });
+    }
+  }
+
+  if (prev._tag === "play" && next._tag === "scoring") {
+    const roundsPlayed = next.roundsPlayed;
+    events.push({
+      kind: "round_end",
+      turnNumber: prev.gameState.turnCount,
+      playerName: "",
+      playerIndex: -1,
+      description: `Round ${roundsPlayed} complete`,
+    });
+  }
+
+  return events;
 };

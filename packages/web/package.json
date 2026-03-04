@@ -11,8 +11,11 @@
   "dependencies": {
     "@imposter-zero/engine": "workspace:*",
     "@imposter-zero/types": "workspace:*",
+    "@react-spring/web": "^10.0.3",
+    "@use-gesture/react": "^10.3.1",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@types/react": "^19.1.2",

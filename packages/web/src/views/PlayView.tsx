@@ -1,9 +1,12 @@
+import { useTrail, animated, to } from "@react-spring/web";
 import type { PlayerId } from "@imposter-zero/types";
 import type { IKPlayAction } from "@imposter-zero/engine";
-import { ikCardOps } from "@imposter-zero/engine";
 import type { ClientPhase } from "../state.js";
 import type { IKClientMessage } from "../ws-client.js";
-import { CardComponent, CardBack } from "./CardComponent.js";
+import { Card } from "./card/Card.js";
+import { toCardVisual, ANONYMOUS_CARD } from "./card/types.js";
+import { CourtDisplay } from "./CourtDisplay.js";
+import { GameLogPanel } from "./GameLog.js";
 
 type PlayPhase = Extract<ClientPhase, { readonly _tag: "play" }>;
 
@@ -28,7 +31,6 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
   const { gameState, legalActions, activePlayer, myIndex, numPlayers, playerNames } = phase;
   const myZones = gameState.players[myIndex];
   const isMyTurn = activePlayer === myIndex;
-  const topCourt = gameState.shared.court.at(-1);
 
   const handlePlayCard = (cardId: number) => {
     send({ type: "action", action: { kind: "play", cardId } });
@@ -44,32 +46,44 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
     (i) => i !== myIndex,
   );
 
+  const trail = useTrail(myZones.hand.length, {
+    from: { opacity: 0, y: 30, scale: 0.9 },
+    to: { opacity: 1, y: 0, scale: 1 },
+    config: { tension: 600, friction: 36 },
+  });
+
   return (
     <div className="game-board">
-      <div className="opponents-area">
+      <div className="opponents-row">
         {opponents.map((opIdx) => {
           const opZones = gameState.players[opIdx];
           if (opZones === undefined) return null;
           return (
             <div
               key={opIdx}
-              className={`opponent ${activePlayer === opIdx ? "active-player" : ""}`}
+              className={`opponent-panel ${activePlayer === opIdx ? "opponent-panel--active" : ""}`}
             >
               <div className="opponent-label">
                 {playerNames[opIdx] ?? `Player ${opIdx}`}
                 {activePlayer === opIdx && <span className="turn-indicator"> (acting)</span>}
               </div>
               <div className="opponent-info">
-                <div className="opponent-king">
+                <div>
                   <span className="zone-label">King</span>
-                  {opZones.king.face === "up" ? (
-                    <CardComponent card={opZones.king.card} small />
-                  ) : (
-                    <CardBack small />
-                  )}
+                  <Card
+                    visual={toCardVisual(opZones.king.card)}
+                    orientation={opZones.king.face === "up" ? "front" : "back"}
+                    size="small"
+                  />
                 </div>
-                <div className="opponent-hand-count">
-                  <CardBack count={opZones.hand.length} small />
+                <div>
+                  <span className="zone-label">Hand</span>
+                  <div className="card-stack">
+                    <Card visual={ANONYMOUS_CARD} orientation="back" size="small" />
+                    {opZones.hand.length > 1 && (
+                      <span className="card-stack-count">{opZones.hand.length}</span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -78,59 +92,62 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
       </div>
 
       <div className="board-center">
-        <div className="court-area">
-          <h3>Court</h3>
-          <div className="throne-value">Throne: {throneValue(phase)}</div>
-          {topCourt !== undefined ? (
-            <div className="court-top">
-              {topCourt.face === "up" ? (
-                <CardComponent card={topCourt.card} />
-              ) : (
-                <CardBack />
-              )}
-              {gameState.shared.court.length > 1 && (
-                <span className="court-depth">{gameState.shared.court.length} cards in court</span>
-              )}
-            </div>
-          ) : (
-            <div className="court-empty">Empty court</div>
-          )}
-        </div>
+        <CourtDisplay
+          court={gameState.shared.court}
+          playerNames={playerNames}
+          throneValue={throneValue(phase)}
+        />
 
         {gameState.shared.accused !== null && (
           <div className="accused-area">
             <span className="zone-label">Accused</span>
-            <CardComponent card={gameState.shared.accused} small />
+            <Card
+              visual={toCardVisual(gameState.shared.accused)}
+              orientation="front"
+              size="small"
+            />
           </div>
         )}
       </div>
 
-      <div className="my-area">
+      <div className="player-area">
         <div className="my-king">
           <span className="zone-label">Your King</span>
-          {myZones.king.face === "up" ? (
-            <CardComponent card={myZones.king.card} />
-          ) : (
-            <CardBack />
-          )}
+          <Card
+            visual={toCardVisual(myZones.king.card)}
+            orientation={myZones.king.face === "up" ? "front" : "back"}
+          />
         </div>
 
         <div className="hand-area">
           <h3>
             Your Hand
-            {isMyTurn && <span className="turn-indicator"> — Your turn!</span>}
+            {isMyTurn && <span className="turn-indicator"> &mdash; Your turn!</span>}
           </h3>
           <div className="hand">
-            {myZones.hand.map((card) => {
+            {trail.map((style, i) => {
+              const card = myZones.hand[i];
+              if (card === undefined) return null;
               const playable = isMyTurn && canPlayCard(card.id, legalActions);
               return (
-                <CardComponent
+                <animated.div
                   key={card.id}
-                  card={card}
-                  {...(playable ? { onClick: () => handlePlayCard(card.id) } : {})}
-                  disabled={!playable}
-                  dimmed={isMyTurn && !playable}
-                />
+                  style={{
+                    opacity: style.opacity,
+                    transform: to(
+                      [style.y, style.scale],
+                      (y, s) => `translateY(${y}px) scale(${s})`,
+                    ),
+                  }}
+                >
+                  <Card
+                    visual={toCardVisual(card)}
+                    orientation="front"
+                    interactive={playable}
+                    dimmed={isMyTurn && !playable}
+                    onClick={() => handlePlayCard(card.id)}
+                  />
+                </animated.div>
               );
             })}
           </div>
@@ -147,11 +164,11 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
 
       <div className="status-bar">
         <span>Turn {gameState.turnCount}</span>
-        <span>{ikCardOps.name(myZones.king.card)} is your King</span>
-        <span>
-          King is {myZones.king.face === "up" ? "face up" : "face down"}
-        </span>
+        <span>{myZones.king.card.kind.name} is your King</span>
+        <span>King is {myZones.king.face === "up" ? "face up" : "face down"}</span>
       </div>
+
+      <GameLogPanel />
     </div>
   );
 };

@@ -1,5 +1,7 @@
-import { useGameReducer, type ClientPhase } from "./state.js";
+import { useRef, useEffect } from "react";
+import { useGameReducer, detectLogEvents, type ClientPhase } from "./state.js";
 import { useWebSocket } from "./ws-client.js";
+import { useGameLogStore } from "./stores/game-log.js";
 import { BrowserView } from "./views/BrowserView.js";
 import { LobbyView } from "./views/LobbyView.js";
 import { SetupView } from "./views/SetupView.js";
@@ -29,7 +31,7 @@ const renderPhase = (
     case "play":
       return <PlayView phase={phase} send={send} />;
     case "scoring":
-      return <ScoringView phase={phase} />;
+      return <ScoringView phase={phase} send={send} />;
     case "finished":
       return <MatchOverView phase={phase} send={send} />;
     default:
@@ -37,9 +39,32 @@ const renderPhase = (
   }
 };
 
+const useGameLogSync = (phase: ClientPhase): void => {
+  const prevPhaseRef = useRef<ClientPhase>(phase);
+
+  useEffect(() => {
+    const prev = prevPhaseRef.current;
+    prevPhaseRef.current = phase;
+
+    const events = detectLogEvents(prev, phase);
+    const store = useGameLogStore.getState();
+    for (const event of events) {
+      store.addEntry({ ...event, timestamp: Date.now() });
+    }
+  }, [phase]);
+};
+
 export const App: React.FC = () => {
   const { phase, dispatch } = useGameReducer();
   const { send } = useWebSocket(wsUrl, dispatch);
 
-  return <div className="app">{renderPhase(phase, send)}</div>;
+  useGameLogSync(phase);
+
+  return (
+    <div className="app">
+      <div key={phase._tag} className="phase-container">
+        {renderPhase(phase, send)}
+      </div>
+    </div>
+  );
 };

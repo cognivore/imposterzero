@@ -1,8 +1,11 @@
 import { useState, useCallback } from "react";
+import { useTrail, animated, to } from "@react-spring/web";
 import type { IKSetupAction } from "@imposter-zero/engine";
 import type { ClientPhase } from "../state.js";
 import type { IKClientMessage } from "../ws-client.js";
-import { CardComponent } from "./CardComponent.js";
+import { Card } from "./card/Card.js";
+import { SetupSlot } from "./card/SetupSlot.js";
+import { toCardVisual } from "./card/types.js";
 
 type SetupPhase = Extract<ClientPhase, { readonly _tag: "setup" }>;
 
@@ -60,7 +63,16 @@ export const SetupView: React.FC<Props> = ({ phase, send }) => {
 
   if (myZones === undefined) return null;
 
-  const findCard = (id: number) => myZones.hand.find((c) => c.id === id);
+  const findCardVisual = (id: number) => {
+    const c = myZones.hand.find((card) => card.id === id);
+    return c ? toCardVisual(c) : null;
+  };
+
+  const trail = useTrail(myZones.hand.length, {
+    from: { opacity: 0, y: 30, scale: 0.9 },
+    to: { opacity: 1, y: 0, scale: 1 },
+    config: { tension: 600, friction: 36 },
+  });
 
   return (
     <div className="game-board">
@@ -70,40 +82,44 @@ export const SetupView: React.FC<Props> = ({ phase, send }) => {
       </div>
 
       <div className="setup-slots">
-        <div className={`setup-slot ${successorId !== null ? "filled" : ""}`}>
-          <span className="slot-label">Successor</span>
-          {(() => {
-            if (successorId === null) return null;
-            const card = findCard(successorId);
-            if (card === undefined) return null;
-            return <CardComponent card={card} selected onClick={() => setSuccessorId(null)} />;
-          })()}
-        </div>
-        <div className={`setup-slot ${dungeonId !== null ? "filled" : ""}`}>
-          <span className="slot-label">Dungeon</span>
-          {(() => {
-            if (dungeonId === null) return null;
-            const card = findCard(dungeonId);
-            if (card === undefined) return null;
-            return <CardComponent card={card} selected onClick={() => setDungeonId(null)} />;
-          })()}
-        </div>
+        <SetupSlot
+          kind="successor"
+          card={successorId !== null ? findCardVisual(successorId) : null}
+          onClick={() => setSuccessorId(null)}
+        />
+        <SetupSlot
+          kind="dungeon"
+          card={dungeonId !== null ? findCardVisual(dungeonId) : null}
+          onClick={() => setDungeonId(null)}
+        />
       </div>
 
       <div className="hand-area">
         <h3>Your Hand</h3>
         <div className="hand">
-          {myZones.hand.map((card) => {
+          {trail.map((style, i) => {
+            const card = myZones.hand[i];
+            if (card === undefined) return null;
             const isSelected = card.id === successorId || card.id === dungeonId;
             return (
-              <CardComponent
+              <animated.div
                 key={card.id}
-                card={card}
-                onClick={() => handleCardClick(card.id)}
-                disabled={!isMyTurn}
-                selected={isSelected}
-                dimmed={isSelected}
-              />
+                style={{
+                  opacity: style.opacity,
+                  transform: to(
+                    [style.y, style.scale],
+                    (y, s) => `translateY(${y}px) scale(${s})`,
+                  ),
+                }}
+              >
+                <Card
+                  visual={toCardVisual(card)}
+                  orientation="front"
+                  interactive={isMyTurn && !isSelected}
+                  dimmed={isSelected}
+                  onClick={() => handleCardClick(card.id)}
+                />
+              </animated.div>
             );
           })}
         </div>

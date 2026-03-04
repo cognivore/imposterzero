@@ -1,0 +1,101 @@
+import { useSpring, animated, to } from "@react-spring/web";
+import { useHover } from "@use-gesture/react";
+import type { CardVisual, CardOrientation } from "./types.js";
+import { CardFront } from "./CardFront.js";
+import { CardBack } from "./CardBack.js";
+
+interface CardProps {
+  readonly visual: CardVisual;
+  readonly orientation: CardOrientation;
+  readonly size?: "normal" | "small";
+  readonly interactive?: boolean;
+  readonly selected?: boolean;
+  readonly dimmed?: boolean;
+  readonly onClick?: () => void;
+}
+
+export const Card: React.FC<CardProps> = ({
+  visual,
+  orientation,
+  size = "normal",
+  interactive = false,
+  selected = false,
+  dimmed = false,
+  onClick,
+}) => {
+  const flipSpring = useSpring({
+    rotateY: orientation === "front" ? 0 : 180,
+    config: { tension: 500, friction: 38, mass: 0.8 },
+  });
+
+  const selectionSpring = useSpring({
+    scale: selected ? 1.05 : 1,
+    glow: selected ? 1 : 0,
+    config: { tension: 420, friction: 22 },
+  });
+
+  const [hoverSpring, hoverApi] = useSpring(() => ({
+    y: 0,
+    shadow: 0,
+    tiltX: 0,
+    config: { tension: 500, friction: 26, mass: 0.3 },
+  }));
+
+  const bind = useHover(({ hovering }) => {
+    if (!interactive || dimmed) return;
+    hoverApi.start({
+      y: hovering ? -8 : 0,
+      shadow: hovering ? 16 : 0,
+      tiltX: hovering ? -2 : 0,
+    });
+  });
+
+  const perspectiveClass = [
+    "card-perspective",
+    size === "small" && "card-perspective--small",
+    dimmed && "card-perspective--dimmed",
+    selected && "card-perspective--selected",
+    interactive && "card-perspective--interactive",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <animated.div
+      {...bind()}
+      className={perspectiveClass}
+      style={{
+        transform: to(
+          [hoverSpring.y, hoverSpring.tiltX],
+          (y, tilt) => `translateY(${y}px) rotateX(${tilt}deg)`,
+        ),
+        boxShadow: hoverSpring.shadow.to(
+          (s) => `0 ${s}px ${s * 1.5}px rgba(0,0,0,0.3)`,
+        ),
+      }}
+      onClick={interactive ? onClick : undefined}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+    >
+      <animated.div
+        className="card-body"
+        style={{
+          transform: to(
+            [flipSpring.rotateY, selectionSpring.scale],
+            (ry, sc) => `rotateY(${ry}deg) scale(${sc})`,
+          ),
+          boxShadow: selectionSpring.glow.to(
+            (g) => `0 0 0 ${g * 3}px rgba(109, 191, 139, ${g * 0.8})`,
+          ),
+        }}
+      >
+        <CardFront
+          value={visual.front.value}
+          name={visual.front.name}
+          tier={visual.front.tier}
+        />
+        <CardBack design={visual.back.design} />
+      </animated.div>
+    </animated.div>
+  );
+};
