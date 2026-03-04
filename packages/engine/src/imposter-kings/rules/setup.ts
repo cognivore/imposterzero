@@ -60,6 +60,6 @@ export const applyCommitSafe = (
   return ok({
     ...intermediate,
     phase: "play",
-    activePlayer: 0,
+    activePlayer: intermediate.firstPlayer,
   });
 };

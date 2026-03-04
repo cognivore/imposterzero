@@ -1,6 +1,6 @@
 import { useReducer } from "react";
 import type { PlayerId } from "@imposter-zero/types";
-import type { IKState, IKAction, IKSetupAction, IKPlayAction } from "@imposter-zero/engine";
+import type { IKState, IKAction, IKCrownAction, IKSetupAction, IKPlayAction } from "@imposter-zero/engine";
 import type { LobbyState, RoomSummary } from "./lobby-types.js";
 import type { IKServerMessage } from "./ws-client.js";
 
@@ -29,6 +29,19 @@ export type ClientPhase =
       readonly targetScore: number;
       readonly maxPlayers: number;
       readonly hostId: string;
+    }
+  | {
+      readonly _tag: "crown";
+      readonly me: string;
+      readonly name: string;
+      readonly myIndex: PlayerId;
+      readonly token: string;
+      readonly roomId: string;
+      readonly gameState: IKState;
+      readonly legalActions: readonly IKCrownAction[];
+      readonly activePlayer: PlayerId;
+      readonly numPlayers: number;
+      readonly playerNames: readonly string[];
     }
   | {
       readonly _tag: "setup";
@@ -116,12 +129,13 @@ const findMyIndex = (lobby: LobbyState, me: string): PlayerId | null => {
 
 const myIndexOf = (phase: ClientPhase): PlayerId =>
   phase._tag === "lobby" ? (phase.myIndex ?? 0)
-  : phase._tag === "setup" || phase._tag === "play" ? phase.myIndex
+  : phase._tag === "crown" || phase._tag === "setup" || phase._tag === "play" ? phase.myIndex
   : phase._tag === "scoring" || phase._tag === "finished" ? phase.myIndex
   : 0;
 
 const playerNamesOfPhase = (phase: ClientPhase, fallback: readonly string[]): readonly string[] => {
   switch (phase._tag) {
+    case "crown":
     case "setup":
     case "play":
     case "scoring":
@@ -134,6 +148,7 @@ const playerNamesOfPhase = (phase: ClientPhase, fallback: readonly string[]): re
 
 const numPlayersOf = (phase: ClientPhase, fallback: number): number => {
   switch (phase._tag) {
+    case "crown":
     case "setup":
     case "play":
     case "scoring":
@@ -150,6 +165,7 @@ const numPlayersOf = (phase: ClientPhase, fallback: number): number => {
 // Action type guards — proper narrowing instead of `as` casts
 // ---------------------------------------------------------------------------
 
+const isCrownAction = (a: IKAction): a is IKCrownAction => a.kind === "crown";
 const isSetupAction = (a: IKAction): a is IKSetupAction => a.kind === "commit";
 const isPlayAction = (a: IKAction): a is IKPlayAction =>
   a.kind === "play" || a.kind === "disgrace";
@@ -248,6 +264,22 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
       const numPlayers = msg.state.numPlayers;
       const rid = roomIdOf(phase);
       const playerNames = msg.playerNames ?? playerNamesOfPhase(phase, []);
+
+      if (msg.state.phase === "crown") {
+        return {
+          _tag: "crown",
+          me,
+          name: name ?? "",
+          myIndex,
+          token,
+          roomId: rid,
+          gameState: msg.state,
+          legalActions: msg.legalActions.filter(isCrownAction),
+          activePlayer: msg.activePlayer,
+          numPlayers,
+          playerNames,
+        };
+      }
 
       if (msg.state.phase === "setup") {
         return {

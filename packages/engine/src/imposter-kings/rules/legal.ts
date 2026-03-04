@@ -1,3 +1,5 @@
+import type { PlayerId } from "@imposter-zero/types";
+
 import { ikCardOps } from "../card.js";
 import type { IKAction } from "../actions.js";
 import { playerZones, throne, type IKState } from "../state.js";
@@ -5,6 +7,13 @@ import { throneValue, isKingFaceUp } from "../selectors.js";
 import { commitActionsForHand } from "./setup.js";
 
 export const legalActions = (state: IKState): ReadonlyArray<IKAction> => {
+  if (state.phase === "crown") {
+    return Array.from(
+      { length: state.numPlayers },
+      (_, i) => ({ kind: "crown" as const, firstPlayer: i as PlayerId }),
+    );
+  }
+
   const active = playerZones(state, state.activePlayer);
 
   if (state.phase === "setup") {

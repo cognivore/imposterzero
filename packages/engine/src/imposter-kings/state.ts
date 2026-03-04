@@ -2,7 +2,7 @@ import type { PlayerId } from "@imposter-zero/types";
 
 import type { IKSharedZones, IKPlayerZones, CourtEntry } from "./zones.js";
 
-export type IKPhase = "setup" | "play";
+export type IKPhase = "crown" | "setup" | "play";
 
 export interface IKState {
   readonly players: ReadonlyArray<IKPlayerZones>;
@@ -11,6 +11,7 @@ export interface IKState {
   readonly phase: IKPhase;
   readonly numPlayers: number;
   readonly turnCount: number;
+  readonly firstPlayer: PlayerId;
 }
 
 export const throne = (state: IKState): CourtEntry | null =>

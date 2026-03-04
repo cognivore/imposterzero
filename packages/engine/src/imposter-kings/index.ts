@@ -13,6 +13,7 @@ export {
 } from "./card.js";
 
 export {
+  type IKCrownAction,
   type IKSetupAction,
   type IKPlayCardAction,
   type IKDisgraceAction,

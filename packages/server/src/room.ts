@@ -9,7 +9,10 @@ import {
   isMatchOver,
   matchWinners,
   roundScore,
+  regulationDeck,
+  deal,
 } from "@imposter-zero/engine";
+import type { PlayerId as EnginePlayerId } from "@imposter-zero/types";
 
 import {
   type LobbyState,
@@ -51,6 +54,8 @@ export interface ScoringRoom {
   readonly lobby: LobbyState;
   readonly match: MatchState;
   readonly lastRoundScores: ReadonlyArray<number>;
+  readonly lastState: IKState;
+  readonly loser: PlayerId;
   readonly game: GameDef<IKState, IKAction>;
   readonly turnDuration: number;
   readonly targetScore: number;
@@ -117,7 +122,11 @@ const startNewRound = (
 ): RoomTransitionResult => {
   const numPlayers = room.lobby.players.length;
   const playerMapping = buildPlayerMapping(room.lobby);
-  const session = startSession(room.game, numPlayers, playerMapping, room.turnDuration, now);
+  const trueKing = room.phase === "scoring" ? room.loser as EnginePlayerId : undefined;
+  const initialState = trueKing !== undefined
+    ? deal(regulationDeck(numPlayers), numPlayers, undefined, trueKing)
+    : undefined;
+  const session = startSession(room.game, numPlayers, playerMapping, room.turnDuration, now, initialState);
   const legalActions = room.game.legalActions(session.state);
   const activePlayer = room.game.currentPlayer(session.state) as PlayerId;
 
@@ -173,6 +182,8 @@ const handleGameAction = (
 
     const playerNames = playerNamesOf(room);
 
+    const terminalState = newSession.state;
+
     if (isMatchOver(newMatch)) {
       const winners = matchWinners(newMatch);
       const finishedRoom: FinishedRoom = {
@@ -187,7 +198,7 @@ const handleGameAction = (
       return ok({
         room: finishedRoom,
         messages: [
-          { type: "round_over", scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed, playerNames },
+          { type: "round_over", state: terminalState, scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed, playerNames },
           { type: "match_over", winners, finalScores: [...newMatch.scores], playerNames },
         ],
       });
@@ -198,6 +209,8 @@ const handleGameAction = (
       lobby: room.lobby,
       match: newMatch,
       lastRoundScores: scores,
+      lastState: terminalState,
+      loser: terminalState.activePlayer,
       game: room.game,
       turnDuration: room.turnDuration,
       targetScore: room.targetScore,
@@ -205,7 +218,7 @@ const handleGameAction = (
     return ok({
       room: scoringRoom,
       messages: [
-        { type: "round_over", scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed, playerNames },
+        { type: "round_over", state: terminalState, scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed, playerNames },
       ],
     });
   }
@@ -235,7 +248,8 @@ const handleTimeout = (
   const playerNames = playerNamesOf(room);
 
   if (room.game.isTerminal(newSession.state)) {
-    const scores = roundScore(newSession.state);
+    const terminalState = newSession.state;
+    const scores = roundScore(terminalState);
     const newMatch = applyRoundResult(room.match, scores);
 
     if (isMatchOver(newMatch)) {
@@ -251,7 +265,7 @@ const handleTimeout = (
           targetScore: room.targetScore,
         },
         messages: [
-          { type: "round_over", scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed, playerNames },
+          { type: "round_over", state: terminalState, scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed, playerNames },
           { type: "match_over", winners, finalScores: [...newMatch.scores], playerNames },
         ],
       };
@@ -263,12 +277,14 @@ const handleTimeout = (
         lobby: room.lobby,
         match: newMatch,
         lastRoundScores: scores,
+        lastState: terminalState,
+        loser: terminalState.activePlayer,
         game: room.game,
         turnDuration: room.turnDuration,
         targetScore: room.targetScore,
       },
       messages: [
-        { type: "round_over", scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed, playerNames },
+        { type: "round_over", state: terminalState, scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed, playerNames },
       ],
     };
   }

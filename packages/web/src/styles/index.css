@@ -591,6 +591,65 @@ body {
   font-size: 0.9rem;
 }
 
+/* =========================================================================
+   Crown View (True King selection)
+   ========================================================================= */
+
+.crown-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--space-xl);
+  gap: var(--space-lg);
+}
+
+.crown-title {
+  font-size: 2.5rem;
+  font-weight: 800;
+  color: var(--gold);
+}
+
+.crown-subtitle {
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  text-align: center;
+}
+
+.crown-choices {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: var(--space-md);
+}
+
+.crown-choice {
+  padding: var(--space-md) var(--space-xl);
+  background: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--text-dim);
+  border-radius: var(--radius-lg);
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.crown-choice:hover {
+  border-color: var(--gold);
+  background: var(--surface-raised);
+}
+
+.crown-choice--me {
+  border-color: var(--accent);
+}
+
+.crown-choice--me:hover {
+  border-color: var(--gold);
+}
+
 /* ---- Opponents ---- */
 
 .opponents-row {

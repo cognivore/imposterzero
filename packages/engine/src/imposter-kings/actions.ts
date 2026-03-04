@@ -1,4 +1,10 @@
+import type { PlayerId } from "@imposter-zero/types";
 import { ok, err, unwrap, type Result } from "@imposter-zero/types";
+
+export interface IKCrownAction {
+  readonly kind: "crown";
+  readonly firstPlayer: PlayerId;
+}
 
 export interface IKSetupAction {
   readonly kind: "commit";
@@ -16,7 +22,7 @@ export interface IKDisgraceAction {
 }
 
 export type IKPlayAction = IKPlayCardAction | IKDisgraceAction;
-export type IKAction = IKSetupAction | IKPlayAction;
+export type IKAction = IKCrownAction | IKSetupAction | IKPlayAction;
 
 export interface ActionCodecConfig {
   readonly maxCardId: number;
@@ -32,77 +38,88 @@ export type DecodeError =
   | { readonly kind: "out_of_range"; readonly encoded: number; readonly maxEncoded: number }
   | { readonly kind: "invalid_commit"; readonly successorId: number; readonly dungeonId: number };
 
-const baseCardSpan = (config: ActionCodecConfig): number => config.maxCardId + 1;
-const commitOffset = (config: ActionCodecConfig): number => baseCardSpan(config) + 1;
+const DISGRACE_SLOT = 0;
+const PLAY_OFFSET = 1;
 
-const maxEncodedValue = (config: ActionCodecConfig): number => {
-  const span = baseCardSpan(config);
-  return commitOffset(config) + span * span - 1;
+export const encodeAction = (
+  action: IKAction,
+  config: ActionCodecConfig,
+): number => {
+  const result = encodeActionSafe(action, config);
+  return unwrap(result);
 };
 
 export const encodeActionSafe = (
   action: IKAction,
   config: ActionCodecConfig,
 ): Result<EncodeError, number> => {
-  const span = baseCardSpan(config);
+  if (action.kind === "crown") {
+    const crownOffset = PLAY_OFFSET + config.maxCardId + 1;
+    const commitSlots = (config.maxCardId + 1) * (config.maxCardId + 1);
+    return ok(crownOffset + commitSlots + action.firstPlayer);
+  }
+
+  if (action.kind === "disgrace") return ok(DISGRACE_SLOT);
 
   if (action.kind === "play") {
-    if (action.cardId < 0 || action.cardId >= span) {
+    if (action.cardId < 0 || action.cardId > config.maxCardId) {
       return err({ kind: "play_card_out_of_range", cardId: action.cardId, maxCardId: config.maxCardId });
     }
-    return ok(action.cardId);
+    return ok(PLAY_OFFSET + action.cardId);
   }
 
-  if (action.kind === "disgrace") {
-    return ok(span);
-  }
-
-  if (action.successorId < 0 || action.successorId >= span) {
+  const commitBase = PLAY_OFFSET + config.maxCardId + 1;
+  const stride = config.maxCardId + 1;
+  if (action.successorId < 0 || action.successorId > config.maxCardId) {
     return err({ kind: "commit_successor_out_of_range", successorId: action.successorId, maxCardId: config.maxCardId });
   }
-
-  if (action.dungeonId < 0 || action.dungeonId >= span) {
+  if (action.dungeonId < 0 || action.dungeonId > config.maxCardId) {
     return err({ kind: "commit_dungeon_out_of_range", dungeonId: action.dungeonId, maxCardId: config.maxCardId });
   }
+  return ok(commitBase + action.successorId * stride + action.dungeonId);
+};
 
-  return ok(commitOffset(config) + action.successorId * span + action.dungeonId);
+export const decodeAction = (
+  encoded: number,
+  config: ActionCodecConfig,
+): IKAction => {
+  const result = decodeActionSafe(encoded, config);
+  return unwrap(result);
 };
 
 export const decodeActionSafe = (
   encoded: number,
   config: ActionCodecConfig,
 ): Result<DecodeError, IKAction> => {
-  const span = baseCardSpan(config);
+  if (encoded < 0) return err({ kind: "negative", encoded });
 
-  if (encoded < 0) {
-    return err({ kind: "negative", encoded });
+  if (encoded === DISGRACE_SLOT) return ok({ kind: "disgrace" });
+
+  const playMax = PLAY_OFFSET + config.maxCardId;
+  if (encoded <= playMax) {
+    return ok({ kind: "play", cardId: encoded - PLAY_OFFSET });
   }
 
-  if (encoded > maxEncodedValue(config)) {
-    return err({ kind: "out_of_range", encoded, maxEncoded: maxEncodedValue(config) });
+  const commitBase = PLAY_OFFSET + config.maxCardId + 1;
+  const stride = config.maxCardId + 1;
+  const commitSlots = stride * stride;
+  const commitMax = commitBase + commitSlots - 1;
+
+  if (encoded <= commitMax) {
+    const offset = encoded - commitBase;
+    const successorId = Math.floor(offset / stride);
+    const dungeonId = offset % stride;
+    if (successorId === dungeonId) {
+      return err({ kind: "invalid_commit", successorId, dungeonId });
+    }
+    return ok({ kind: "commit", successorId, dungeonId });
   }
 
-  if (encoded < span) {
-    return ok({ kind: "play", cardId: encoded });
+  const crownBase = commitBase + commitSlots;
+  const crownPlayer = encoded - crownBase;
+  if (crownPlayer >= 0) {
+    return ok({ kind: "crown", firstPlayer: crownPlayer });
   }
 
-  if (encoded === span) {
-    return ok({ kind: "disgrace" });
-  }
-
-  const raw = encoded - commitOffset(config);
-  const successorId = Math.floor(raw / span);
-  const dungeonId = raw % span;
-
-  if (successorId === dungeonId) {
-    return err({ kind: "invalid_commit", successorId, dungeonId });
-  }
-
-  return ok({ kind: "commit", successorId, dungeonId });
+  return err({ kind: "out_of_range", encoded, maxEncoded: crownBase + 3 });
 };
-
-export const encodeAction = (action: IKAction, config: ActionCodecConfig): number =>
-  unwrap(encodeActionSafe(action, config));
-
-export const decodeAction = (encoded: number, config: ActionCodecConfig): IKAction =>
-  unwrap(decodeActionSafe(encoded, config));

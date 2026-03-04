@@ -7,7 +7,8 @@ export type TransitionError =
   | { readonly kind: "same_card_commit"; readonly cardId: number }
   | { readonly kind: "cards_not_found"; readonly successorId: number; readonly dungeonId: number }
   | { readonly kind: "no_throne_for_disgrace" }
-  | { readonly kind: "king_already_down" };
+  | { readonly kind: "king_already_down" }
+  | { readonly kind: "invalid_first_player"; readonly player: number };
 
 export const transitionErrorMessage = (e: TransitionError): string => {
   switch (e.kind) {
@@ -25,5 +26,7 @@ export const transitionErrorMessage = (e: TransitionError): string => {
       return "Cannot disgrace without a throne card";
     case "king_already_down":
       return "Cannot disgrace when king is already face-down";
+    case "invalid_first_player":
+      return `Invalid first player: ${e.player}`;
   }
 };

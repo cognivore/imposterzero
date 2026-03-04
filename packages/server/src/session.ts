@@ -31,6 +31,7 @@ export const startSession = <S, A>(
   playerMapping: ReadonlyMap<string, PlayerId>,
   turnDuration: number,
   now: number,
+  initialState?: S,
 ): GameSession<S, A> => {
   if (turnDuration <= 0) {
     throw new RangeError(`turnDuration must be positive, received ${turnDuration}`);
@@ -51,7 +52,7 @@ export const startSession = <S, A>(
 
   return {
     game,
-    state: game.create(numPlayers),
+    state: initialState ?? game.create(numPlayers),
     turnDuration,
     turnDeadline: now + turnDuration,
     playerMapping,

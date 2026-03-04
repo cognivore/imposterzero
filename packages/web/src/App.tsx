@@ -4,6 +4,7 @@ import { useWebSocket } from "./ws-client.js";
 import { useGameLogStore } from "./stores/game-log.js";
 import { BrowserView } from "./views/BrowserView.js";
 import { LobbyView } from "./views/LobbyView.js";
+import { CrownView } from "./views/CrownView.js";
 import { SetupView } from "./views/SetupView.js";
 import { PlayView } from "./views/PlayView.js";
 import { ScoringView } from "./views/ScoringView.js";
@@ -26,6 +27,8 @@ const renderPhase = (
       return <BrowserView phase={phase} send={send} />;
     case "lobby":
       return <LobbyView phase={phase} send={send} />;
+    case "crown":
+      return <CrownView phase={phase} send={send} />;
     case "setup":
       return <SetupView phase={phase} send={send} />;
     case "play":

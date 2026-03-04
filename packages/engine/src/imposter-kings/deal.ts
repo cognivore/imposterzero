@@ -45,12 +45,16 @@ export const deal = (
   kinds: ReadonlyArray<IKCardKind>,
   numPlayers: number,
   randomSource?: RandomSource,
+  trueKing?: PlayerId,
 ): IKState => {
   if (numPlayers < 2 || numPlayers > 4) {
     throw new RangeError(`Imposter Kings supports 2-4 players, received ${numPlayers}`);
   }
 
-  const deck = shuffle(createDeck(kinds), randomSource);
+  const rng = randomSource ?? Math.random;
+  const tk: PlayerId = trueKing ?? (Math.floor(rng() * numPlayers) as PlayerId);
+
+  const deck = shuffle(createDeck(kinds), rng);
   const reserved = reserveCount(numPlayers);
   if (deck.length <= reserved) {
     throw new Error("Deck does not contain enough cards for shared zones and player hands");
@@ -84,9 +88,10 @@ export const deal = (
       accused,
       forgotten: forgottenCard === null ? null : hidden(forgottenCard),
     },
-    activePlayer: 0,
-    phase: "setup",
+    activePlayer: tk,
+    phase: "crown",
     numPlayers,
     turnCount: 0,
+    firstPlayer: tk,
   };
 };

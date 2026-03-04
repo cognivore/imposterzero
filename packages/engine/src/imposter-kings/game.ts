@@ -36,8 +36,14 @@ export const ImposterKingsObserver: Observer<IKState> = {
     const activeOneHot = Array.from({ length: state.numPlayers }, (_, p) =>
       p === state.activePlayer ? 1 : 0,
     );
+    const phaseOneHot = [
+      state.phase === "crown" ? 1 : 0,
+      state.phase === "setup" ? 1 : 0,
+      state.phase === "play" ? 1 : 0,
+    ];
     return [
       ...activeOneHot,
+      ...phaseOneHot,
       perspective.hand.length,
       perspective.king.face === "up" ? 1 : 0,
       perspective.successor === null ? 0 : 1,
@@ -46,6 +52,7 @@ export const ImposterKingsObserver: Observer<IKState> = {
       state.shared.court.length,
       state.shared.accused === null ? 0 : state.shared.accused.kind.props.value,
       state.shared.forgotten === null ? 0 : 1,
+      state.firstPlayer,
     ];
   },
   informationStateString: (state, player: PlayerId) => {
@@ -61,6 +68,7 @@ export const ImposterKingsObserver: Observer<IKState> = {
     return [
       `phase=${state.phase}`,
       `active=${state.activePlayer}`,
+      `firstPlayer=${state.firstPlayer}`,
       `player=${player}`,
       `hand=[${hand}]`,
       `kingFace=${perspective.king.face}`,
