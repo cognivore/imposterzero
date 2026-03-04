@@ -12,6 +12,28 @@ export interface WebSocketHandle {
   readonly send: (msg: IKClientMessage) => void;
 }
 
+const STORAGE_KEY = "imposter-zero-identity";
+
+interface StoredIdentity {
+  readonly token: string;
+  readonly name: string | null;
+}
+
+const loadIdentity = (): StoredIdentity | null => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) as StoredIdentity : null;
+  } catch { return null; }
+};
+
+export const saveIdentity = (token: string, name: string | null): void => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ token, name }));
+};
+
+export const clearIdentity = (): void => {
+  localStorage.removeItem(STORAGE_KEY);
+};
+
 export const useWebSocket = (
   url: string,
   dispatch: (action: GameAction) => void,
@@ -34,14 +56,23 @@ export const useWebSocket = (
       if (!active) return;
       const raw = typeof event.data === "string" ? event.data : String(event.data);
       const result = parseServerMessage<IKState, IKAction, LobbyState>(raw);
-      if (result.ok) {
-        dispatch({ _tag: "server_message", message: result.value });
+      if (!result.ok) return;
+      const msg = result.value;
+      if (msg.type === "welcome") saveIdentity(msg.token, msg.name);
+      if (msg.type === "name_accepted") {
+        const stored = loadIdentity();
+        if (stored) saveIdentity(stored.token, msg.name);
       }
+      dispatch({ _tag: "server_message", message: msg });
     });
 
     ws.addEventListener("open", () => {
       if (!active) return;
-      dispatch({ _tag: "connected" });
+      const id = loadIdentity();
+      const authMsg: Record<string, unknown> = { type: "auth" };
+      if (id?.token) authMsg.token = id.token;
+      if (id?.name) authMsg.name = id.name;
+      ws.send(JSON.stringify(authMsg));
     });
 
     ws.addEventListener("close", () => {

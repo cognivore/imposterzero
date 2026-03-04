@@ -52,9 +52,10 @@ export class ConnectionRegistry {
     return entry;
   }
 
-  disconnect(token: string, now: number): void {
+  disconnect(token: string, now: number, expectedWs?: WebSocket): void {
     const entry = this.entries.get(token);
     if (!entry) return;
+    if (expectedWs !== undefined && entry.ws !== expectedWs) return;
     entry.ws = null;
     entry.disconnectedAt = now;
   }

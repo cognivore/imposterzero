@@ -8,9 +8,11 @@
     "typecheck": "tsc --build --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@vitest/coverage-v8": "^4.0.18",
     "fast-check": "^4.5.3",
     "typescript": "^5.9.3",

@@ -80,7 +80,7 @@ const playChaosMatch = async (
       const bot = bots[botIdx]!;
       if (!bot.isConnected && !matchOver) {
         try {
-          await bot.reconnectToServer();
+          await bot.connect(bot.token);
           reconnectCount++;
         } catch {
           // server may have closed during teardown
@@ -249,7 +249,7 @@ describe("Chaos Monkey E2E", () => {
     await sleep(50);
     for (const bot of bots) bot.simulateDisconnect();
     await sleep(150);
-    for (const bot of bots) await bot.reconnectToServer();
+    for (const bot of bots) await bot.connect(bot.token);
 
     const result = await playChaosMatch(2, {
       disconnectProbability: 0,
@@ -268,7 +268,7 @@ describe("Chaos Monkey E2E", () => {
     for (let i = 0; i < 5; i++) {
       flapper.simulateDisconnect();
       await sleep(10);
-      await flapper.reconnectToServer();
+      await flapper.connect(flapper.token);
       await sleep(10);
     }
 
@@ -301,22 +301,11 @@ describe("Chaos Monkey E2E", () => {
     bots[0]!.simulateDisconnect();
     await sleep(350);
 
-    const freshBot = new BotClient(url, "fresh");
-    await freshBot.connect();
-    await freshBot.setName("FreshBot");
-    bots.push(freshBot);
+    const staleBot = new BotClient(url, "stale");
+    await staleBot.connect(savedToken);
+    bots.push(staleBot);
 
-    freshBot.token = savedToken;
-    const ws = (freshBot as unknown as { ws: import("ws").WebSocket }).ws;
-
-    const responsePromise = freshBot.waitForMessage(3000);
-    ws!.send(JSON.stringify({ type: "reconnect", token: savedToken }));
-    const response = await responsePromise;
-
-    expect(response.type).toBe("error");
-    if (response.type === "error") {
-      expect((response as { message: string }).message).toBe("invalid_token");
-    }
+    expect(staleBot.token).not.toBe(savedToken);
   }, 15_000);
 
   it("message drop simulation — timeouts fill in", async () => {
@@ -354,9 +343,9 @@ describe("Chaos Monkey E2E", () => {
     bots[2]!.simulateDisconnect();
 
     await sleep(200);
-    await bots[2]!.reconnectToServer();
+    await bots[2]!.connect(bots[2]!.token);
     await sleep(100);
-    await bots[1]!.reconnectToServer();
+    await bots[1]!.connect(bots[1]!.token);
 
     expect(bots[1]!.isConnected).toBe(true);
     expect(bots[2]!.isConnected).toBe(true);

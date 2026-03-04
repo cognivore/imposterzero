@@ -48,53 +48,17 @@ export class BotClient {
     });
   }
 
-  connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.ws = new WebSocket(this.url);
-      this.ws.on("open", () => {
-        this.attachListeners(this.ws!);
-        const consumeWelcome = (): void => {
-          const queued = this.messageQueue.shift();
-          if (queued && queued.type === "welcome") {
-            resolve();
-            return;
-          }
-          if (queued) {
-            this.messageQueue.unshift(queued);
-          }
-          this.waiters.push((msg) => {
-            if (msg.type === "welcome") {
-              resolve();
-            } else {
-              this.messageQueue.push(msg);
-              consumeWelcome();
-            }
-          });
-        };
-        consumeWelcome();
-      });
-      this.ws.on("error", reject);
-    });
-  }
-
-  async reconnectToServer(): Promise<void> {
+  connect(token?: string | null): Promise<void> {
     return new Promise((resolve, reject) => {
       this.messageQueue = [];
       this.waiters = [];
       this.ws = new WebSocket(this.url);
       this.ws.on("open", () => {
         this.attachListeners(this.ws!);
-        const drainUntilWelcome = (): void => {
-          this.waiters.push((msg) => {
-            if (msg.type === "welcome") {
-              resolve();
-            } else {
-              drainUntilWelcome();
-            }
-          });
-        };
-        this.ws!.send(JSON.stringify({ type: "reconnect", token: this.token }));
-        drainUntilWelcome();
+        const authMsg: Record<string, unknown> = { type: "auth" };
+        if (token) authMsg.token = token;
+        this.ws!.send(JSON.stringify(authMsg));
+        this.drainUntil((m) => m.type === "welcome").then(() => resolve(), reject);
       });
       this.ws.on("error", reject);
     });

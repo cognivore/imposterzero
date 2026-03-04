@@ -16,6 +16,7 @@ export type ClientPhase =
       readonly name: string | null;
       readonly token: string;
       readonly rooms: readonly RoomSummary[];
+      readonly lastError: string | null;
     }
   | {
       readonly _tag: "lobby";
@@ -153,11 +154,12 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
         name: msg.name ?? null,
         token: msg.token,
         rooms: [],
+        lastError: null,
       };
 
     case "name_accepted": {
       if (phase._tag === "connecting") return phase;
-      return { ...phase, name: msg.name } as ClientPhase;
+      return { ...phase, name: msg.name, lastError: null } as ClientPhase;
     }
 
     case "room_list": {
@@ -171,6 +173,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
         name,
         token,
         rooms: msg.rooms,
+        lastError: null,
       };
     }
 
@@ -286,6 +289,8 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
     }
 
     case "error":
+      if (phase._tag === "connecting") return phase;
+      if (phase._tag === "browser") return { ...phase, lastError: msg.message };
       return phase;
   }
 };

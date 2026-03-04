@@ -9,7 +9,7 @@ import {
   roomTransition,
   continueAfterScoring,
 } from "./room.js";
-import { ConnectionRegistry } from "./connection-registry.js";
+import { ConnectionRegistry, type RegistryEntry } from "./connection-registry.js";
 import {
   type NonEmptyReadonlyArray,
   addBot,
@@ -236,13 +236,22 @@ export const startServer = (
 
   // ---- Connection handler ----
 
-  wss.on("connection", (ws: WebSocket) => {
-    const now = Date.now();
-    const initialEntry = registry.register(ws, now);
-    let activeEntry = initialEntry;
+  // ---- Shared post-auth: send welcome + room state or room list ----
 
-    sendJson(ws, { type: "welcome", token: initialEntry.token, playerId: initialEntry.playerId, name: initialEntry.name });
-    sendRoomListTo(ws);
+  const sendWelcomeAndState = (ws: WebSocket, entry: RegistryEntry): void => {
+    sendJson(ws, { type: "welcome", token: entry.token, playerId: entry.playerId, name: entry.name });
+    const managed = findRoomOfPlayer(store, entry.playerId);
+    if (managed) {
+      sendJson(ws, { type: "room_joined", roomId: managed.id });
+      sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy });
+      sendStateSnapshot(ws, managed);
+    } else {
+      sendRoomListTo(ws);
+    }
+  };
+
+  wss.on("connection", (ws: WebSocket) => {
+    let activeEntry: RegistryEntry | null = null;
 
     ws.on("message", (raw: Buffer | string) => {
       const msgNow = Date.now();
@@ -254,34 +263,24 @@ export const startServer = (
         return;
       }
 
-      const playerId = activeEntry.playerId;
-
-      // ---- Reconnect ----
-      if (msg.type === "reconnect") {
-        const token = msg.token as string;
-        const reconnected = registry.reconnect(ws, token, msgNow);
-        if (!reconnected) {
-          sendJson(ws, { type: "error", message: "invalid_token" });
-          return;
-        }
-        if (activeEntry !== reconnected) {
-          registry.remove(activeEntry.token);
-        }
-        activeEntry = reconnected;
-        sendJson(ws, { type: "welcome", token: reconnected.token, playerId: reconnected.playerId, name: reconnected.name });
-
-        const managed = findRoomOfPlayer(store, reconnected.playerId);
-        if (managed) {
-          sendJson(ws, { type: "room_joined", roomId: managed.id });
-          sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy });
-          sendStateSnapshot(ws, managed);
-        } else {
-          sendRoomListTo(ws);
-        }
+      // ---- Auth (subsumes both fresh connect and reconnect) ----
+      if (msg.type === "auth") {
+        const token = typeof msg.token === "string" ? msg.token : null;
+        const restored = token ? registry.reconnect(ws, token, msgNow) : null;
+        if (activeEntry && restored && activeEntry !== restored) registry.remove(activeEntry.token);
+        activeEntry = restored ?? registry.register(ws, msgNow);
+        const authName = typeof msg.name === "string" ? msg.name.trim() : null;
+        if (authName && !activeEntry.name) registry.setName(activeEntry.token, authName);
+        sendWelcomeAndState(ws, activeEntry);
         return;
       }
 
-      // ---- Room browser messages ----
+      if (!activeEntry) {
+        sendJson(ws, { type: "error", message: "auth_required" });
+        return;
+      }
+
+      const playerId = activeEntry.playerId;
 
       if (msg.type === "set_name") {
         const raw = String(msg.name ?? "").trim();
@@ -486,7 +485,7 @@ export const startServer = (
     });
 
     ws.on("close", () => {
-      registry.disconnect(activeEntry.token, Date.now());
+      if (activeEntry) registry.disconnect(activeEntry.token, Date.now(), ws);
     });
   });
 

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { ClientPhase } from "../state.js";
 import type { IKClientMessage } from "../ws-client.js";
+import { saveIdentity, clearIdentity } from "../ws-client.js";
+import { hexToBase58, base58ToHex } from "../base58.js";
 
 type BrowserPhase = Extract<ClientPhase, { readonly _tag: "browser" }>;
 
@@ -17,8 +19,12 @@ export const BrowserView: React.FC<Props> = ({ phase, send }) => {
   const [targetScore, setTargetScore] = useState<number>(DEFAULT_TARGET);
   const [nameInput, setNameInput] = useState<string>("");
   const [nameError, setNameError] = useState<string | null>(null);
+  const [importKey, setImportKey] = useState<string>("");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const hasName = phase.name !== null;
+  const backupKey = hexToBase58(phase.token);
 
   const handleSetName = () => {
     const trimmed = nameInput.trim();
@@ -40,6 +46,26 @@ export const BrowserView: React.FC<Props> = ({ phase, send }) => {
 
   const handleRefresh = () => {
     send({ type: "list_rooms" });
+  };
+
+  const handleCopyKey = () => {
+    navigator.clipboard.writeText(backupKey).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const handleImportKey = () => {
+    try {
+      const hex = base58ToHex(importKey.trim());
+      if (hex.length !== 32) throw new Error("bad length");
+      saveIdentity(hex, null);
+      clearIdentity();
+      saveIdentity(hex, null);
+      window.location.reload();
+    } catch {
+      setImportError("Invalid key");
+    }
   };
 
   const joinableRooms = phase.rooms.filter((r) => r.phase === "lobby" && r.playerCount < r.maxPlayers);
@@ -72,6 +98,7 @@ export const BrowserView: React.FC<Props> = ({ phase, send }) => {
             </button>
           </div>
           {nameError && <p className="name-error">{nameError}</p>}
+          {phase.lastError && <p className="name-error">{phase.lastError}</p>}
         </div>
       )}
 
@@ -123,6 +150,7 @@ export const BrowserView: React.FC<Props> = ({ phase, send }) => {
           >
             Create Room
           </button>
+          {hasName && phase.lastError && <p className="name-error">{phase.lastError}</p>}
         </div>
 
         <div className="browser-card rooms-card">
@@ -181,12 +209,40 @@ export const BrowserView: React.FC<Props> = ({ phase, send }) => {
         </div>
       </div>
 
-      <p className="browser-footer">
+      <div className="browser-footer">
         {hasName
-          ? <>Playing as <strong>{phase.name}</strong></>
-          : <>Connected as <strong>{phase.me}</strong></>
+          ? <p>Playing as <strong>{phase.name}</strong></p>
+          : <p>Connected as <strong>{phase.me}</strong></p>
         }
-      </p>
+        <div className="backup-section">
+          <span className="backup-label">Your key:</span>
+          <code className="backup-key">{backupKey}</code>
+          <button className="btn btn-ghost btn-copy" onClick={handleCopyKey}>
+            {copied ? "Copied!" : "Copy"}
+          </button>
+        </div>
+        <details className="import-section">
+          <summary>Import key</summary>
+          <div className="import-row">
+            <input
+              className="name-input"
+              type="text"
+              placeholder="Paste base58 key..."
+              value={importKey}
+              onChange={(e) => { setImportKey(e.target.value); setImportError(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") handleImportKey(); }}
+            />
+            <button
+              className="btn btn-secondary"
+              onClick={handleImportKey}
+              disabled={importKey.trim().length === 0}
+            >
+              Import
+            </button>
+          </div>
+          {importError && <p className="name-error">{importError}</p>}
+        </details>
+      </div>
     </div>
   );
 };

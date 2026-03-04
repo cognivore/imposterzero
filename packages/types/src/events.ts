@@ -42,7 +42,7 @@ export type ClientMessage<A = unknown> =
   | { readonly type: "join"; readonly gameId: string }
   | { readonly type: "ready"; readonly ready: boolean }
   | { readonly type: "action"; readonly action: A }
-  | { readonly type: "reconnect"; readonly token: string }
+  | { readonly type: "auth"; readonly token?: string; readonly name?: string }
   | { readonly type: "add_bot" }
   | { readonly type: "observe" };
 
