@@ -13,7 +13,7 @@ const formatRound = (score: number): string =>
   score > 0 ? `+${score}` : String(score);
 
 export const ScoringView: React.FC<Props> = ({ phase }) => {
-  const { roundScores, matchScores, roundsPlayed, numPlayers, me } = phase;
+  const { roundScores, matchScores, roundsPlayed, numPlayers, myIndex, playerNames } = phase;
 
   return (
     <div className="scoring">
@@ -32,8 +32,8 @@ export const ScoringView: React.FC<Props> = ({ phase }) => {
             const round = roundScores[i] ?? 0;
             const match = matchScores[i] ?? 0;
             return (
-              <tr key={i} className={me === `player-${i}` ? "is-me" : ""}>
-                <td>Player {i}</td>
+              <tr key={i} className={i === myIndex ? "is-me" : ""}>
+                <td>{playerNames[i] ?? `Player ${i}`}</td>
                 <td className={scoreClass(round)}>{formatRound(round)}</td>
                 <td>{match}</td>
               </tr>

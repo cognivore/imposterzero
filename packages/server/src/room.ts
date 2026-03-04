@@ -108,6 +108,9 @@ export const createRoom = (
 const buildPlayerMapping = (lobby: LobbyState): ReadonlyMap<string, PlayerId> =>
   new Map(lobby.players.map((p, i) => [p.id, i as PlayerId]));
 
+const playerNamesOf = (room: { readonly lobby: LobbyState }): ReadonlyArray<string> =>
+  room.lobby.players.map((p) => p.id);
+
 const startNewRound = (
   room: LobbyRoom | ScoringRoom,
   now: number,
@@ -136,11 +139,12 @@ const startNewRound = (
     targetScore: room.targetScore,
   };
 
+  const playerNames = playerNamesOf(room);
   return {
     room: playingRoom,
     messages: [
       { type: "game_start", numPlayers },
-      { type: "state", state: session.state, legalActions, activePlayer },
+      { type: "state", state: session.state, legalActions, activePlayer, playerNames },
     ],
   };
 };
@@ -167,6 +171,8 @@ const handleGameAction = (
     const scores = roundScore(newSession.state);
     const newMatch = applyRoundResult(room.match, scores);
 
+    const playerNames = playerNamesOf(room);
+
     if (isMatchOver(newMatch)) {
       const winners = matchWinners(newMatch);
       const finishedRoom: FinishedRoom = {
@@ -181,8 +187,8 @@ const handleGameAction = (
       return ok({
         room: finishedRoom,
         messages: [
-          { type: "round_over", scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed },
-          { type: "match_over", winners, finalScores: [...newMatch.scores] },
+          { type: "round_over", scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed, playerNames },
+          { type: "match_over", winners, finalScores: [...newMatch.scores], playerNames },
         ],
       });
     }
@@ -199,18 +205,19 @@ const handleGameAction = (
     return ok({
       room: scoringRoom,
       messages: [
-        { type: "round_over", scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed },
+        { type: "round_over", scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed, playerNames },
       ],
     });
   }
 
   const legalActions = room.game.legalActions(newSession.state);
   const activePlayer = room.game.currentPlayer(newSession.state) as PlayerId;
+  const playerNames = playerNamesOf(room);
 
   return ok({
     room: { ...room, session: newSession },
     messages: [
-      { type: "state", state: newSession.state, legalActions, activePlayer },
+      { type: "state", state: newSession.state, legalActions, activePlayer, playerNames },
     ],
   });
 };
@@ -224,6 +231,8 @@ const handleTimeout = (
   if (newSession === room.session) {
     return { room, messages: [] };
   }
+
+  const playerNames = playerNamesOf(room);
 
   if (room.game.isTerminal(newSession.state)) {
     const scores = roundScore(newSession.state);
@@ -242,8 +251,8 @@ const handleTimeout = (
           targetScore: room.targetScore,
         },
         messages: [
-          { type: "round_over", scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed },
-          { type: "match_over", winners, finalScores: [...newMatch.scores] },
+          { type: "round_over", scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed, playerNames },
+          { type: "match_over", winners, finalScores: [...newMatch.scores], playerNames },
         ],
       };
     }
@@ -259,7 +268,7 @@ const handleTimeout = (
         targetScore: room.targetScore,
       },
       messages: [
-        { type: "round_over", scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed },
+        { type: "round_over", scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed, playerNames },
       ],
     };
   }
@@ -270,7 +279,7 @@ const handleTimeout = (
   return {
     room: { ...room, session: newSession },
     messages: [
-      { type: "state", state: newSession.state, legalActions, activePlayer },
+      { type: "state", state: newSession.state, legalActions, activePlayer, playerNames },
     ],
   };
 };

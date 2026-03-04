@@ -25,7 +25,7 @@ const canDisgrace = (legalActions: readonly IKPlayAction[]): boolean =>
   legalActions.some((a) => a.kind === "disgrace");
 
 export const PlayView: React.FC<Props> = ({ phase, send }) => {
-  const { gameState, legalActions, activePlayer, myIndex, numPlayers } = phase;
+  const { gameState, legalActions, activePlayer, myIndex, numPlayers, playerNames } = phase;
   const myZones = gameState.players[myIndex];
   const isMyTurn = activePlayer === myIndex;
   const topCourt = gameState.shared.court.at(-1);
@@ -56,7 +56,7 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
               className={`opponent ${activePlayer === opIdx ? "active-player" : ""}`}
             >
               <div className="opponent-label">
-                Player {opIdx}
+                {playerNames[opIdx] ?? `Player ${opIdx}`}
                 {activePlayer === opIdx && <span className="turn-indicator"> (acting)</span>}
               </div>
               <div className="opponent-info">

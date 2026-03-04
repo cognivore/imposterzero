@@ -9,8 +9,9 @@ interface Props {
 }
 
 export const MatchOverView: React.FC<Props> = ({ phase, send }) => {
-  const { winners, finalScores, numPlayers } = phase;
+  const { winners, finalScores, numPlayers, playerNames } = phase;
   const winnerSet = new Set(winners);
+  const winnerNames = winners.map((w) => playerNames[w] ?? `Player ${w}`);
 
   const handleLeave = () => send({ type: "leave_room" });
 
@@ -19,9 +20,9 @@ export const MatchOverView: React.FC<Props> = ({ phase, send }) => {
       <h1>Match Over</h1>
 
       <div className="winner-banner">
-        {winners.length === 1
-          ? `Player ${winners[0]} wins!`
-          : `Players ${winners.join(" & ")} win!`}
+        {winnerNames.length === 1
+          ? `${winnerNames[0]} wins!`
+          : `${winnerNames.join(" & ")} win!`}
       </div>
 
       <table className="score-table">
@@ -35,7 +36,7 @@ export const MatchOverView: React.FC<Props> = ({ phase, send }) => {
         <tbody>
           {Array.from({ length: numPlayers }, (_, i) => (
             <tr key={i} className={winnerSet.has(i) ? "winner-row" : ""}>
-              <td>Player {i}</td>
+              <td>{playerNames[i] ?? `Player ${i}`}</td>
               <td>{finalScores[i] ?? 0}</td>
               <td>{winnerSet.has(i) ? "Winner" : ""}</td>
             </tr>

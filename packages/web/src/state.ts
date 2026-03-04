@@ -41,6 +41,7 @@ export type ClientPhase =
       readonly legalActions: readonly IKSetupAction[];
       readonly activePlayer: PlayerId;
       readonly numPlayers: number;
+      readonly playerNames: readonly string[];
     }
   | {
       readonly _tag: "play";
@@ -53,27 +54,32 @@ export type ClientPhase =
       readonly legalActions: readonly IKPlayAction[];
       readonly activePlayer: PlayerId;
       readonly numPlayers: number;
+      readonly playerNames: readonly string[];
     }
   | {
       readonly _tag: "scoring";
       readonly me: string;
       readonly name: string;
+      readonly myIndex: PlayerId;
       readonly token: string;
       readonly roomId: string;
       readonly roundScores: readonly number[];
       readonly matchScores: readonly number[];
       readonly roundsPlayed: number;
       readonly numPlayers: number;
+      readonly playerNames: readonly string[];
     }
   | {
       readonly _tag: "finished";
       readonly me: string;
       readonly name: string;
+      readonly myIndex: PlayerId;
       readonly token: string;
       readonly roomId: string;
       readonly winners: readonly PlayerId[];
       readonly finalScores: readonly number[];
       readonly numPlayers: number;
+      readonly playerNames: readonly string[];
     };
 
 // ---------------------------------------------------------------------------
@@ -110,7 +116,20 @@ const findMyIndex = (lobby: LobbyState, me: string): PlayerId | null => {
 const myIndexOf = (phase: ClientPhase): PlayerId =>
   phase._tag === "lobby" ? (phase.myIndex ?? 0)
   : phase._tag === "setup" || phase._tag === "play" ? phase.myIndex
+  : phase._tag === "scoring" || phase._tag === "finished" ? phase.myIndex
   : 0;
+
+const playerNamesOfPhase = (phase: ClientPhase, fallback: readonly string[]): readonly string[] => {
+  switch (phase._tag) {
+    case "setup":
+    case "play":
+    case "scoring":
+    case "finished":
+      return phase.playerNames;
+    default:
+      return fallback;
+  }
+};
 
 const numPlayersOf = (phase: ClientPhase, fallback: number): number => {
   switch (phase._tag) {
@@ -227,6 +246,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
       const myIndex = myIndexOf(phase);
       const numPlayers = msg.state.numPlayers;
       const rid = roomIdOf(phase);
+      const playerNames = msg.playerNames ?? playerNamesOfPhase(phase, []);
 
       if (msg.state.phase === "setup") {
         return {
@@ -240,6 +260,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
           legalActions: msg.legalActions.filter(isSetupAction),
           activePlayer: msg.activePlayer,
           numPlayers,
+          playerNames,
         };
       }
 
@@ -254,37 +275,44 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
         legalActions: msg.legalActions.filter(isPlayAction),
         activePlayer: msg.activePlayer,
         numPlayers,
+        playerNames,
       };
     }
 
     case "round_over": {
       const { me, token, name } = identity(phase);
       const rid = roomIdOf(phase);
+      const playerNames = msg.playerNames ?? playerNamesOfPhase(phase, []);
       return {
         _tag: "scoring",
         me,
         name: name ?? "",
+        myIndex: myIndexOf(phase),
         token,
         roomId: rid,
         roundScores: msg.scores,
         matchScores: msg.matchScores,
         roundsPlayed: msg.roundsPlayed,
         numPlayers: numPlayersOf(phase, msg.scores.length),
+        playerNames,
       };
     }
 
     case "match_over": {
       const { me, token, name } = identity(phase);
       const rid = roomIdOf(phase);
+      const playerNames = msg.playerNames ?? playerNamesOfPhase(phase, []);
       return {
         _tag: "finished",
         me,
         name: name ?? "",
+        myIndex: myIndexOf(phase),
         token,
         roomId: rid,
         winners: msg.winners,
         finalScores: msg.finalScores,
         numPlayers: numPlayersOf(phase, msg.finalScores.length),
+        playerNames,
       };
     }
 

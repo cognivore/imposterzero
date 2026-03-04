@@ -184,14 +184,15 @@ export const startServer = (
   // ---- Room-scoped state snapshot (for reconnect) ----
 
   const sendStateSnapshot = (ws: WebSocket, m: ManagedRoom): void => {
+    const playerNames = m.room.lobby.players.map((p) => p.id);
     if (m.room.phase === "playing") {
       const playing = m.room as PlayingRoom;
       const legalActions = playing.game.legalActions(playing.session.state);
       const activePlayer = playing.game.currentPlayer(playing.session.state) as PlayerId;
-      sendJson(ws, { type: "state", state: playing.session.state, legalActions, activePlayer });
+      sendJson(ws, { type: "state", state: playing.session.state, legalActions, activePlayer, playerNames });
     } else if (m.room.phase === "finished") {
       const finished = m.room as FinishedRoom;
-      sendJson(ws, { type: "match_over", winners: finished.winners, finalScores: [...finished.match.scores] });
+      sendJson(ws, { type: "match_over", winners: finished.winners, finalScores: [...finished.match.scores], playerNames });
     } else if (m.room.phase === "scoring") {
       const scoring = m.room as ScoringRoom;
       sendJson(ws, {
@@ -199,6 +200,7 @@ export const startServer = (
         scores: scoring.lastRoundScores,
         matchScores: [...scoring.match.scores],
         roundsPlayed: scoring.match.roundsPlayed,
+        playerNames,
       });
     } else {
       sendJson(ws, { type: "lobby_state", lobby: m.room.lobby });

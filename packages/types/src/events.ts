@@ -64,17 +64,20 @@ export type ServerMessage<S = unknown, A = unknown, L = unknown> =
       readonly state: S;
       readonly legalActions: ReadonlyArray<A>;
       readonly activePlayer: PlayerId;
+      readonly playerNames: ReadonlyArray<string>;
     }
   | {
       readonly type: "round_over";
       readonly scores: ReadonlyArray<number>;
       readonly matchScores: ReadonlyArray<number>;
       readonly roundsPlayed: number;
+      readonly playerNames: ReadonlyArray<string>;
     }
   | {
       readonly type: "match_over";
       readonly winners: ReadonlyArray<PlayerId>;
       readonly finalScores: ReadonlyArray<number>;
+      readonly playerNames: ReadonlyArray<string>;
     }
   | { readonly type: "error"; readonly message: string };
 
