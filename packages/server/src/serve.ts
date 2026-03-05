@@ -13,7 +13,7 @@ const targetScore = parseIntOr(process.env.TARGET_SCORE, 7);
 const handle = startServer(ImposterKingsGame, {
   port,
   targetScore,
-  autoAdvanceScoring: true,
+  autoAdvanceScoring: false,
   botDelayMs: 400,
 });
 

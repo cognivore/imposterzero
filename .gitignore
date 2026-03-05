@@ -24,3 +24,5 @@ result-*
 .direnv/
 
 *.log
+
+packages/web/docs/

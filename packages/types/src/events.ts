@@ -68,6 +68,7 @@ export type ServerMessage<S = unknown, A = unknown, L = unknown> =
     }
   | {
       readonly type: "round_over";
+      readonly state: S;
       readonly scores: ReadonlyArray<number>;
       readonly matchScores: ReadonlyArray<number>;
       readonly roundsPlayed: number;

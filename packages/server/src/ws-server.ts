@@ -197,6 +197,7 @@ export const startServer = (
       const scoring = m.room as ScoringRoom;
       sendJson(ws, {
         type: "round_over",
+        state: scoring.lastState,
         scores: scoring.lastRoundScores,
         matchScores: [...scoring.match.scores],
         roundsPlayed: scoring.match.roundsPlayed,
