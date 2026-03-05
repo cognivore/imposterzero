@@ -282,6 +282,8 @@ const enrichedObservation = (state: IKState, player: PlayerId): number[] => {
 // Neural strategy (3p REINFORCE — pure-TS MLP forward pass)
 // ---------------------------------------------------------------------------
 
+type Matrix = readonly (readonly number[])[];
+
 export interface NeuralPolicy {
   readonly metadata: {
     readonly algorithm: string;
@@ -292,42 +294,44 @@ export interface NeuralPolicy {
     readonly abstract_actions: readonly string[];
     readonly [key: string]: unknown;
   };
-  readonly weights: {
-    readonly w1: readonly (readonly number[])[];
-    readonly b1: readonly number[];
-    readonly w2: readonly (readonly number[])[];
-    readonly b2: readonly number[];
-  };
+  readonly weights: Readonly<Record<string, Matrix | readonly number[]>>;
 }
 
-const mlpForward = (
-  input: readonly number[],
-  w1: readonly (readonly number[])[],
-  b1: readonly number[],
-  w2: readonly (readonly number[])[],
-  b2: readonly number[],
-): number[] => {
-  const hidden = new Array<number>(w1.length);
-  for (let i = 0; i < w1.length; i++) {
-    let sum = b1[i]!;
-    const row = w1[i]!;
-    for (let j = 0; j < row.length; j++) {
-      sum += row[j]! * input[j]!;
+interface LayerParams {
+  readonly w: Matrix;
+  readonly b: readonly number[];
+}
+
+const parseLayerParams = (weights: NeuralPolicy["weights"]): readonly LayerParams[] => {
+  const layers: LayerParams[] = [];
+  for (let i = 1; ; i++) {
+    const w = weights[`w${i}`] as Matrix | undefined;
+    const b = weights[`b${i}`] as readonly number[] | undefined;
+    if (!w || !b) break;
+    layers.push({ w, b });
+  }
+  return layers;
+};
+
+const mlpForward = (input: readonly number[], layers: readonly LayerParams[]): number[] => {
+  let x: number[] = [...input];
+
+  for (let l = 0; l < layers.length; l++) {
+    const { w, b } = layers[l]!;
+    const isLast = l === layers.length - 1;
+    const out = new Array<number>(w.length);
+    for (let i = 0; i < w.length; i++) {
+      let sum = b[i]!;
+      const row = w[i]!;
+      for (let j = 0; j < row.length; j++) {
+        sum += row[j]! * x[j]!;
+      }
+      out[i] = isLast ? sum : (sum > 0 ? sum : 0);
     }
-    hidden[i] = sum > 0 ? sum : 0; // ReLU
+    x = out;
   }
 
-  const output = new Array<number>(w2.length);
-  for (let i = 0; i < w2.length; i++) {
-    let sum = b2[i]!;
-    const row = w2[i]!;
-    for (let j = 0; j < row.length; j++) {
-      sum += row[j]! * hidden[j]!;
-    }
-    output[i] = sum;
-  }
-
-  return output;
+  return x;
 };
 
 const softmax = (logits: readonly number[]): number[] => {
@@ -338,13 +342,13 @@ const softmax = (logits: readonly number[]): number[] => {
 };
 
 export const createNeuralStrategy = (policyJson: NeuralPolicy): BotStrategy => {
-  const { w1, b1, w2, b2 } = policyJson.weights;
+  const layers = parseLayerParams(policyJson.weights);
   const absActions = policyJson.metadata.abstract_actions;
 
   return {
     selectAction(state: IKState, player: PlayerId, legal: ReadonlyArray<IKAction>): IKAction {
       const obs = enrichedObservation(state, player);
-      const logits = mlpForward(obs, w1, b1, w2, b2);
+      const logits = mlpForward(obs, layers);
 
       const groups = groupLegalByAbstract(state, legal, player);
       const available = [...groups.keys()];

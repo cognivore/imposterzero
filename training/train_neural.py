@@ -37,14 +37,16 @@ ABS_TO_IDX = {a: i for i, a in enumerate(ABSTRACT_ACTIONS)}
 
 
 class PolicyNet(nn.Module):
-    def __init__(self, input_size=30, hidden_size=128, output_size=NUM_ABSTRACT_ACTIONS):
+    def __init__(self, input_size=30, hidden_size=128, output_size=NUM_ABSTRACT_ACTIONS, num_layers=2):
         super().__init__()
-        self.fc1 = nn.Linear(input_size, hidden_size)
-        self.fc2 = nn.Linear(hidden_size, output_size)
+        layers = [nn.Linear(input_size, hidden_size), nn.ReLU()]
+        for _ in range(num_layers - 2):
+            layers += [nn.Linear(hidden_size, hidden_size), nn.ReLU()]
+        layers.append(nn.Linear(hidden_size, output_size))
+        self.net = nn.Sequential(*layers)
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        return self.fc2(x)
+        return self.net(x)
 
 
 def select_action(net, state, player, device):
@@ -137,17 +139,23 @@ def evaluate_vs_random(game, net, device, num_games=2000):
 
 
 def export_weights(net, output_path, metadata):
-    """Export network weights as JSON for TypeScript inference."""
+    """Export network weights as JSON for TypeScript inference.
+
+    Serializes all linear layers as w1/b1, w2/b2, ... wN/bN regardless of
+    how deep the network is.
+    """
     sd = net.state_dict()
-    payload = {
-        "metadata": metadata,
-        "weights": {
-            "w1": sd["fc1.weight"].cpu().tolist(),
-            "b1": sd["fc1.bias"].cpu().tolist(),
-            "w2": sd["fc2.weight"].cpu().tolist(),
-            "b2": sd["fc2.bias"].cpu().tolist(),
-        },
-    }
+    weights = {}
+    layer_idx = 1
+    for key in sorted(sd.keys()):
+        param = sd[key].cpu().tolist()
+        if key.endswith(".weight"):
+            weights[f"w{layer_idx}"] = param
+        elif key.endswith(".bias"):
+            weights[f"b{layer_idx}"] = param
+            layer_idx += 1
+
+    payload = {"metadata": metadata, "weights": weights}
     os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
     with open(output_path, "w") as f:
         json.dump(payload, f)
@@ -155,13 +163,31 @@ def export_weights(net, output_path, metadata):
     print(f"  -> Exported: {size_kb:.1f} KB -> {output_path}")
 
 
+def _make_metadata(input_size, hidden_size, num_layers, episode, wr):
+    return {
+        "algorithm": "reinforce_self_play",
+        "num_players": 3,
+        "input_size": input_size,
+        "hidden_size": hidden_size,
+        "num_layers": num_layers,
+        "output_size": NUM_ABSTRACT_ACTIONS,
+        "abstract_actions": ABSTRACT_ACTIONS,
+        "episodes": episode,
+        "win_rate_vs_random": round(wr, 4),
+        "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Train 3p Imposter Zero via REINFORCE self-play")
     parser.add_argument("--episodes", type=int, default=200_000)
+    parser.add_argument("--max_time", type=int, default=0, help="Max training wall-time in seconds (0 = unlimited)")
+    parser.add_argument("--patience", type=int, default=0, help="Stop after N consecutive evals without improvement (0 = disabled)")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--entropy_coeff", type=float, default=0.02)
     parser.add_argument("--hidden_size", type=int, default=128)
+    parser.add_argument("--num_layers", type=int, default=2)
     parser.add_argument("--output", type=str, default="./training/policy_3p.json")
     parser.add_argument("--eval_every", type=int, default=10_000)
     parser.add_argument("--eval_games", type=int, default=2000)
@@ -176,14 +202,19 @@ def main():
 
     game = pyspiel.load_game("imposter_zero_3p")
     input_size = enriched_obs_size()
-    net = PolicyNet(input_size, args.hidden_size, NUM_ABSTRACT_ACTIONS).to(device)
+    net = PolicyNet(input_size, args.hidden_size, NUM_ABSTRACT_ACTIONS, args.num_layers).to(device)
     optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
+
+    time_limit = f"{args.max_time}s" if args.max_time > 0 else "unlimited"
+    patience_str = str(args.patience) if args.patience > 0 else "disabled"
 
     print(f"Imposter Zero 3p — REINFORCE Self-Play")
     print(f"  Device:     {device}")
-    print(f"  Network:    {input_size} -> {args.hidden_size} -> {NUM_ABSTRACT_ACTIONS}")
+    print(f"  Network:    {input_size} -> {'x'.join([str(args.hidden_size)] * (args.num_layers - 1))} -> {NUM_ABSTRACT_ACTIONS} ({args.num_layers} layers)")
     print(f"  Parameters: {sum(p.numel() for p in net.parameters()):,}")
-    print(f"  Episodes:   {args.episodes:,}")
+    print(f"  Max eps:    {args.episodes:,}")
+    print(f"  Time limit: {time_limit}")
+    print(f"  Patience:   {patience_str}")
     print(f"  Batch:      {args.batch_size}")
     print(f"  LR:         {args.lr}")
     print(f"  Entropy:    {args.entropy_coeff}")
@@ -193,8 +224,14 @@ def main():
     last_report = start_time
     episode = 0
     best_wr = 0.0
+    evals_without_improvement = 0
+    stop_reason = "max_episodes"
 
     while episode < args.episodes:
+        if args.max_time > 0 and (time.time() - start_time) >= args.max_time:
+            stop_reason = "time_limit"
+            break
+
         batch_loss = torch.tensor(0.0, device="cpu")
 
         for _ in range(args.batch_size):
@@ -210,16 +247,23 @@ def main():
         optimizer.step()
 
         now = time.time()
-        if now - last_report >= 5.0 or episode >= args.episodes:
+        if now - last_report >= 10.0 or episode >= args.episodes:
             elapsed = now - start_time
             rate = episode / elapsed
-            eta = (args.episodes - episode) / rate if rate > 0 else 0
+            if args.max_time > 0:
+                remaining = max(0, args.max_time - elapsed)
+                eta_str = f"remaining: {remaining:.0f}s"
+            else:
+                eta = (args.episodes - episode) / rate if rate > 0 else 0
+                eta_str = f"ETA: {eta:.0f}s"
             print(
-                f"  ep {episode:>8,} / {args.episodes:,}"
+                f"  ep {episode:>9,}"
                 f"  |  {rate:,.0f} ep/s"
                 f"  |  loss: {batch_loss.item():.4f}"
+                f"  |  best: {best_wr:.1%}"
+                f"  |  stale: {evals_without_improvement}"
                 f"  |  elapsed: {elapsed:.0f}s"
-                f"  |  ETA: {eta:.0f}s"
+                f"  |  {eta_str}"
             )
             last_report = now
 
@@ -228,37 +272,28 @@ def main():
             print(f"  ** eval @ {episode:,}: win rate vs random = {wr:.1%}")
             if wr > best_wr:
                 best_wr = wr
-                export_weights(net, args.output, {
-                    "algorithm": "reinforce_self_play",
-                    "num_players": 3,
-                    "input_size": input_size,
-                    "hidden_size": args.hidden_size,
-                    "output_size": NUM_ABSTRACT_ACTIONS,
-                    "abstract_actions": ABSTRACT_ACTIONS,
-                    "episodes": episode,
-                    "win_rate_vs_random": round(wr, 4),
-                    "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                })
+                evals_without_improvement = 0
+                meta = _make_metadata(input_size, args.hidden_size, args.num_layers, episode, wr)
+                export_weights(net, args.output, meta)
+            else:
+                evals_without_improvement += 1
 
-    print()
+            if args.patience > 0 and evals_without_improvement >= args.patience:
+                stop_reason = f"early_stop (no improvement for {args.patience} evals)"
+                print(f"  !! Early stopping: {evals_without_improvement} evals without improvement")
+                break
+
     elapsed = time.time() - start_time
-    print(f"Training complete: {episode:,} episodes in {elapsed:.1f}s")
+    print()
+    print(f"Training finished: {episode:,} episodes in {elapsed:.1f}s ({stop_reason})")
 
     wr = evaluate_vs_random(game, net, device, args.eval_games)
     print(f"Final win rate vs random: {wr:.1%}")
     print(f"Best win rate: {best_wr:.1%}")
 
-    export_weights(net, args.output, {
-        "algorithm": "reinforce_self_play",
-        "num_players": 3,
-        "input_size": input_size,
-        "hidden_size": args.hidden_size,
-        "output_size": NUM_ABSTRACT_ACTIONS,
-        "abstract_actions": ABSTRACT_ACTIONS,
-        "episodes": episode,
-        "win_rate_vs_random": round(wr, 4),
-        "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    })
+    if wr >= best_wr:
+        meta = _make_metadata(input_size, args.hidden_size, args.num_layers, episode, wr)
+        export_weights(net, args.output, meta)
 
 
 if __name__ == "__main__":
