@@ -141,6 +141,8 @@ const abstractAction = (
     return "M";
   }
 
+  if (action.kind === "effect_choice") return `E${action.choice}`;
+
   const succ = state.players[player]!.hand.find((c) => c.id === action.successorId);
   const dung = state.players[player]!.hand.find((c) => c.id === action.dungeonId);
   const avg = ((succ?.kind.props.value ?? 0) + (dung?.kind.props.value ?? 0)) / 2;

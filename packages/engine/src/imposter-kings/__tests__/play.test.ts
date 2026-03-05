@@ -16,8 +16,10 @@ const seededRandom = (seed: number) => {
   };
 };
 
-const makeState = (numPlayers: number, seed = 42): IKState =>
-  deal(regulationDeck(numPlayers), numPlayers, seededRandom(seed));
+const makeState = (numPlayers: number, seed = 42): IKState => {
+  const dealt = deal(regulationDeck(numPlayers), numPlayers, seededRandom(seed));
+  return apply(dealt, { kind: "crown", firstPlayer: dealt.activePlayer });
+};
 
 const firstCommit = (state: IKState): IKSetupAction => {
   const actions = legalActions(state);
@@ -33,6 +35,16 @@ const toPlayPhase = (numPlayers: number, seed = 42): IKState => {
   return state;
 };
 
+const resolveEffects = (state: IKState): IKState => {
+  let s = state;
+  while (s.phase === ("resolving" as string)) {
+    const legal = legalActions(s);
+    if (legal.length === 0) break;
+    s = apply(s, legal[0]!);
+  }
+  return s;
+};
+
 describe("play phase", () => {
   describe("legal play actions", () => {
     it("initially all hand cards are playable (throne empty, threshold=0)", () => {
@@ -45,7 +57,7 @@ describe("play phase", () => {
     it("includes disgrace when king is face-up and throne is occupied", () => {
       const state = toPlayPhase(2);
       const play = legalActions(state).find((a) => a.kind === "play") as IKPlayCardAction;
-      const afterPlay = apply(state, play);
+      const afterPlay = resolveEffects(apply(state, play));
       const legal = legalActions(afterPlay);
       const hasDisgrace = legal.some((a) => a.kind === "disgrace");
       if (isKingFaceUp(afterPlay, afterPlay.activePlayer)) {
@@ -96,7 +108,7 @@ describe("play phase", () => {
     it("advances active player", () => {
       const state = toPlayPhase(2);
       const play = legalActions(state).find((a) => a.kind === "play") as IKPlayCardAction;
-      const next = apply(state, play);
+      const next = resolveEffects(apply(state, play));
       expect(next.activePlayer).not.toBe(state.activePlayer);
     });
 

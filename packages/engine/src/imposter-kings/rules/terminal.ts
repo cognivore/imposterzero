@@ -4,17 +4,23 @@ import type { IKState } from "../state.js";
 import { legalActions } from "./legal.js";
 
 export const isTerminal = (state: IKState): boolean =>
-  state.phase === "play" && legalActions(state).length === 0;
+  state.forcedLoser !== null ||
+  (state.phase === "play" && legalActions(state).length === 0);
 
-export const currentPlayer = (state: IKState): ActivePlayer =>
-  isTerminal(state) ? TERMINAL : state.activePlayer;
+export const currentPlayer = (state: IKState): ActivePlayer => {
+  if (isTerminal(state)) return TERMINAL;
+  if (state.phase === "resolving" && state.pendingResolution) {
+    return state.pendingResolution.choosingPlayer;
+  }
+  return state.activePlayer;
+};
 
 export const returns = (state: IKState): ReadonlyArray<number> => {
   if (!isTerminal(state)) {
     return Array.from({ length: state.numPlayers }, () => 0);
   }
 
-  const stuck = state.activePlayer;
+  const stuck = state.forcedLoser ?? state.activePlayer;
   const winner = ((stuck - 1 + state.numPlayers) % state.numPlayers) as PlayerId;
   return Array.from({ length: state.numPlayers }, (_, player) => {
     if (player === winner) return 1;

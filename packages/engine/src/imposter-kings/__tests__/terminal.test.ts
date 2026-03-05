@@ -15,8 +15,10 @@ const seededRandom = (seed: number) => {
   };
 };
 
-const makeState = (numPlayers: number, seed = 42): IKState =>
-  deal(regulationDeck(numPlayers), numPlayers, seededRandom(seed));
+const makeState = (numPlayers: number, seed = 42): IKState => {
+  const dealt = deal(regulationDeck(numPlayers), numPlayers, seededRandom(seed));
+  return apply(dealt, { kind: "crown", firstPlayer: dealt.activePlayer });
+};
 
 const firstCommit = (state: IKState): IKSetupAction =>
   legalActions(state).find((a): a is IKSetupAction => a.kind === "commit")!;

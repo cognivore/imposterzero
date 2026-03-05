@@ -17,6 +17,9 @@ export {
   type CardInstance,
   type Visibility,
   type Zone,
+  type ZoneAddress,
+  playerZoneAddr,
+  sharedZoneAddr,
 } from "./cards.js";
 
 export {

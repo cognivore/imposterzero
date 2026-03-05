@@ -7,10 +7,12 @@ const collectAllCardIds = (state: IKState): number[] => {
     ids.push(p.king.card.id);
     if (p.successor) ids.push(p.successor.card.id);
     if (p.dungeon) ids.push(p.dungeon.card.id);
+    ids.push(...p.antechamber.map((c) => c.id));
   }
   for (const e of state.shared.court) ids.push(e.card.id);
   if (state.shared.accused) ids.push(state.shared.accused.id);
   if (state.shared.forgotten) ids.push(state.shared.forgotten.card.id);
+  ids.push(...state.shared.army.map((c) => c.id));
   return ids;
 };
 

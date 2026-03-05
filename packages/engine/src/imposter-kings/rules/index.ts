@@ -4,7 +4,7 @@ import type { IKAction, IKCrownAction } from "../actions.js";
 import { type TransitionError, transitionErrorMessage } from "../errors.js";
 import type { IKState } from "../state.js";
 import { applyCommitSafe } from "./setup.js";
-import { applyPlaySafe, applyDisgraceSafe } from "./play.js";
+import { applyPlaySafe, applyDisgraceSafe, applyEffectChoiceSafe } from "./play.js";
 
 export { legalActions } from "./legal.js";
 export { isTerminal, currentPlayer, returns } from "./terminal.js";
@@ -40,7 +40,14 @@ export const applySafe = (state: IKState, action: IKAction): Result<TransitionEr
     return applyCommitSafe(state, action);
   }
 
-  if (action.kind === "commit" || action.kind === "crown") {
+  if (state.phase === "resolving") {
+    if (action.kind !== "effect_choice") {
+      return err({ kind: "phase_mismatch", phase: "resolving", actionKind: action.kind });
+    }
+    return applyEffectChoiceSafe(state, action.choice);
+  }
+
+  if (action.kind === "commit" || action.kind === "crown" || action.kind === "effect_choice") {
     return err({ kind: "phase_mismatch", phase: "play", actionKind: action.kind });
   }
 

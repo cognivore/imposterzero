@@ -17,10 +17,12 @@ const totalCards = (state: IKState): number => {
   const kingCards = state.players.length;
   const successorCards = state.players.filter((p) => p.successor !== null).length;
   const dungeonCards = state.players.filter((p) => p.dungeon !== null).length;
+  const antechamberCards = state.players.reduce((n, p) => n + p.antechamber.length, 0);
   const courtCards = state.shared.court.length;
   const accusedCards = state.shared.accused !== null ? 1 : 0;
   const forgottenCards = state.shared.forgotten !== null ? 1 : 0;
-  return handCards + kingCards + successorCards + dungeonCards + courtCards + accusedCards + forgottenCards;
+  const armyCards = state.shared.army.length;
+  return handCards + kingCards + successorCards + dungeonCards + antechamberCards + courtCards + accusedCards + forgottenCards + armyCards;
 };
 
 const allCardIds = (state: IKState): number[] => {
@@ -30,10 +32,12 @@ const allCardIds = (state: IKState): number[] => {
     ids.push(p.king.card.id);
     if (p.successor) ids.push(p.successor.card.id);
     if (p.dungeon) ids.push(p.dungeon.card.id);
+    ids.push(...p.antechamber.map((c) => c.id));
   }
   for (const e of state.shared.court) ids.push(e.card.id);
   if (state.shared.accused) ids.push(state.shared.accused.id);
   if (state.shared.forgotten) ids.push(state.shared.forgotten.card.id);
+  ids.push(...state.shared.army.map((c) => c.id));
   return ids;
 };
 
@@ -80,7 +84,7 @@ describe("deal", () => {
     const state = deal(regulationDeck(numPlayers), numPlayers, rng);
 
     it("starts in setup phase", () => {
-      expect(state.phase).toBe("setup");
+      expect(state.phase).toBe("crown");
     });
 
     it("starts with player 0 active", () => {

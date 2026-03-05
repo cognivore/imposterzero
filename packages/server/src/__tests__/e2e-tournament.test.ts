@@ -95,6 +95,7 @@ const create3pGame = async (targetScore: number): Promise<{ server: ServerHandle
     targetScore,
     autoAdvanceScoring: true,
   });
+  await server.ready;
   const url = `ws://127.0.0.1:${server.port}`;
   const bots = await createBotsInRoom(url, 3, 3, targetScore);
   for (const bot of bots) bot.fireReady();
@@ -154,13 +155,16 @@ describe("3p model zoo round-robin tournament", () => {
 
       for (let g = 0; g < matchesPerMatchup; g++) {
         const h = await create3pGame(targetScore);
-        handles.push(h);
-
-        const pickers: [Picker, Picker, Picker] = [trio[0].picker, trio[1].picker, trio[2].picker];
-        const scores = await play3pMatch(pickers, h.bots[0]!, h.bots);
-        const maxScore = Math.max(...scores);
-        for (let s = 0; s < 3; s++) {
-          if (scores[s] === maxScore) matchWins[s]++;
+        try {
+          const pickers: [Picker, Picker, Picker] = [trio[0].picker, trio[1].picker, trio[2].picker];
+          const scores = await play3pMatch(pickers, h.bots[0]!, h.bots);
+          const maxScore = Math.max(...scores);
+          for (let s = 0; s < 3; s++) {
+            if (scores[s] === maxScore) matchWins[s]++;
+          }
+        } finally {
+          closeBots(h.bots);
+          await h.server.close();
         }
       }
 

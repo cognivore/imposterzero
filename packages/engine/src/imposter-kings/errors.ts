@@ -8,7 +8,9 @@ export type TransitionError =
   | { readonly kind: "cards_not_found"; readonly successorId: number; readonly dungeonId: number }
   | { readonly kind: "no_throne_for_disgrace" }
   | { readonly kind: "king_already_down" }
-  | { readonly kind: "invalid_first_player"; readonly player: number };
+  | { readonly kind: "invalid_first_player"; readonly player: number }
+  | { readonly kind: "invalid_effect_choice"; readonly choice: number }
+  | { readonly kind: "no_pending_resolution" };
 
 export const transitionErrorMessage = (e: TransitionError): string => {
   switch (e.kind) {
@@ -28,5 +30,9 @@ export const transitionErrorMessage = (e: TransitionError): string => {
       return "Cannot disgrace when king is already face-down";
     case "invalid_first_player":
       return `Invalid first player: ${e.player}`;
+    case "invalid_effect_choice":
+      return `Effect choice ${e.choice} is out of range`;
+    case "no_pending_resolution":
+      return "No pending effect resolution to apply choice to";
   }
 };

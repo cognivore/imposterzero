@@ -79,6 +79,7 @@ export const deal = (
     },
     successor: null,
     dungeon: null,
+    antechamber: [],
   }));
 
   return {
@@ -87,11 +88,15 @@ export const deal = (
       court: [],
       accused,
       forgotten: forgottenCard === null ? null : hidden(forgottenCard),
+      army: [],
     },
     activePlayer: tk,
     phase: "crown",
     numPlayers,
     turnCount: 0,
     firstPlayer: tk,
+    pendingResolution: null,
+    forcedLoser: null,
+    modifiers: [],
   };
 };

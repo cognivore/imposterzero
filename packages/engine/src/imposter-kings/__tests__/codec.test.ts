@@ -26,26 +26,26 @@ const actionArb = (cfg: ActionCodecConfig): fc.Arbitrary<IKAction> => {
 
 describe("encodeAction / decodeAction (throwing wrappers)", () => {
   describe("play actions", () => {
-    it("encodes play as the cardId itself", () => {
-      expect(encodeAction({ kind: "play", cardId: 0 }, config)).toBe(0);
-      expect(encodeAction({ kind: "play", cardId: 5 }, config)).toBe(5);
-      expect(encodeAction({ kind: "play", cardId: 25 }, config)).toBe(25);
+    it("encodes play as cardId + 1", () => {
+      expect(encodeAction({ kind: "play", cardId: 0 }, config)).toBe(1);
+      expect(encodeAction({ kind: "play", cardId: 5 }, config)).toBe(6);
+      expect(encodeAction({ kind: "play", cardId: 25 }, config)).toBe(26);
     });
 
-    it("decodes values in [0, span) as play", () => {
-      expect(decodeAction(0, config)).toEqual({ kind: "play", cardId: 0 });
-      expect(decodeAction(12, config)).toEqual({ kind: "play", cardId: 12 });
-      expect(decodeAction(25, config)).toEqual({ kind: "play", cardId: 25 });
+    it("decodes values in [1, span] as play", () => {
+      expect(decodeAction(1, config)).toEqual({ kind: "play", cardId: 0 });
+      expect(decodeAction(13, config)).toEqual({ kind: "play", cardId: 12 });
+      expect(decodeAction(26, config)).toEqual({ kind: "play", cardId: 25 });
     });
   });
 
   describe("disgrace action", () => {
-    it("encodes disgrace as span", () => {
-      expect(encodeAction({ kind: "disgrace" }, config)).toBe(span);
+    it("encodes disgrace as 0", () => {
+      expect(encodeAction({ kind: "disgrace" }, config)).toBe(0);
     });
 
-    it("decodes span as disgrace", () => {
-      expect(decodeAction(span, config)).toEqual({ kind: "disgrace" });
+    it("decodes 0 as disgrace", () => {
+      expect(decodeAction(0, config)).toEqual({ kind: "disgrace" });
     });
   });
 
@@ -101,9 +101,9 @@ describe("encodeAction / decodeAction (throwing wrappers)", () => {
       expect(() => decodeAction(-1, config)).toThrow();
     });
 
-    it("throws on value above max encoded", () => {
-      const maxEncoded = span + 1 + span * span;
-      expect(() => decodeAction(maxEncoded, config)).toThrow();
+    it("decodes values at crown base as crown actions", () => {
+      const crownBase = 1 + span + span * span;
+      expect(decodeAction(crownBase, config)).toEqual({ kind: "crown", firstPlayer: 0 });
     });
   });
 });
@@ -131,7 +131,7 @@ describe("encodeActionSafe / decodeActionSafe (Result API)", () => {
     it("returns ok for valid actions", () => {
       const result = encodeActionSafe({ kind: "play", cardId: 5 }, config);
       expect(result.ok).toBe(true);
-      if (result.ok) expect(result.value).toBe(5);
+      if (result.ok) expect(result.value).toBe(6);
     });
   });
 
@@ -142,10 +142,11 @@ describe("encodeActionSafe / decodeActionSafe (Result API)", () => {
       if (!result.ok) expect(result.error.kind).toBe("negative");
     });
 
-    it("returns err for values above max", () => {
-      const result = decodeActionSafe(span + 1 + span * span, config);
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error.kind).toBe("out_of_range");
+    it("returns ok for crown range values", () => {
+      const crownBase = 1 + span + span * span;
+      const result = decodeActionSafe(crownBase, config);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value).toEqual({ kind: "crown", firstPlayer: 0 });
     });
 
     it("returns err for commit where successorId === dungeonId", () => {
@@ -164,7 +165,7 @@ describe("encodeActionSafe / decodeActionSafe (Result API)", () => {
     it("returns ok for valid encoded values", () => {
       const result = decodeActionSafe(0, config);
       expect(result.ok).toBe(true);
-      if (result.ok) expect(result.value).toEqual({ kind: "play", cardId: 0 });
+      if (result.ok) expect(result.value).toEqual({ kind: "disgrace" });
     });
   });
 

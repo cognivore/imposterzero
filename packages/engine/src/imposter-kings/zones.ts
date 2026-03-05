@@ -25,10 +25,12 @@ export interface IKPlayerZones {
   readonly king: KingZone;
   readonly successor: HiddenCard | null;
   readonly dungeon: HiddenCard | null;
+  readonly antechamber: ReadonlyArray<IKCard>;
 }
 
 export interface IKSharedZones {
   readonly court: ReadonlyArray<CourtEntry>;
   readonly accused: IKCard | null;
   readonly forgotten: HiddenCard | null;
+  readonly army: ReadonlyArray<IKCard>;
 }

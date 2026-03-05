@@ -1,11 +1,13 @@
 import type { PlayerId } from "@imposter-zero/types";
 
 import { throne, playerZones, type IKState } from "./state.js";
+import { effectiveValue } from "./effects/modifiers.js";
 
 export const throneValue = (state: IKState): number => {
   const top = throne(state);
   if (top === null) return 0;
-  return top.face === "down" ? 1 : top.card.kind.props.value;
+  if (top.face === "down") return 1;
+  return effectiveValue(state, top.card);
 };
 
 export const isKingFaceUp = (state: IKState, player: PlayerId): boolean =>

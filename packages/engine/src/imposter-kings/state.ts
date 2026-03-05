@@ -1,8 +1,27 @@
 import type { PlayerId } from "@imposter-zero/types";
 
 import type { IKSharedZones, IKPlayerZones, CourtEntry } from "./zones.js";
+import type { ChoiceOption, ModifierSpec } from "./effects/program.js";
 
-export type IKPhase = "crown" | "setup" | "play";
+export type IKPhase = "crown" | "setup" | "play" | "resolving";
+
+export type PendingEffectSource =
+  | { readonly kind: "cardPlay"; readonly cardId: number }
+  | { readonly kind: "disgrace"; readonly throneCardId: number };
+
+export interface PendingResolution {
+  readonly source: PendingEffectSource;
+  readonly effectPlayer: PlayerId;
+  readonly choicesMade: ReadonlyArray<number>;
+  readonly currentOptions: ReadonlyArray<ChoiceOption>;
+  readonly choosingPlayer: PlayerId;
+  readonly stateBeforeEffect: IKState;
+}
+
+export interface ActiveModifier {
+  readonly sourceCardId: number;
+  readonly spec: ModifierSpec;
+}
 
 export interface IKState {
   readonly players: ReadonlyArray<IKPlayerZones>;
@@ -12,6 +31,9 @@ export interface IKState {
   readonly numPlayers: number;
   readonly turnCount: number;
   readonly firstPlayer: PlayerId;
+  readonly pendingResolution: PendingResolution | null;
+  readonly forcedLoser: PlayerId | null;
+  readonly modifiers: ReadonlyArray<ActiveModifier>;
 }
 
 export const throne = (state: IKState): CourtEntry | null =>

@@ -16,8 +16,10 @@ const seededRandom = (seed: number) => {
   };
 };
 
-const makeState = (numPlayers: number, seed = 42): IKState =>
-  deal(regulationDeck(numPlayers), numPlayers, seededRandom(seed));
+const makeState = (numPlayers: number, seed = 42): IKState => {
+  const dealt = deal(regulationDeck(numPlayers), numPlayers, seededRandom(seed));
+  return apply(dealt, { kind: "crown", firstPlayer: dealt.activePlayer });
+};
 
 const firstCommit = (state: IKState): IKSetupAction => {
   const actions = legalActions(state);
@@ -99,7 +101,7 @@ describe("setup phase", () => {
       const state = makeState(2);
       const commit = firstCommit(state);
       const next = apply(state, commit);
-      expect(next.turnCount).toBe(1);
+      expect(next.turnCount).toBe(state.turnCount + 1);
     });
   });
 

@@ -1,5 +1,24 @@
 import type { CardInstance, CardKind } from "@imposter-zero/types";
 
+import type { CardEffect } from "./effects/program.js";
+import {
+  onPlay,
+  playOverride,
+  reaction,
+  continuous,
+  disgraceAll,
+  played,
+  active,
+  done,
+  chooseCard,
+  move,
+  court as courtZone,
+  activeHand,
+  optional,
+} from "./effects/program.js";
+import type { CardRef, ModifierSpec } from "./effects/program.js";
+import { kingIsFlipped, courtHasRoyalty } from "./effects/predicates.js";
+
 export interface CardOps<C> {
   readonly value: (card: C) => number;
   readonly name: (card: C) => string;
@@ -46,6 +65,7 @@ export interface IKCardProps extends Record<string, unknown> {
   readonly shortText: string;
   readonly fullText: string;
   readonly flavorText: string;
+  readonly effects: ReadonlyArray<CardEffect>;
 }
 
 export type IKCardKind = CardKind<IKCardProps> & { readonly name: CardName };
@@ -65,6 +85,7 @@ export const KING_CARD_KIND: IKCardKind = {
     fullText:
       "Flip to Disgrace the card on the Throne and take your Successor as your turn.",
     flavorText: "His authority rests upon his identity",
+    effects: [],
   },
 };
 
@@ -73,6 +94,7 @@ interface CardContent {
   readonly shortText: string;
   readonly fullText: string;
   readonly flavorTexts: readonly string[];
+  readonly effects?: ReadonlyArray<CardEffect>;
 }
 
 const copies = (
@@ -89,6 +111,7 @@ const copies = (
       shortText: content.shortText,
       fullText: content.fullText,
       flavorText: content.flavorTexts[i] ?? content.flavorTexts.at(-1) ?? "",
+      effects: content.effects ?? [],
     },
   }));
 
@@ -96,12 +119,19 @@ const copies = (
 // Card content — authored from website artwork + Print-and-Play PDF
 // ---------------------------------------------------------------------------
 
+const foolEffect = optional(
+  chooseCard(active, courtZone, { tag: "notDisgraced" }, (cardId) =>
+    move({ kind: "id", cardId } as CardRef, courtZone, activeHand),
+  ),
+);
+
 const FOOL: CardContent = {
   keywords: [],
   shortText: "Take any faceup card from Court.",
   fullText:
     "You may choose any other card from the Court that is not Disgraced, then put the chosen card into your hand.",
   flavorTexts: ["High and low, tricking others at every turn"],
+  effects: [onPlay(foolEffect)],
 };
 
 const ASSASSIN: CardContent = {
@@ -110,6 +140,7 @@ const ASSASSIN: CardContent = {
   fullText:
     "Reaction: If another player flips their King, you may reveal this card from your hand to prevent their King\u2019s power and cause them to lose this round.",
   flavorTexts: ["Things got complicated with the contract"],
+  effects: [reaction("king_flip", done)],
 };
 
 const ELDER: CardContent = {
@@ -120,6 +151,7 @@ const ELDER: CardContent = {
     "Kingdom politics are beneath them, unless necessary",
     "Experience never fades for the undying",
   ],
+  effects: [playOverride({ tag: "onAnyRoyalty" })],
 };
 
 const ZEALOT: CardContent = {
@@ -128,6 +160,12 @@ const ZEALOT: CardContent = {
   fullText:
     "If your King is flipped, you may play this card on any non-Royalty card.",
   flavorTexts: ["Their loyalty has swallowed their sanity"],
+  effects: [
+    playOverride({
+      tag: "onAnyNonRoyaltyWhen",
+      predicate: kingIsFlipped(active),
+    }),
+  ],
 };
 
 const INQUISITOR: CardContent = {
@@ -199,6 +237,29 @@ const OATHBOUND: CardContent = {
   ],
 };
 
+const immortalModifiers: ReadonlyArray<CardEffect> = [
+  continuous({ tag: "selfCourtValue", value: 5 }),
+  continuous({ tag: "grantKeyword", keyword: "royalty", target: { tag: "self" } }),
+  continuous({ tag: "grantKeyword", keyword: "royalty", target: { tag: "byName", name: "Warlord" } }),
+  continuous({
+    tag: "valueChange",
+    delta: -1,
+    target: {
+      tag: "and",
+      left: { tag: "allInCourtExceptSelf" },
+      right: { tag: "or", left: { tag: "byKeyword", keyword: "royalty" }, right: { tag: "byName", name: "Elder" } },
+    },
+  }),
+  continuous({
+    tag: "mute",
+    target: {
+      tag: "and",
+      left: { tag: "allInCourtExceptSelf" },
+      right: { tag: "or", left: { tag: "byKeyword", keyword: "royalty" }, right: { tag: "byName", name: "Elder" } },
+    },
+  }),
+];
+
 const IMMORTAL: CardContent = {
   keywords: ["steadfast"],
   shortText: "Warlord gains Royalty; Royalty/Elders weakened.",
@@ -207,6 +268,7 @@ const IMMORTAL: CardContent = {
   flavorTexts: [
     "The Bhunari seemingly suffer no casualties in battle. In court however\u2026",
   ],
+  effects: immortalModifiers,
 };
 
 const HERALD: CardContent = {
@@ -223,6 +285,14 @@ const WARLORD: CardContent = {
   fullText:
     "If there are any Royalty in the Court, this card gains +1 value in your hand and an additional +1 value after being played.",
   flavorTexts: ["In chaos, her influence shines"],
+  effects: [
+    continuous({
+      tag: "conditionalValueChange",
+      delta: 2,
+      target: { tag: "and", left: { tag: "allInCourt" }, right: { tag: "byName", name: "Warlord" } },
+      condition: courtHasRoyalty,
+    }),
+  ],
 };
 
 const MYSTIC: CardContent = {
@@ -258,6 +328,7 @@ const KINGS_HAND: CardContent = {
     "To face him, certain death",
     "To be near him, a sense of dread",
   ],
+  effects: [reaction("ability_activation", done)],
 };
 
 const SPY: CardContent = {
@@ -280,6 +351,7 @@ const QUEEN: CardContent = {
   shortText: "Disgrace all other Court cards.",
   fullText: "You must Disgrace all other cards in the Court.",
   flavorTexts: ["Her presence shakes all convictions"],
+  effects: [onPlay(disgraceAll(played))],
 };
 
 // ---------------------------------------------------------------------------

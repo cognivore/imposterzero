@@ -10,7 +10,7 @@ const hasResources = (state: IKState, player: PlayerId): boolean => {
 };
 
 const stuckAndWinner = (state: IKState): { stuck: PlayerId; winner: PlayerId } => {
-  const stuck = state.activePlayer;
+  const stuck = state.forcedLoser ?? state.activePlayer;
   const winner = ((stuck - 1 + state.numPlayers) % state.numPlayers) as PlayerId;
   return { stuck, winner };
 };

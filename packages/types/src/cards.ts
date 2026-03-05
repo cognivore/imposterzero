@@ -25,3 +25,16 @@ export interface Zone<P extends Record<string, unknown> = Record<string, unknown
   readonly cards: ReadonlyArray<CardInstance<P>>;
   readonly visibility: Visibility;
 }
+
+export type ZoneAddress<P extends string = string, S extends string = string> =
+  | { readonly scope: "player"; readonly player: PlayerId; readonly slot: P }
+  | { readonly scope: "shared"; readonly slot: S };
+
+export const playerZoneAddr = <P extends string>(
+  player: PlayerId,
+  slot: P,
+): ZoneAddress<P, never> => ({ scope: "player", player, slot });
+
+export const sharedZoneAddr = <S extends string>(
+  slot: S,
+): ZoneAddress<never, S> => ({ scope: "shared", slot });
