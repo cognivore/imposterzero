@@ -3,7 +3,15 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ImposterKingsGame } from "@imposter-zero/engine";
-import { type BotStrategy, RandomStrategy, createTabularStrategy, type TabularPolicy } from "./bot-player.js";
+import {
+  type BotStrategy,
+  type TabularPolicy,
+  type NeuralPolicy,
+  RandomStrategy,
+  createTabularStrategy,
+  createNeuralStrategy,
+  createCompositeStrategy,
+} from "./bot-player.js";
 import { startServer } from "./ws-server.js";
 
 const parseIntOr = (env: string | undefined, fallback: number): number => {
@@ -12,63 +20,74 @@ const parseIntOr = (env: string | undefined, fallback: number): number => {
   return Number.isNaN(n) ? fallback : n;
 };
 
-type StrategyResult =
-  | { readonly kind: "tabular"; readonly strategy: BotStrategy; readonly path: string; readonly states: number; readonly iterations: number }
-  | { readonly kind: "random"; readonly strategy: BotStrategy; readonly searched: readonly string[] };
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
-const loadBotStrategy = (): StrategyResult => {
-  const envPath = process.env.BOT_POLICY_PATH;
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = dirname(__filename);
+const policyPaths = (name: string): readonly string[] => [
+  process.env[`BOT_POLICY_${name.toUpperCase()}`],
+  resolve(__dirname, `../../../training/${name}`),
+  resolve(__dirname, `../../training/${name}`),
+  resolve(process.cwd(), `training/${name}`),
+].filter((p): p is string => p !== undefined);
 
-  const candidates = [
-    envPath,
-    resolve(__dirname, "../../../training/policy.json"),
-    resolve(__dirname, "../../training/policy.json"),
-    resolve(process.cwd(), "training/policy.json"),
-  ].filter((p): p is string => p !== undefined);
-
+const tryLoadJson = <T>(candidates: readonly string[], label: string): { data: T; path: string } | null => {
   for (const path of candidates) {
     if (existsSync(path)) {
       try {
-        const raw = readFileSync(path, "utf-8");
-        const policy = JSON.parse(raw) as TabularPolicy;
-        const states = policy.metadata?.info_states ?? Object.keys(policy.policy).length;
-        const iterations = policy.metadata?.iterations ?? 0;
-        return { kind: "tabular", strategy: createTabularStrategy(policy), path, states, iterations };
+        return { data: JSON.parse(readFileSync(path, "utf-8")) as T, path };
       } catch (e) {
-        console.error(`[bot] Failed to parse policy at ${path}:`, e instanceof Error ? e.message : e);
+        console.error(`[bot] Failed to parse ${label} at ${path}:`, e instanceof Error ? e.message : e);
       }
     }
   }
+  return null;
+};
 
-  return { kind: "random", strategy: RandomStrategy, searched: candidates };
+const loadBotStrategy = (): BotStrategy => {
+  const strategies = new Map<number, BotStrategy>();
+
+  const tab2p = tryLoadJson<TabularPolicy>(policyPaths("policy.json"), "2p tabular");
+  if (tab2p) {
+    const s = tab2p.data.metadata?.info_states ?? Object.keys(tab2p.data.policy).length;
+    const it = tab2p.data.metadata?.iterations ?? 0;
+    console.log(`[bot] 2p tabular: ${s} info states, ${it.toLocaleString()} iterations (${tab2p.path})`);
+    strategies.set(2, createTabularStrategy(tab2p.data));
+  }
+
+  const nn3p = tryLoadJson<NeuralPolicy>(policyPaths("policy_3p.json"), "3p neural");
+  if (nn3p) {
+    const { input_size, hidden_size, output_size } = nn3p.data.metadata;
+    const wr = (nn3p.data.metadata.win_rate_vs_random as number | undefined) ?? 0;
+    console.log(`[bot] 3p neural: ${input_size}->${hidden_size}->${output_size} MLP, wr=${(wr * 100).toFixed(1)}% (${nn3p.path})`);
+    strategies.set(3, createNeuralStrategy(nn3p.data));
+  }
+
+  if (strategies.size === 0) {
+    console.warn("[bot] WARNING: No trained bot policies found — bots will play randomly.");
+    console.warn("[bot] To train:");
+    console.warn("[bot]   2p: python training/train.py --output training/policy.json");
+    console.warn("[bot]   3p: python training/train_neural.py --output training/policy_3p.json");
+    return RandomStrategy;
+  }
+
+  const missing = [2, 3].filter((n) => !strategies.has(n));
+  if (missing.length > 0) {
+    console.log(`[bot] No policy for ${missing.map((n) => `${n}p`).join(", ")} — will use random`);
+  }
+
+  return createCompositeStrategy(strategies);
 };
 
 const port = parseIntOr(process.env.PORT, 30588);
 const targetScore = parseIntOr(process.env.TARGET_SCORE, 7);
-const result = loadBotStrategy();
-
-if (result.kind === "tabular") {
-  console.log(`[bot] Trained policy loaded: ${result.states} info states, ${result.iterations.toLocaleString()} iterations`);
-  console.log(`[bot] Source: ${result.path}`);
-} else {
-  console.warn("[bot] WARNING: No trained bot policy found — bots will play randomly.");
-  console.warn("[bot] Searched:");
-  for (const p of result.searched) console.warn(`[bot]   - ${p}`);
-  console.warn("[bot]");
-  console.warn("[bot] To train a policy, run:");
-  console.warn("[bot]   python training/train.py --iterations 2000000 --output training/policy.json");
-  console.warn("[bot]");
-  console.warn("[bot] Or set BOT_POLICY_PATH to a trained policy file.");
-}
+const botStrategy = loadBotStrategy();
 
 const handle = startServer(ImposterKingsGame, {
   port,
   targetScore,
   autoAdvanceScoring: false,
   botDelayMs: 400,
-  botStrategy: result.strategy,
+  botStrategy,
 });
 
 handle.ready.then(

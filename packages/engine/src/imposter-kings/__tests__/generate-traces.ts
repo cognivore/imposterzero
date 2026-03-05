@@ -128,6 +128,9 @@ const traces = [
   generateTrace(2, 42),
   generateTrace(2, 123),
   generateTrace(2, 999),
+  generateTrace(3, 42),
+  generateTrace(3, 123),
+  generateTrace(3, 999),
 ];
 
 for (const trace of traces) {

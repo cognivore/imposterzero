@@ -22,9 +22,15 @@ def load_trace(filename):
         return json.load(f)
 
 
+def _game_name(num_players):
+    if num_players == 3:
+        return "imposter_zero_3p"
+    return "imposter_zero"
+
+
 def make_state_from_trace(trace):
     """Construct an ImposterZeroState with the exact deal from a TS trace."""
-    game = pyspiel.load_game("imposter_zero")
+    game = pyspiel.load_game(_game_name(trace["numPlayers"]))
     state = game.new_initial_state()
 
     deck_kinds = ig._regulation_deck(trace["numPlayers"])
@@ -194,6 +200,20 @@ def test_game_registration():
     assert len(state.legal_actions()) == 2
 
 
+def test_game_registration_3p():
+    """Verify the 3p game variant registers and works."""
+    game = pyspiel.load_game("imposter_zero_3p")
+    assert game.num_players() == 3
+    assert game.num_distinct_actions() == 816
+
+    state = game.new_initial_state()
+    assert not state.is_terminal()
+    assert state._phase == "crown"
+    assert len(state.legal_actions()) == 3
+    assert state._deck_size == 25
+    assert state._max_card_id == 27
+
+
 def test_random_playout_terminates():
     """A random playout should always terminate."""
     import random
@@ -214,6 +234,30 @@ def test_random_playout_terminates():
 
         r = state.returns()
         assert abs(sum(r)) < 1e-9, f"Seed {seed}: returns don't sum to zero: {r}"
+
+
+def test_random_playout_terminates_3p():
+    """3p random playouts should always terminate with correct returns."""
+    import random
+    game = pyspiel.load_game("imposter_zero_3p")
+
+    for seed in range(20):
+        rng = random.Random(seed)
+        state = game.new_initial_state()
+        steps = 0
+        while not state.is_terminal() and steps < 300:
+            legal = state.legal_actions()
+            action = rng.choice(legal)
+            state.apply_action(action)
+            steps += 1
+
+        assert state.is_terminal(), f"3p seed {seed}: did not terminate in 300 steps"
+        r = state.returns()
+        assert len(r) == 3
+        winners = sum(1 for x in r if x > 0)
+        losers = sum(1 for x in r if x < 0)
+        assert winners == 1, f"3p seed {seed}: expected 1 winner, got {winners}"
+        assert losers == 1, f"3p seed {seed}: expected 1 loser, got {losers}"
 
 
 def test_clone_produces_independent_copy():

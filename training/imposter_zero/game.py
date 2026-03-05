@@ -2,21 +2,22 @@
 Imposter Zero — OpenSpiel game definition.
 
 Faithful port of the TypeScript engine (packages/engine/src/imposter-kings).
-Phases: crown (select first player) → setup (commit successor + dungeon) → play.
+Phases: crown (select first player) -> setup (commit successor + dungeon) -> play.
 Terminal: active player has no legal play actions during play phase.
 
+Registers two game variants:
+  - imposter_zero      (2-player, ZERO_SUM)
+  - imposter_zero_3p   (3-player, GENERAL_SUM)
+
 Action codec layout (matches TS encodeAction/decodeAction):
-  0                            → disgrace
-  [1, maxCardId+1]            → play(cardId = encoded - 1)
-  [maxCardId+2, ...]          → commit(succ, dung) as 2D grid
-  [crownBase, ...]            → crown(firstPlayer)
+  0                            -> disgrace
+  [1, maxCardId+1]            -> play(cardId = encoded - 1)
+  [maxCardId+2, ...]          -> commit(succ, dung) as 2D grid
+  [crownBase, ...]            -> crown(firstPlayer)
 """
 
-import copy
 import random
-from typing import Optional
 
-import numpy as np
 import pyspiel
 
 # ---------------------------------------------------------------------------
@@ -71,15 +72,6 @@ def _reserve_count(num_players):
 
 # ---------------------------------------------------------------------------
 # Action codec — mirrors actions.ts
-#
-# Layout:
-#   DISGRACE_SLOT = 0
-#   PLAY_OFFSET   = 1
-#   play(cardId)  = PLAY_OFFSET + cardId           (slots 1..maxCardId+1)
-#   commitBase    = PLAY_OFFSET + maxCardId + 1     (= maxCardId + 2)
-#   commit(s, d)  = commitBase + s * stride + d     (stride = maxCardId + 1)
-#   crownBase     = commitBase + stride * stride
-#   crown(p)      = crownBase + p
 # ---------------------------------------------------------------------------
 
 _DISGRACE_SLOT = 0
@@ -120,11 +112,6 @@ def _encode_commit(successor_id, dungeon_id, max_card_id):
     return _commit_base(max_card_id) + successor_id * stride + dungeon_id
 
 
-def _encode_crown(first_player):
-    """Encode crown action. Requires max_card_id for the base offset."""
-    raise ValueError("Use _encode_crown_with_config instead")
-
-
 def _encode_crown_action(first_player, max_card_id):
     return _crown_base(max_card_id) + first_player
 
@@ -157,19 +144,33 @@ def _decode_action(encoded, max_card_id, num_players):
 
 
 # ---------------------------------------------------------------------------
-# Compute game dimensions for 2-player (default)
+# Per-variant dimension helpers
 # ---------------------------------------------------------------------------
 
-_NUM_PLAYERS = 2
-_DECK_2P = _regulation_deck(2)
-_MAX_CARD_ID_2P = _max_card_id(len(_DECK_2P), _NUM_PLAYERS)
+def _game_dims(num_players):
+    deck = _regulation_deck(num_players)
+    deck_size = len(deck)
+    max_cid = _max_card_id(deck_size, num_players)
+    max_hand = (deck_size - _reserve_count(num_players)) // num_players
+    max_setup = num_players
+    max_play = 2 * max_hand + num_players
+    max_length = 1 + max_setup + max_play
+    return {
+        "deck_size": deck_size,
+        "max_card_id": max_cid,
+        "num_actions": _num_distinct_actions(max_cid, num_players),
+        "max_game_length": max_length,
+    }
 
-_MAX_SETUP_ACTIONS = _NUM_PLAYERS
-_MAX_HAND_CARDS = (len(_DECK_2P) - _reserve_count(_NUM_PLAYERS)) // _NUM_PLAYERS
-_MAX_PLAY_ACTIONS = 2 * _MAX_HAND_CARDS + _NUM_PLAYERS
-_MAX_GAME_LENGTH = 1 + _MAX_SETUP_ACTIONS + _MAX_PLAY_ACTIONS  # +1 for crown
 
-_GAME_TYPE = pyspiel.GameType(
+_DIMS_2P = _game_dims(2)
+_DIMS_3P = _game_dims(3)
+
+# ---------------------------------------------------------------------------
+# 2-player registration (ZERO_SUM)
+# ---------------------------------------------------------------------------
+
+_GAME_TYPE_2P = pyspiel.GameType(
     short_name="imposter_zero",
     long_name="Imposter Zero",
     dynamics=pyspiel.GameType.Dynamics.SEQUENTIAL,
@@ -177,22 +178,51 @@ _GAME_TYPE = pyspiel.GameType(
     information=pyspiel.GameType.Information.IMPERFECT_INFORMATION,
     utility=pyspiel.GameType.Utility.ZERO_SUM,
     reward_model=pyspiel.GameType.RewardModel.TERMINAL,
-    max_num_players=_NUM_PLAYERS,
-    min_num_players=_NUM_PLAYERS,
+    max_num_players=2,
+    min_num_players=2,
     provides_information_state_string=True,
     provides_information_state_tensor=True,
     provides_observation_string=True,
     provides_observation_tensor=True,
 )
 
-_GAME_INFO = pyspiel.GameInfo(
-    num_distinct_actions=_num_distinct_actions(_MAX_CARD_ID_2P, _NUM_PLAYERS),
+_GAME_INFO_2P = pyspiel.GameInfo(
+    num_distinct_actions=_DIMS_2P["num_actions"],
     max_chance_outcomes=0,
-    num_players=_NUM_PLAYERS,
+    num_players=2,
     min_utility=-1.0,
     max_utility=1.0,
     utility_sum=0.0,
-    max_game_length=_MAX_GAME_LENGTH,
+    max_game_length=_DIMS_2P["max_game_length"],
+)
+
+# ---------------------------------------------------------------------------
+# 3-player registration (GENERAL_SUM — returns {-1, 0, +1}, not zero-sum)
+# ---------------------------------------------------------------------------
+
+_GAME_TYPE_3P = pyspiel.GameType(
+    short_name="imposter_zero_3p",
+    long_name="Imposter Zero (3 players)",
+    dynamics=pyspiel.GameType.Dynamics.SEQUENTIAL,
+    chance_mode=pyspiel.GameType.ChanceMode.SAMPLED_STOCHASTIC,
+    information=pyspiel.GameType.Information.IMPERFECT_INFORMATION,
+    utility=pyspiel.GameType.Utility.GENERAL_SUM,
+    reward_model=pyspiel.GameType.RewardModel.TERMINAL,
+    max_num_players=3,
+    min_num_players=3,
+    provides_information_state_string=True,
+    provides_information_state_tensor=True,
+    provides_observation_string=True,
+    provides_observation_tensor=True,
+)
+
+_GAME_INFO_3P = pyspiel.GameInfo(
+    num_distinct_actions=_DIMS_3P["num_actions"],
+    max_chance_outcomes=0,
+    num_players=3,
+    min_utility=-1.0,
+    max_utility=1.0,
+    max_game_length=_DIMS_3P["max_game_length"],
 )
 
 
@@ -202,23 +232,44 @@ _GAME_INFO = pyspiel.GameInfo(
 
 class ImposterZeroGame(pyspiel.Game):
     def __init__(self, params=None):
-        super().__init__(_GAME_TYPE, _GAME_INFO, params or {})
+        game_type = self._resolve_game_type()
+        game_info = self._resolve_game_info()
+        super().__init__(game_type, game_info, params or {})
         self._seed = int(params.get("seed", -1)) if params else -1
+        self._np = game_info.num_players
+
+    @classmethod
+    def _resolve_game_type(cls):
+        return _GAME_TYPE_2P
+
+    @classmethod
+    def _resolve_game_info(cls):
+        return _GAME_INFO_2P
 
     def new_initial_state(self):
-        return ImposterZeroState(self, seed=self._seed)
+        return ImposterZeroState(self, num_players=self._np, seed=self._seed)
 
     def observation_tensor_size(self):
-        return _NUM_PLAYERS + 12
+        return self._np + 12
 
     def information_state_tensor_size(self):
-        return _NUM_PLAYERS + 12
+        return self._np + 12
+
+
+class ImposterZeroGame3P(ImposterZeroGame):
+    @classmethod
+    def _resolve_game_type(cls):
+        return _GAME_TYPE_3P
+
+    @classmethod
+    def _resolve_game_info(cls):
+        return _GAME_INFO_3P
 
 
 class ImposterZeroState(pyspiel.State):
-    def __init__(self, game, seed=-1):
+    def __init__(self, game, num_players=2, seed=-1):
         super().__init__(game)
-        self._num_players = _NUM_PLAYERS
+        self._num_players = num_players
 
         deck_kinds = _regulation_deck(self._num_players)
         self._deck_size = len(deck_kinds)
@@ -228,7 +279,6 @@ class ImposterZeroState(pyspiel.State):
         self._deal(deck_kinds, rng)
 
     def _deal(self, deck_kinds, rng):
-        """Mirrors deal.ts: pick trueKing, shuffle, reserve, round-robin deal, assign kings."""
         self._first_player = rng.randint(0, self._num_players - 1)
 
         cards = list(range(self._deck_size))
@@ -268,7 +318,7 @@ class ImposterZeroState(pyspiel.State):
         self._active_player = self._first_player
         self._turn_count = 0
 
-    # -- Cloning (required for MCCFR tree traversal) --
+    # -- Cloning --
 
     def _clone_impl(self):
         cloned = ImposterZeroState.__new__(ImposterZeroState)
@@ -301,7 +351,6 @@ class ImposterZeroState(pyspiel.State):
         return self._active_player
 
     def _legal_actions_internal(self):
-        """Compute legal actions without calling is_terminal (avoids recursion)."""
         p = self._active_player
 
         if self._phase == "crown":
@@ -485,4 +534,10 @@ class ImposterZeroState(pyspiel.State):
         )
 
 
-pyspiel.register_game(_GAME_TYPE, ImposterZeroGame)
+# Keep module-level constants for backward compatibility with train.py / tests
+_NUM_PLAYERS = 2
+_DECK_2P = _regulation_deck(2)
+_MAX_CARD_ID_2P = _max_card_id(len(_DECK_2P), _NUM_PLAYERS)
+
+pyspiel.register_game(_GAME_TYPE_2P, ImposterZeroGame)
+pyspiel.register_game(_GAME_TYPE_3P, ImposterZeroGame3P)

@@ -73,6 +73,7 @@ export {
   type BotRegistry,
   type BotStrategy,
   type TabularPolicy,
+  type NeuralPolicy,
   type NonEmptyReadonlyArray,
   emptyBotRegistry,
   addBot,
@@ -80,6 +81,8 @@ export {
   pickRandom,
   RandomStrategy,
   createTabularStrategy,
+  createNeuralStrategy,
+  createCompositeStrategy,
 } from "./bot-player.js";
 
 export {
