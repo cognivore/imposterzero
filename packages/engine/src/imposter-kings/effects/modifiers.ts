@@ -44,6 +44,11 @@ const matchesQuery = (
 // Effective value — applies modifier stack to a card's base value
 // ---------------------------------------------------------------------------
 
+const allModifiers = (state: IKState): ReadonlyArray<ActiveModifier> =>
+  state.roundModifiers.length === 0
+    ? state.modifiers
+    : [...state.modifiers, ...state.roundModifiers];
+
 export const effectiveValue = (state: IKState, card: IKCard): number => {
   const isSteadfast = card.kind.props.keywords.includes("steadfast");
   let value = card.kind.props.value;
@@ -52,9 +57,10 @@ export const effectiveValue = (state: IKState, card: IKCard): number => {
     playedCard: card,
     activePlayer: state.activePlayer,
     numPlayers: state.numPlayers,
+    playedFrom: null,
   };
 
-  for (const mod of state.modifiers) {
+  for (const mod of allModifiers(state)) {
     switch (mod.spec.tag) {
       case "selfCourtValue":
         if (card.id === mod.sourceCardId) {
@@ -104,7 +110,7 @@ export const effectiveKeywords = (
   const isSteadfast = card.kind.props.keywords.includes("steadfast");
   const kws = new Set<CardKeyword>(card.kind.props.keywords);
 
-  for (const mod of state.modifiers) {
+  for (const mod of allModifiers(state)) {
     switch (mod.spec.tag) {
       case "grantKeyword":
         if (matchesQuery(mod.spec.target, card, mod.sourceCardId, state)) {

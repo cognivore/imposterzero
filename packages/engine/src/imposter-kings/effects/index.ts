@@ -37,6 +37,10 @@ export {
   playOverride,
   reaction,
   continuous,
+  forceLoser,
+  triggerReaction,
+  seq,
+  preventEffect,
 } from "./program.js";
 
 export {

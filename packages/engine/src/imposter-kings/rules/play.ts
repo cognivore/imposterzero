@@ -14,6 +14,8 @@ import { throneValue } from "../selectors.js";
 import {
   readZone,
   moveCard,
+  removeFromZone,
+  insertIntoZone,
   setKingFace,
   disgraceInCourt,
 } from "../zone-addr.js";
@@ -31,10 +33,10 @@ import { resolve, replay } from "../effects/interpreter.js";
 import { canPlayCard } from "./legal.js";
 
 // ---------------------------------------------------------------------------
-// Shared helpers
+// End-of-turn sequence: parting flush, then antechamber forced play
 // ---------------------------------------------------------------------------
 
-const advanceTurn = (state: IKState, originalState: IKState): IKState =>
+const finalAdvance = (state: IKState, originalState: IKState): IKState =>
   refreshModifiers({
     ...state,
     activePlayer: nextPlayer(originalState),
@@ -42,6 +44,115 @@ const advanceTurn = (state: IKState, originalState: IKState): IKState =>
     phase: "play",
     pendingResolution: null,
   });
+
+const endOfTurn = (state: IKState, originalState: IKState): IKState => {
+  const activePlayer = originalState.activePlayer;
+  const zones = playerZones(state, activePlayer);
+
+  if (zones.parting.length > 0) {
+    if (zones.parting.length === 1) {
+      const card = zones.parting[0]!;
+      const removed = removeFromZone(
+        state,
+        { scope: "player", player: activePlayer, slot: "parting" },
+        card.id,
+      );
+      if (removed.ok) {
+        const inserted = insertIntoZone(
+          removed.value.state,
+          { scope: "shared", slot: "condemned" },
+          removed.value.card,
+          { face: "down" },
+        );
+        const afterParting = inserted.ok ? inserted.value : removed.value.state;
+        return endOfTurnAfterParting(afterParting, originalState);
+      }
+    }
+    return {
+      ...state,
+      phase: "end_of_turn",
+      pendingResolution: null,
+    };
+  }
+
+  return endOfTurnAfterParting(state, originalState);
+};
+
+const endOfTurnAfterParting = (state: IKState, originalState: IKState): IKState => {
+  const activePlayer = originalState.activePlayer;
+  const zones = playerZones(state, activePlayer);
+
+  if (zones.antechamber.length > 0) {
+    if (zones.antechamber.length === 1) {
+      return applyAntechamberPlayDirect(state, zones.antechamber[0]!.id, originalState);
+    }
+    return {
+      ...state,
+      phase: "end_of_turn",
+      pendingResolution: null,
+    };
+  }
+
+  return finalAdvance(state, originalState);
+};
+
+const applyAntechamberPlayDirect = (
+  state: IKState,
+  cardId: number,
+  originalState: IKState,
+): IKState => {
+  const activePlayer = originalState.activePlayer;
+  const card = readZone(state, {
+    scope: "player",
+    player: activePlayer,
+    slot: "antechamber",
+  }).find((c) => c.id === cardId);
+  if (!card) return finalAdvance(state, originalState);
+
+  const moved = moveCard(
+    state,
+    cardId,
+    { scope: "player", player: activePlayer, slot: "antechamber" },
+    { scope: "shared", slot: "court" },
+    { face: "up", playedBy: activePlayer },
+  );
+  if (!moved.ok) return finalAdvance(state, originalState);
+
+  const onPlayEffect = card.kind.props.effects.find(
+    (e) => e.tag === "onPlay",
+  );
+
+  const suppressEffect =
+    onPlayEffect &&
+    card.kind.props.fullText.includes("prevented if played from your Antechamber");
+
+  if (!onPlayEffect || suppressEffect) {
+    return finalAdvance(moved.value, originalState);
+  }
+
+  const ctx: EffectContext = {
+    playedCard: card,
+    activePlayer,
+    numPlayers: state.numPlayers,
+    playedFrom: "antechamber",
+  };
+  const resolution = resolve(onPlayEffect.effect, moved.value, ctx);
+
+  if (resolution.tag === "done") {
+    return finalAdvance(resolution.state, originalState);
+  }
+
+  return enterResolving(
+    resolution,
+    moved.value,
+    { kind: "antechamberPlay", cardId: card.id },
+    activePlayer,
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
 
 const enterResolving = (
   resolution: Resolution & { tag: "needChoice" },
@@ -78,7 +189,7 @@ const buildDisgraceEffect = (throneCardId: number): EffectProgram =>
 
 const getEffectProgram = (pending: PendingResolution): EffectProgram | null => {
   const { source } = pending;
-  if (source.kind === "cardPlay") {
+  if (source.kind === "cardPlay" || source.kind === "antechamberPlay") {
     const entry = pending.stateBeforeEffect.shared.court.find(
       (e) => e.card.id === source.cardId,
     );
@@ -91,7 +202,7 @@ const getEffectProgram = (pending: PendingResolution): EffectProgram | null => {
 };
 
 // ---------------------------------------------------------------------------
-// Play a card
+// Play a card (from hand or antechamber)
 // ---------------------------------------------------------------------------
 
 export const applyPlaySafe = (
@@ -104,11 +215,19 @@ export const applyPlaySafe = (
     player: activePlayer,
     slot: "hand",
   });
-  const card = hand.find((c) => c.id === cardId);
+  const antechamber = readZone(state, {
+    scope: "player",
+    player: activePlayer,
+    slot: "antechamber",
+  });
+  const cardInHand = hand.find((c) => c.id === cardId);
+  const cardInAntechamber = antechamber.find((c) => c.id === cardId);
+  const card = cardInHand ?? cardInAntechamber;
+  const sourceSlot: "hand" | "antechamber" = cardInHand ? "hand" : "antechamber";
 
   if (!card) return err({ kind: "card_not_in_hand", cardId });
 
-  if (!canPlayCard(card, state, throneValue(state))) {
+  if (sourceSlot === "hand" && !canPlayCard(card, state, throneValue(state))) {
     return err({
       kind: "insufficient_value",
       cardValue: ikCardOps.value(card),
@@ -119,7 +238,7 @@ export const applyPlaySafe = (
   const moved = moveCard(
     state,
     cardId,
-    { scope: "player", player: activePlayer, slot: "hand" },
+    { scope: "player", player: activePlayer, slot: sourceSlot },
     { scope: "shared", slot: "court" },
     { face: "up", playedBy: activePlayer },
   );
@@ -129,19 +248,25 @@ export const applyPlaySafe = (
     (e) => e.tag === "onPlay",
   );
 
-  if (!onPlayEffect) {
-    return ok(advanceTurn(moved.value, state));
+  const suppressEffect =
+    sourceSlot === "antechamber" &&
+    onPlayEffect &&
+    card.kind.props.fullText.includes("prevented if played from your Antechamber");
+
+  if (!onPlayEffect || suppressEffect) {
+    return ok(endOfTurn(moved.value, state));
   }
 
   const ctx: EffectContext = {
     playedCard: card,
     activePlayer,
     numPlayers: state.numPlayers,
+    playedFrom: sourceSlot,
   };
   const resolution = resolve(onPlayEffect.effect, moved.value, ctx);
 
   if (resolution.tag === "done") {
-    return ok(advanceTurn(resolution.state, state));
+    return ok(endOfTurn(resolution.state, state));
   }
 
   return ok(
@@ -167,9 +292,9 @@ export const applyEffectChoiceSafe = (
   if (!program) return err({ kind: "no_pending_resolution" });
 
   const contextCardId =
-    pending.source.kind === "cardPlay"
-      ? pending.source.cardId
-      : pending.source.throneCardId;
+    pending.source.kind === "disgrace"
+      ? pending.source.throneCardId
+      : pending.source.cardId;
   const contextEntry = pending.stateBeforeEffect.shared.court.find(
     (e) => e.card.id === contextCardId,
   );
@@ -179,13 +304,14 @@ export const applyEffectChoiceSafe = (
     playedCard: contextEntry.card,
     activePlayer: pending.effectPlayer,
     numPlayers: state.numPlayers,
+    playedFrom: null,
   };
 
   const nextChoices = [...pending.choicesMade, choice];
   const resolution = replay(program, pending.stateBeforeEffect, ctx, nextChoices);
 
   if (resolution.tag === "done") {
-    return ok(advanceTurn(resolution.state, pending.stateBeforeEffect));
+    return ok(endOfTurn(resolution.state, pending.stateBeforeEffect));
   }
 
   const nextPending: PendingResolution = {
@@ -200,6 +326,45 @@ export const applyEffectChoiceSafe = (
     activePlayer: resolution.player,
     pendingResolution: nextPending,
   });
+};
+
+// ---------------------------------------------------------------------------
+// End-of-turn actions (parting flush, antechamber play)
+// ---------------------------------------------------------------------------
+
+export const applyEndOfTurnSafe = (
+  state: IKState,
+  cardId: number,
+): Result<TransitionError, IKState> => {
+  const activePlayer = state.activePlayer;
+  const zones = playerZones(state, activePlayer);
+
+  if (zones.parting.length > 0) {
+    const card = zones.parting.find((c) => c.id === cardId);
+    if (!card) return err({ kind: "card_not_in_hand", cardId });
+    const removed = removeFromZone(
+      state,
+      { scope: "player", player: activePlayer, slot: "parting" },
+      cardId,
+    );
+    if (!removed.ok) return err({ kind: "card_not_in_hand", cardId });
+    const inserted = insertIntoZone(
+      removed.value.state,
+      { scope: "shared", slot: "condemned" },
+      removed.value.card,
+      { face: "down" },
+    );
+    const afterParting = inserted.ok ? inserted.value : removed.value.state;
+    return ok(endOfTurnAfterParting(afterParting, state));
+  }
+
+  if (zones.antechamber.length > 0) {
+    const card = zones.antechamber.find((c) => c.id === cardId);
+    if (!card) return err({ kind: "card_not_in_hand", cardId });
+    return ok(applyAntechamberPlayDirect(state, cardId, state));
+  }
+
+  return err({ kind: "no_pending_resolution" });
 };
 
 // ---------------------------------------------------------------------------
@@ -222,6 +387,7 @@ export const applyDisgraceSafe = (
     playedCard: top.card,
     activePlayer,
     numPlayers: state.numPlayers,
+    playedFrom: null,
   };
 
   const resolution = resolve(effect, state, ctx);
@@ -234,7 +400,7 @@ export const applyDisgraceSafe = (
         pendingResolution: null,
       });
     }
-    return ok(advanceTurn(resolution.state, state));
+    return ok(endOfTurn(resolution.state, state));
   }
 
   return ok(

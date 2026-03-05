@@ -44,7 +44,7 @@ const resolveZone = (ref: ZoneRef, ctx: EffectContext): IKZoneAddress =>
 // ---------------------------------------------------------------------------
 
 const matchesFilter = (
-  card: { readonly id: number; readonly kind: { readonly props: { readonly keywords: readonly string[]; readonly value: number } } },
+  card: { readonly id: number; readonly kind: { readonly name?: string; readonly props: { readonly keywords: readonly string[]; readonly value: number } } },
   filter: CardFilter,
   state: IKState,
 ): boolean => {
@@ -65,6 +65,8 @@ const matchesFilter = (
       return card.kind.props.keywords.includes(filter.keyword);
     case "minValue":
       return card.kind.props.value >= filter.value;
+    case "hasName":
+      return card.kind.name === filter.name;
   }
 };
 
@@ -81,6 +83,53 @@ export const resolve = (
     case "done":
       return { tag: "done", state };
 
+    case "preventEffect":
+      return { tag: "done", state };
+
+    case "sequence": {
+      let s = state;
+      for (const step of program.steps) {
+        const res = resolve(step, s, ctx);
+        if (res.tag === "needChoice") {
+          const remaining = program.steps.slice(program.steps.indexOf(step) + 1);
+          if (remaining.length === 0) return res;
+          return {
+            ...res,
+            resume: (choice) => {
+              const inner = res.resume(choice);
+              if (inner.tag === "done" && remaining.length > 0) {
+                return resolve(
+                  { tag: "sequence", steps: remaining },
+                  inner.state,
+                  ctx,
+                );
+              }
+              if (inner.tag === "needChoice" && remaining.length > 0) {
+                const cont = inner;
+                return {
+                  ...cont,
+                  resume: (c) => {
+                    const next = cont.resume(c);
+                    if (next.tag === "done") {
+                      return resolve(
+                        { tag: "sequence", steps: remaining },
+                        next.state,
+                        ctx,
+                      );
+                    }
+                    return next;
+                  },
+                };
+              }
+              return inner;
+            },
+          };
+        }
+        s = res.state;
+      }
+      return { tag: "done", state: s };
+    }
+
     case "disgraceAllInCourt": {
       const exceptId = program.except
         ? resolveCard(program.except, ctx)
@@ -96,16 +145,16 @@ export const resolve = (
     }
 
     case "disgraceInCourt": {
-      const cardId = resolveCard(program.target, ctx);
-      const result = zoneDis(state, cardId);
+      const cid = resolveCard(program.target, ctx);
+      const result = zoneDis(state, cid);
       return resolve(program.then, result.ok ? result.value : state, ctx);
     }
 
     case "moveCard": {
-      const cardId = resolveCard(program.card, ctx);
+      const cid = resolveCard(program.card, ctx);
       const from = resolveZone(program.from, ctx);
       const to = resolveZone(program.to, ctx);
-      const result = zoneMove(state, cardId, from, to);
+      const result = zoneMove(state, cid, from, to);
       return resolve(program.then, result.ok ? result.value : state, ctx);
     }
 
@@ -203,14 +252,11 @@ export const resolve = (
           nextPlayer(state, ((ctx.activePlayer + i - 1) % ctx.numPlayers) as PlayerId),
         );
       }
-      const chain = opponents.reduceRight<EffectProgram>(
-        (acc, opp) => {
-          const oppEffect = program.effect(opp);
-          return spliceBeforeDone(oppEffect, acc);
-        },
+      const steps = [
+        ...opponents.map((opp) => program.effect(opp)),
         program.then,
-      );
-      return resolve(chain, state, ctx);
+      ];
+      return resolve({ tag: "sequence", steps }, state, ctx);
     }
 
     case "optional": {
@@ -220,7 +266,7 @@ export const resolve = (
         player: ctx.activePlayer,
         options: [
           { kind: "pass" },
-          { kind: "pass" },
+          { kind: "proceed" },
         ],
         resume: (choice) =>
           choice === 1
@@ -292,7 +338,7 @@ const resolveReactionChain = (
     tag: "needChoice",
     state,
     player: reactor.player,
-    options: [{ kind: "pass" }, { kind: "pass" }],
+    options: [{ kind: "pass" }, { kind: "proceed" }],
     resume: (choice) => {
       if (choice === 1) {
         const removed = removeFromZone(
@@ -339,49 +385,4 @@ export const replay = (
     resolution = resolution.resume(choice);
   }
   return resolution;
-};
-
-/**
- * Replaces the terminal `done` of `program` with `continuation`,
- * effectively sequencing two effect programs.
- */
-const spliceBeforeDone = (
-  program: EffectProgram,
-  continuation: EffectProgram,
-): EffectProgram => {
-  switch (program.tag) {
-    case "done":
-      return continuation;
-    case "disgraceAllInCourt":
-      return { ...program, then: spliceBeforeDone(program.then, continuation) };
-    case "disgraceInCourt":
-      return { ...program, then: spliceBeforeDone(program.then, continuation) };
-    case "moveCard":
-      return { ...program, then: spliceBeforeDone(program.then, continuation) };
-    case "setKingFace":
-      return { ...program, then: spliceBeforeDone(program.then, continuation) };
-    case "ifCond":
-      return {
-        ...program,
-        then_: spliceBeforeDone(program.then_, continuation),
-        else_: spliceBeforeDone(program.else_, continuation),
-      };
-    case "forEachOpponent":
-      return { ...program, then: spliceBeforeDone(program.then, continuation) };
-    case "optional":
-      return {
-        ...program,
-        effect: spliceBeforeDone(program.effect, continuation),
-        otherwise: spliceBeforeDone(program.otherwise, continuation),
-      };
-    case "triggerReaction":
-      return {
-        ...program,
-        continuation: spliceBeforeDone(program.continuation, continuation),
-      };
-    case "forceLoser":
-      return program;
-    default:
-      return program;
-  }
 };

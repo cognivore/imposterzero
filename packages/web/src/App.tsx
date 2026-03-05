@@ -8,6 +8,7 @@ import { LobbyView } from "./views/LobbyView.js";
 import { CrownView } from "./views/CrownView.js";
 import { SetupView } from "./views/SetupView.js";
 import { PlayView } from "./views/PlayView.js";
+import { ResolvingView } from "./views/ResolvingView.js";
 import { ScoringView } from "./views/ScoringView.js";
 import { MatchOverView } from "./views/MatchOverView.js";
 import { LandscapeOverlay } from "./views/LandscapeOverlay.js";
@@ -18,7 +19,7 @@ const absurd = (_: never): never => {
   throw new Error("non-exhaustive match");
 };
 
-const GAME_PHASES = new Set(["crown", "setup", "play", "scoring", "finished"]);
+const GAME_PHASES = new Set(["crown", "setup", "play", "resolving", "scoring", "finished"]);
 
 const renderPhase = (
   phase: ClientPhase,
@@ -37,6 +38,8 @@ const renderPhase = (
       return <SetupView phase={phase} send={send} />;
     case "play":
       return <PlayView phase={phase} send={send} />;
+    case "resolving":
+      return <ResolvingView phase={phase} send={send} />;
     case "scoring":
       return <ScoringView phase={phase} send={send} />;
     case "finished":

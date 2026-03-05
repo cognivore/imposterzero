@@ -8,11 +8,13 @@ const collectAllCardIds = (state: IKState): number[] => {
     if (p.successor) ids.push(p.successor.card.id);
     if (p.dungeon) ids.push(p.dungeon.card.id);
     ids.push(...p.antechamber.map((c) => c.id));
+    ids.push(...p.parting.map((c) => c.id));
   }
   for (const e of state.shared.court) ids.push(e.card.id);
   if (state.shared.accused) ids.push(state.shared.accused.id);
   if (state.shared.forgotten) ids.push(state.shared.forgotten.card.id);
   ids.push(...state.shared.army.map((c) => c.id));
+  ids.push(...state.shared.condemned.map((e) => e.card.id));
   return ids;
 };
 
@@ -51,6 +53,17 @@ export const validateState = (state: IKState): ReadonlyArray<string> => {
     violations.push(
       `activePlayer ${state.activePlayer} is outside valid range [0, ${state.numPlayers})`,
     );
+  }
+
+  for (const mod of state.modifiers) {
+    const sourceInCourt = state.shared.court.some(
+      (e) => e.card.id === mod.sourceCardId && e.face === "up",
+    );
+    if (!sourceInCourt) {
+      violations.push(
+        `Modifier source card ${mod.sourceCardId} is not face-up in court`,
+      );
+    }
   }
 
   return violations;

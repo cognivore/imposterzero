@@ -41,6 +41,65 @@ const dealHands = (
   return hands;
 };
 
+/**
+ * Deal from a pre-ordered deck (no shuffle). Cards are dealt round-robin
+ * from index 0, so deck[0] goes to player 0, deck[1] to player 1, etc.
+ * Last 1-2 cards become accused/forgotten per the normal reserve policy.
+ */
+export const dealWithDeck = (
+  orderedDeck: ReadonlyArray<IKCard>,
+  numPlayers: number,
+  trueKing: PlayerId = 0,
+): IKState => {
+  if (numPlayers < 2 || numPlayers > 4) {
+    throw new RangeError(`Imposter Kings supports 2-4 players, received ${numPlayers}`);
+  }
+  const reserved = reserveCount(numPlayers);
+  if (orderedDeck.length <= reserved) {
+    throw new Error("Deck does not contain enough cards for shared zones and player hands");
+  }
+
+  const accused =
+    numPlayers === 4 ? orderedDeck[orderedDeck.length - 1]! : orderedDeck[orderedDeck.length - 2]!;
+  const forgottenCard = numPlayers === 4 ? null : orderedDeck[orderedDeck.length - 1]!;
+  const playableDeck = orderedDeck.slice(0, orderedDeck.length - reserved);
+  const hands = dealHands(playableDeck, numPlayers);
+
+  if (hands.some((hand) => hand.length < 2)) {
+    throw new Error("Each player must be dealt at least two cards for setup commitments");
+  }
+
+  const kingIdBase = orderedDeck.length;
+  const players: ReadonlyArray<IKPlayerZones> = hands.map((hand, player) => ({
+    hand,
+    king: { card: createKingCard(kingIdBase, player), face: "up" },
+    successor: null,
+    dungeon: null,
+    antechamber: [],
+    parting: [],
+  }));
+
+  return {
+    players,
+    shared: {
+      court: [],
+      accused,
+      forgotten: forgottenCard === null ? null : hidden(forgottenCard),
+      army: [],
+      condemned: [],
+    },
+    activePlayer: trueKing,
+    phase: "crown",
+    numPlayers,
+    turnCount: 0,
+    firstPlayer: trueKing,
+    pendingResolution: null,
+    forcedLoser: null,
+    modifiers: [],
+    roundModifiers: [],
+  };
+};
+
 export const deal = (
   kinds: ReadonlyArray<IKCardKind>,
   numPlayers: number,
@@ -80,6 +139,7 @@ export const deal = (
     successor: null,
     dungeon: null,
     antechamber: [],
+    parting: [],
   }));
 
   return {
@@ -89,6 +149,7 @@ export const deal = (
       accused,
       forgotten: forgottenCard === null ? null : hidden(forgottenCard),
       army: [],
+      condemned: [],
     },
     activePlayer: tk,
     phase: "crown",
@@ -98,5 +159,6 @@ export const deal = (
     pendingResolution: null,
     forcedLoser: null,
     modifiers: [],
+    roundModifiers: [],
   };
 };

@@ -15,6 +15,10 @@ import {
   court as courtZone,
   activeHand,
   optional,
+  nameCard,
+  forEachOpponent,
+  playerZone,
+  playerId,
 } from "./effects/program.js";
 import type { CardRef, ModifierSpec } from "./effects/program.js";
 import { kingIsFlipped, courtHasRoyalty } from "./effects/predicates.js";
@@ -168,6 +172,25 @@ const ZEALOT: CardContent = {
   ],
 };
 
+const inquisitorEffect = optional(
+  nameCard((name) =>
+    forEachOpponent(
+      (opp) =>
+        chooseCard(
+          playerId(opp),
+          playerZone(playerId(opp), "hand"),
+          { tag: "hasName", name },
+          (cardId) =>
+            move(
+              { kind: "id", cardId } as CardRef,
+              playerZone(playerId(opp), "hand"),
+              playerZone(playerId(opp), "antechamber"),
+            ),
+        ),
+    ),
+  ),
+);
+
 const INQUISITOR: CardContent = {
   keywords: [],
   shortText: "Name a card; others play it out.",
@@ -177,6 +200,7 @@ const INQUISITOR: CardContent = {
     "Inquisitors live to point their fingers",
     "Being correct was never the objective",
   ],
+  effects: [onPlay(inquisitorEffect)],
 };
 
 const EXECUTIONER: CardContent = {
@@ -351,7 +375,7 @@ const QUEEN: CardContent = {
   shortText: "Disgrace all other Court cards.",
   fullText: "You must Disgrace all other cards in the Court.",
   flavorTexts: ["Her presence shakes all convictions"],
-  effects: [onPlay(disgraceAll(played))],
+  effects: [onPlay(disgraceAll(played), false)],
 };
 
 // ---------------------------------------------------------------------------

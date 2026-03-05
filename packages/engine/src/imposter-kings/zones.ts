@@ -26,6 +26,12 @@ export interface IKPlayerZones {
   readonly successor: HiddenCard | null;
   readonly dungeon: HiddenCard | null;
   readonly antechamber: ReadonlyArray<IKCard>;
+  readonly parting: ReadonlyArray<IKCard>;
+}
+
+export interface CondemnedEntry {
+  readonly card: IKCard;
+  readonly face: FaceState;
 }
 
 export interface IKSharedZones {
@@ -33,4 +39,5 @@ export interface IKSharedZones {
   readonly accused: IKCard | null;
   readonly forgotten: HiddenCard | null;
   readonly army: ReadonlyArray<IKCard>;
+  readonly condemned: ReadonlyArray<CondemnedEntry>;
 }

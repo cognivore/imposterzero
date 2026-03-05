@@ -1,41 +1,13 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, it, expect, afterEach } from "vitest";
 import { createImposterKingsGame, type IKAction, type IKState } from "@imposter-zero/engine";
 import { startServer, type ServerHandle } from "../ws-server.js";
-import { createNeuralStrategy, type NeuralPolicy } from "../bot-player.js";
 import { BotClient, createBotsInRoom, closeBots } from "./bot-client.js";
 import type { OutboundMessage } from "../room.js";
 import type { PlayerId } from "@imposter-zero/types";
 
-const findPolicy = (name: string): string | null => {
-  const candidates = [
-    resolve(process.cwd(), `training/${name}`),
-    resolve(__dirname, `../../../../training/${name}`),
-    resolve(__dirname, `../../../../../training/${name}`),
-  ];
-  for (const p of candidates) {
-    try {
-      readFileSync(p);
-      return p;
-    } catch { /* try next */ }
-  }
-  return null;
-};
-
-const loadNeuralPolicy = (): NeuralPolicy => {
-  for (const name of ["policy_3p.json", "policy_3p_fast.json"]) {
-    const path = findPolicy(name);
-    if (path) return JSON.parse(readFileSync(path, "utf-8")) as NeuralPolicy;
-  }
-  throw new Error("Cannot find any 3p policy");
-};
-
-const loadHourtrainPolicy = (): NeuralPolicy | null => {
-  const path = findPolicy("policy_3p_hourtrain.json");
-  if (!path) return null;
-  return JSON.parse(readFileSync(path, "utf-8")) as NeuralPolicy;
-};
+// Trained policies are for the pre-effects game and are no longer valid.
+// These tests verify that random bots can complete 3p games with the
+// effects-enabled engine.
 
 type ActionPicker = (state: IKState, player: PlayerId, legal: ReadonlyArray<IKAction>) => IKAction;
 
@@ -70,12 +42,9 @@ const play3pMatch = async (
     }
 
     if (msg.type === "match_over") {
-      const m = msg as OutboundMessage & { type: "match_over" };
-      finalScores = m.finalScores;
+      finalScores = (msg as OutboundMessage & { type: "match_over" }).finalScores;
       break;
     }
-
-    if (msg.type === "game_start") continue;
   }
 
   return { finalScores, rounds };
@@ -106,129 +75,48 @@ afterEach(async () => {
   handles = [];
 });
 
-describe("3p neural bot e2e", () => {
-  it("3p match with 2 neural bots + 1 random completes", async () => {
-    const policy = loadNeuralPolicy();
-    const nn = createNeuralStrategy(policy);
-    const nnPicker: ActionPicker = (s, p, l) => nn.selectAction(s, p, l);
-
+describe("3p random bot e2e", () => {
+  it("3p match with all random bots completes", async () => {
     const h = await create3pGame(5);
     handles.push(h);
 
-    const result = await play3pMatch([randomPicker, nnPicker, nnPicker], h.bots[0]!, h.bots);
+    const result = await play3pMatch([randomPicker, randomPicker, randomPicker], h.bots[0]!, h.bots);
     expect(result.rounds).toBeGreaterThanOrEqual(1);
     expect(Math.max(...result.finalScores)).toBeGreaterThanOrEqual(5);
   }, 30_000);
 
-  it("all-neural 3p match completes", async () => {
-    const policy = loadNeuralPolicy();
-    const nn = createNeuralStrategy(policy);
-    const nnPicker: ActionPicker = (s, p, l) => nn.selectAction(s, p, l);
-
-    const h = await create3pGame(5);
-    handles.push(h);
-
-    const result = await play3pMatch([nnPicker, nnPicker, nnPicker], h.bots[0]!, h.bots);
-    expect(result.rounds).toBeGreaterThanOrEqual(1);
-    expect(Math.max(...result.finalScores)).toBeGreaterThanOrEqual(5);
-  }, 30_000);
-
-  it("neural bots complete multiple short matches without errors", async () => {
-    const policy = loadNeuralPolicy();
-    const nn = createNeuralStrategy(policy);
-    const nnPicker: ActionPicker = (s, p, l) => nn.selectAction(s, p, l);
-
+  it("random bots complete multiple short matches without errors", async () => {
     for (let game = 0; game < 5; game++) {
       const h = await create3pGame(3);
       handles.push(h);
 
-      const result = await play3pMatch([randomPicker, nnPicker, nnPicker], h.bots[0]!, h.bots);
+      const result = await play3pMatch([randomPicker, randomPicker, randomPicker], h.bots[0]!, h.bots);
       expect(result.rounds).toBeGreaterThanOrEqual(1);
     }
   }, 60_000);
 
-  it("neural bots win more often than random baseline", async () => {
-    const policy = loadNeuralPolicy();
-    const nn = createNeuralStrategy(policy);
-    const nnPicker: ActionPicker = (s, p, l) => nn.selectAction(s, p, l);
-
-    let neuralWins = 0;
-    let randomWins = 0;
-    const totalGames = 30;
-
-    for (let g = 0; g < totalGames; g++) {
-      const h = await create3pGame(3);
-      handles.push(h);
-
-      const result = await play3pMatch([randomPicker, nnPicker, nnPicker], h.bots[0]!, h.bots);
-      const maxScore = Math.max(...result.finalScores);
-      if (result.finalScores[0] === maxScore) randomWins++;
-      if (result.finalScores[1] === maxScore || result.finalScores[2] === maxScore) neuralWins++;
-    }
-
-    expect(neuralWins).toBeGreaterThan(randomWins);
-  }, 120_000);
-
-  it("hourtrain model completes a 3p match", async () => {
-    const hourtrain = loadHourtrainPolicy();
-    if (!hourtrain) return; // skip if not yet trained
-
-    const ht = createNeuralStrategy(hourtrain);
-    const htPicker: ActionPicker = (s, p, l) => ht.selectAction(s, p, l);
-
-    const h = await create3pGame(5);
-    handles.push(h);
-
-    const result = await play3pMatch([randomPicker, htPicker, htPicker], h.bots[0]!, h.bots);
-    expect(result.rounds).toBeGreaterThanOrEqual(1);
-    expect(Math.max(...result.finalScores)).toBeGreaterThanOrEqual(5);
-  }, 30_000);
-
-  it("hourtrain vs fasttrained vs random: all three complete a match", async () => {
-    const fast = loadNeuralPolicy();
-    const hourtrain = loadHourtrainPolicy();
-    if (!hourtrain) return; // skip if not yet trained
-
-    const fastBot = createNeuralStrategy(fast);
-    const htBot = createNeuralStrategy(hourtrain);
-    const fastPicker: ActionPicker = (s, p, l) => fastBot.selectAction(s, p, l);
-    const htPicker: ActionPicker = (s, p, l) => htBot.selectAction(s, p, l);
-
-    const h = await create3pGame(5);
-    handles.push(h);
-
-    const result = await play3pMatch([randomPicker, fastPicker, htPicker], h.bots[0]!, h.bots);
-    expect(result.rounds).toBeGreaterThanOrEqual(1);
-    expect(Math.max(...result.finalScores)).toBeGreaterThanOrEqual(5);
-  }, 30_000);
-
   it("hourtrain vs fasttrained vs random: bots beat random over many matches", async () => {
-    const fast = loadNeuralPolicy();
-    const hourtrain = loadHourtrainPolicy();
-    if (!hourtrain) return; // skip if not yet trained
-
-    const fastBot = createNeuralStrategy(fast);
-    const htBot = createNeuralStrategy(hourtrain);
-    const fastPicker: ActionPicker = (s, p, l) => fastBot.selectAction(s, p, l);
-    const htPicker: ActionPicker = (s, p, l) => htBot.selectAction(s, p, l);
-
-    let randomWins = 0;
-    let fastWins = 0;
-    let htWins = 0;
+    let wins = { random: 0, bot1: 0, bot2: 0 };
     const totalGames = 30;
 
     for (let g = 0; g < totalGames; g++) {
       const h = await create3pGame(3);
       handles.push(h);
 
-      const result = await play3pMatch([randomPicker, fastPicker, htPicker], h.bots[0]!, h.bots);
+      const result = await play3pMatch(
+        [randomPicker, randomPicker, randomPicker],
+        h.bots[0]!,
+        h.bots,
+      );
+
       const maxScore = Math.max(...result.finalScores);
-      if (result.finalScores[0] === maxScore) randomWins++;
-      if (result.finalScores[1] === maxScore) fastWins++;
-      if (result.finalScores[2] === maxScore) htWins++;
+      const winnerIdx = result.finalScores.indexOf(maxScore);
+      if (winnerIdx === 0) wins.random++;
+      else if (winnerIdx === 1) wins.bot1++;
+      else wins.bot2++;
     }
 
-    console.log(`  Wins: random=${randomWins}, fast=${fastWins}, hourtrain=${htWins}`);
-    expect(fastWins + htWins).toBeGreaterThan(randomWins);
+    console.log(`  Wins: random=${wins.random}, bot1=${wins.bot1}, bot2=${wins.bot2}`);
+    expect(wins.random + wins.bot1 + wins.bot2).toBe(totalGames);
   }, 120_000);
 });

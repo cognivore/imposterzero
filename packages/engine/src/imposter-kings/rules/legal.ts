@@ -28,6 +28,7 @@ export const canPlayCard = (
     playedCard: card,
     activePlayer: state.activePlayer,
     numPlayers: state.numPlayers,
+    playedFrom: null,
   };
 
   return overrides.some((o) => {
@@ -60,6 +61,23 @@ export const canPlayCard = (
 };
 
 export const legalActions = (state: IKState): ReadonlyArray<IKAction> => {
+  if (state.phase === "end_of_turn") {
+    const active = playerZones(state, state.activePlayer);
+    if (active.parting.length > 0) {
+      return active.parting.map((card) => ({
+        kind: "play" as const,
+        cardId: card.id,
+      }));
+    }
+    if (active.antechamber.length > 0) {
+      return active.antechamber.map((card) => ({
+        kind: "play" as const,
+        cardId: card.id,
+      }));
+    }
+    return [];
+  }
+
   if (state.phase === "resolving") {
     const pending = state.pendingResolution;
     if (!pending) return [];
@@ -90,6 +108,12 @@ export const legalActions = (state: IKState): ReadonlyArray<IKAction> => {
     .filter((card) => canPlayCard(card, state, threshold))
     .map((card) => ({ kind: "play" as const, cardId: card.id }));
 
+  const antechamberPlays = active.antechamber.map((card) => ({
+    kind: "play" as const,
+    cardId: card.id,
+  }));
+
   const canDisgrace = isKingFaceUp(state, state.activePlayer) && throne(state) !== null;
-  return canDisgrace ? [...playable, { kind: "disgrace" }] : playable;
+  const actions = [...playable, ...antechamberPlays];
+  return canDisgrace ? [...actions, { kind: "disgrace" }] : actions;
 };

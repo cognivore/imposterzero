@@ -22,9 +22,10 @@ export type IKPlayerZoneSlot =
   | "king"
   | "successor"
   | "dungeon"
-  | "antechamber";
+  | "antechamber"
+  | "parting";
 
-export type IKSharedZoneSlot = "court" | "accused" | "forgotten" | "army";
+export type IKSharedZoneSlot = "court" | "accused" | "forgotten" | "army" | "condemned";
 
 export type IKZoneAddress = ZoneAddress<IKPlayerZoneSlot, IKSharedZoneSlot>;
 
@@ -59,6 +60,8 @@ const readPlayerZone = (
       return zones.dungeon ? [zones.dungeon.card] : [];
     case "antechamber":
       return zones.antechamber;
+    case "parting":
+      return zones.parting;
   }
 };
 
@@ -78,6 +81,8 @@ export const readZone = (
       return state.shared.forgotten ? [state.shared.forgotten.card] : [];
     case "army":
       return state.shared.army;
+    case "condemned":
+      return state.shared.condemned.map((e) => e.card);
   }
 };
 
@@ -168,6 +173,21 @@ const removeFromPlayerZone = (
         },
       });
     }
+    case "parting": {
+      const card = zones.parting.find((c) => c.id === cardId);
+      if (!card) return err({ kind: "card_not_in_zone", cardId, addr });
+      const next: IKPlayerZones = {
+        ...zones,
+        parting: zones.parting.filter((c) => c.id !== cardId),
+      };
+      return ok({
+        card,
+        state: {
+          ...state,
+          players: replacePlayerZones(state.players, player, next),
+        },
+      });
+    }
   }
 };
 
@@ -220,6 +240,20 @@ const removeFromSharedZone = (
           shared: {
             ...shared,
             army: shared.army.filter((c) => c.id !== cardId),
+          },
+        },
+      });
+    }
+    case "condemned": {
+      const entry = shared.condemned.find((e) => e.card.id === cardId);
+      if (!entry) return err({ kind: "card_not_in_zone", cardId, addr });
+      return ok({
+        card: entry.card,
+        state: {
+          ...state,
+          shared: {
+            ...shared,
+            condemned: shared.condemned.filter((e) => e.card.id !== cardId),
           },
         },
       });
@@ -297,6 +331,16 @@ const insertIntoPlayerZone = (
         players: replacePlayerZones(state.players, player, next),
       });
     }
+    case "parting": {
+      const next: IKPlayerZones = {
+        ...zones,
+        parting: [...zones.parting, card],
+      };
+      return ok({
+        ...state,
+        players: replacePlayerZones(state.players, player, next),
+      });
+    }
   }
 };
 
@@ -332,6 +376,17 @@ const insertIntoSharedZone = (
       return ok({
         ...state,
         shared: { ...shared, army: [...shared.army, card] },
+      });
+    case "condemned":
+      return ok({
+        ...state,
+        shared: {
+          ...shared,
+          condemned: [
+            ...shared.condemned,
+            { card, face: (opts.face ?? "down") as FaceState },
+          ],
+        },
       });
   }
 };

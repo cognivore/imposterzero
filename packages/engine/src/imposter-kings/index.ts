@@ -34,6 +34,7 @@ export {
   type FaceState,
   type HiddenCard,
   type CourtEntry,
+  type CondemnedEntry,
   type KingZone,
   type IKPlayerZones,
   type IKSharedZones,
@@ -63,6 +64,7 @@ export {
   createDeck,
   shuffle,
   deal,
+  dealWithDeck,
 } from "./deal.js";
 
 export {

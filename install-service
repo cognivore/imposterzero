@@ -1,0 +1,363 @@
+#!/usr/bin/env bash
+# Install Imposter Zero as a macOS LaunchAgent service
+# Usage: ./install-service [install|uninstall|status|logs|restart|build]
+
+set -euo pipefail
+
+SERVICE_NAME="com.imposterzero.server"
+PLIST_FILE="$HOME/Library/LaunchAgents/${SERVICE_NAME}.plist"
+
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LOG_DIR="$HOME/.imposterzero/logs"
+
+CADDY_HOME="$HOME/Caddy"
+CADDY_SITES_DIR="$CADDY_HOME/sites"
+MY_CADDY_SITE="$CADDY_SITES_DIR/imposterzero.Caddyfile"
+
+SERVER_PORT=30588
+DOMAIN="imposterzero.localhost"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+info()   { echo -e "${GREEN}[INFO]${NC} $1"; }
+warn()   { echo -e "${YELLOW}[WARN]${NC} $1"; }
+error()  { echo -e "${RED}[ERROR]${NC} $1"; }
+header() { echo -e "${BLUE}=== $1 ===${NC}"; }
+
+nix_cmd() { (cd "$PROJECT_DIR" && nix develop --command "$@"); }
+
+check_prerequisites() {
+    if ! command -v nix &>/dev/null; then
+        error "nix not found. Please install Nix first."
+        exit 1
+    fi
+
+    if [[ ! -f "$PROJECT_DIR/flake.nix" ]]; then
+        error "flake.nix not found in $PROJECT_DIR"
+        exit 1
+    fi
+}
+
+do_build() {
+    header "Building Imposter Zero"
+
+    info "Installing dependencies..."
+    nix_cmd pnpm install --frozen-lockfile
+
+    info "Compiling TypeScript..."
+    nix_cmd pnpm build
+
+    info "Building web frontend (WS_URL=wss://${DOMAIN})..."
+    (cd "$PROJECT_DIR" && WS_URL="wss://${DOMAIN}" nix develop --command pnpm --filter @imposter-zero/web build)
+
+    if [[ ! -f "$PROJECT_DIR/packages/server/dist/serve.js" ]]; then
+        error "Build failed: packages/server/dist/serve.js not found"
+        exit 1
+    fi
+
+    if [[ ! -d "$PROJECT_DIR/packages/web/dist" ]]; then
+        error "Build failed: packages/web/dist/ not found"
+        exit 1
+    fi
+
+    info "Build complete."
+}
+
+generate_wrapper() {
+    mkdir -p "$PROJECT_DIR/bin"
+
+    cat > "$PROJECT_DIR/bin/serve-launchd" << WRAPPER
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -e '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh' ]]; then
+    . '/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh'
+fi
+
+cd "${PROJECT_DIR}"
+exec nix develop --command node packages/server/dist/serve.js
+WRAPPER
+    chmod +x "$PROJECT_DIR/bin/serve-launchd"
+    info "Generated LaunchAgent wrapper at bin/serve-launchd"
+}
+
+generate_caddy_site() {
+    mkdir -p "$CADDY_SITES_DIR"
+
+    local web_dist="${PROJECT_DIR}/packages/web/dist"
+
+    cat > "$MY_CADDY_SITE" << EOF
+# Imposter Zero — https://${DOMAIN}
+${DOMAIN} {
+	tls internal
+
+	@websocket {
+		header Connection *Upgrade*
+		header Upgrade    websocket
+	}
+	reverse_proxy @websocket localhost:${SERVER_PORT}
+
+	root * ${web_dist}
+	try_files {path} /index.html
+	file_server
+}
+EOF
+    info "Generated Caddy site config at $MY_CADDY_SITE"
+}
+
+reload_caddy() {
+    if [[ -d "$CADDY_HOME" ]]; then
+        info "Reloading Caddy configuration..."
+        (cd "$CADDY_HOME" && nix develop --command caddy reload --config Caddyfile 2>/dev/null) || \
+            warn "Could not reload Caddy. You may need to run: cd ~/Caddy && caddy-reload"
+    fi
+}
+
+generate_plist() {
+    mkdir -p "$LOG_DIR"
+    mkdir -p "$(dirname "$PLIST_FILE")"
+
+    cat > "$PLIST_FILE" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${SERVICE_NAME}</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>${PROJECT_DIR}/bin/serve-launchd</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>${PROJECT_DIR}</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>${HOME}</string>
+        <key>PORT</key>
+        <string>${SERVER_PORT}</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>${LOG_DIR}/server.stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>${LOG_DIR}/server.stderr.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
+EOF
+    info "Generated plist at $PLIST_FILE"
+}
+
+do_install() {
+    header "Installing Imposter Zero"
+    check_prerequisites
+
+    if launchctl list 2>/dev/null | grep -q "$SERVICE_NAME"; then
+        warn "Service already loaded. Unloading first..."
+        launchctl unload "$PLIST_FILE" 2>/dev/null || true
+    fi
+
+    do_build
+    generate_wrapper
+    generate_plist
+    generate_caddy_site
+
+    info "Loading service..."
+    launchctl load "$PLIST_FILE"
+
+    reload_caddy
+
+    sleep 2
+    echo ""
+    do_status
+}
+
+do_uninstall() {
+    header "Uninstalling Imposter Zero"
+
+    if [[ -f "$PLIST_FILE" ]]; then
+        launchctl unload "$PLIST_FILE" 2>/dev/null || true
+        rm -f "$PLIST_FILE"
+        info "Removed LaunchAgent plist"
+    else
+        warn "Service plist not found"
+    fi
+
+    if [[ -f "$PROJECT_DIR/bin/serve-launchd" ]]; then
+        rm -f "$PROJECT_DIR/bin/serve-launchd"
+        info "Removed LaunchAgent wrapper"
+    fi
+
+    if [[ -f "$MY_CADDY_SITE" ]]; then
+        rm -f "$MY_CADDY_SITE"
+        info "Removed Caddy site config"
+        reload_caddy
+    fi
+
+    info "Uninstall complete."
+    info "Log files remain at: $LOG_DIR"
+}
+
+do_status() {
+    header "Service Status"
+
+    local svc_info
+    svc_info=$(launchctl list 2>/dev/null | grep "$SERVICE_NAME" || true)
+
+    if [[ -n "$svc_info" ]]; then
+        local pid
+        pid=$(echo "$svc_info" | awk '{print $1}')
+        if [[ "$pid" != "-" && "$pid" =~ ^[0-9]+$ ]]; then
+            echo -e "  Server: ${GREEN}Running${NC} (PID: $pid)"
+        else
+            echo -e "  Server: ${YELLOW}Loaded but not running${NC}"
+        fi
+    else
+        echo -e "  Server: ${RED}Not installed${NC}"
+    fi
+
+    echo ""
+    header "Health Check"
+
+    if curl -sN --http1.1 \
+         -H "Connection: Upgrade" \
+         -H "Upgrade: websocket" \
+         -H "Sec-WebSocket-Version: 13" \
+         -H "Sec-WebSocket-Key: dGVzdA==" \
+         "http://localhost:${SERVER_PORT}/" \
+         --max-time 2 -o /dev/null -w "%{http_code}" 2>/dev/null | grep -q "101"; then
+        echo -e "  WS Server (localhost:${SERVER_PORT}): ${GREEN}Healthy${NC}"
+    else
+        echo -e "  WS Server (localhost:${SERVER_PORT}): ${RED}Not responding${NC}"
+    fi
+
+    if [[ -d "$PROJECT_DIR/packages/web/dist" ]]; then
+        echo -e "  Web build: ${GREEN}Present${NC}"
+    else
+        echo -e "  Web build: ${RED}Missing${NC} (run: $0 build)"
+    fi
+
+    if curl -sk "https://${DOMAIN}/" --max-time 2 -o /dev/null 2>/dev/null; then
+        echo -e "  Caddy proxy: ${GREEN}Working${NC}"
+    else
+        echo -e "  Caddy proxy: ${YELLOW}Not working${NC} (is Caddy running?)"
+    fi
+
+    echo ""
+    header "URLs"
+    echo -e "  App:    ${GREEN}https://${DOMAIN}${NC}"
+    echo "  Direct: ws://localhost:${SERVER_PORT}"
+
+    echo ""
+    header "Logs"
+    echo "  stdout: $LOG_DIR/server.stdout.log"
+    echo "  stderr: $LOG_DIR/server.stderr.log"
+}
+
+do_logs() {
+    local lines="${2:-50}"
+
+    header "Server Logs (last $lines lines)"
+
+    if [[ -f "$LOG_DIR/server.stderr.log" ]]; then
+        tail -"$lines" "$LOG_DIR/server.stderr.log"
+    else
+        echo "  (no logs yet)"
+    fi
+}
+
+do_restart() {
+    header "Restarting Imposter Zero"
+
+    if [[ -f "$PLIST_FILE" ]]; then
+        launchctl unload "$PLIST_FILE" 2>/dev/null || true
+        sleep 1
+        launchctl load "$PLIST_FILE"
+        info "Service restarted"
+        sleep 2
+        do_status
+    else
+        error "Service not installed. Run: $0 install"
+        exit 1
+    fi
+}
+
+do_follow() {
+    header "Following logs (Ctrl+C to stop)"
+    tail -f "$LOG_DIR/server.stderr.log" "$LOG_DIR/server.stdout.log" 2>/dev/null || \
+        error "No log files found. Is the service installed?"
+}
+
+case "${1:-help}" in
+    install)
+        do_install
+        ;;
+    uninstall|remove)
+        do_uninstall
+        ;;
+    build)
+        check_prerequisites
+        do_build
+        ;;
+    status)
+        do_status
+        ;;
+    logs)
+        do_logs "$@"
+        ;;
+    follow)
+        do_follow
+        ;;
+    restart)
+        do_restart
+        ;;
+    *)
+        echo "Imposter Zero Service Manager"
+        echo ""
+        echo "Usage: $0 <command>"
+        echo ""
+        echo "Commands:"
+        echo "  install    Build, install as LaunchAgent, register with Caddy"
+        echo "  uninstall  Stop and remove LaunchAgent + Caddy config"
+        echo "  build      Build server + web frontend only"
+        echo "  status     Show service status and health check"
+        echo "  restart    Restart the server"
+        echo "  logs [N]   Show last N lines of logs (default: 50)"
+        echo "  follow     Tail logs continuously"
+        echo ""
+        echo "The service will:"
+        echo "  - Start the WebSocket game server on login"
+        echo "  - Restart if it crashes"
+        echo "  - Serve the web UI + proxy WS via Caddy"
+        echo "  - Register with shared Caddy at ~/Caddy"
+        echo ""
+        echo -e "URL: ${GREEN}https://imposterzero.localhost${NC}"
+        echo ""
+        echo "Log files: $LOG_DIR/"
+        ;;
+esac

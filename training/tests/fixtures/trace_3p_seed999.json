@@ -792,6 +792,78 @@
     },
     {
       "activePlayer": 0,
+      "phase": "resolving",
+      "firstPlayer": 0,
+      "legalActionCount": 2,
+      "encodedAction": 817,
+      "throneValue": 9,
+      "courtSize": 5,
+      "handSizes": [
+        4,
+        4,
+        4
+      ],
+      "informationStateStrings": [
+        "phase=resolving;active=0;firstPlayer=0;player=0;hand=[Inquisitor:4,Assassin:2,Elder:3,Inquisitor:4];kingFace=up;successor=set;dungeon=set;throne=Queen:9:up;courtSize=5;accused=Executioner;forgotten=set",
+        "phase=resolving;active=0;firstPlayer=0;player=1;hand=[Fool:1,Herald:6,Immortal:6,Zealot:3];kingFace=up;successor=set;dungeon=set;throne=Queen:9:up;courtSize=5;accused=Executioner;forgotten=set",
+        "phase=resolving;active=0;firstPlayer=0;player=2;hand=[Bard:4,Warlord:7,Oathbound:6,Warden:7];kingFace=up;successor=set;dungeon=set;throne=Queen:9:up;courtSize=5;accused=Executioner;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          4,
+          1,
+          1,
+          1,
+          9,
+          5,
+          4,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          4,
+          1,
+          1,
+          1,
+          9,
+          5,
+          4,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          4,
+          1,
+          1,
+          1,
+          9,
+          5,
+          4,
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "activePlayer": 0,
       "phase": "play",
       "firstPlayer": 0,
       "legalActionCount": 5,
@@ -1151,6 +1223,78 @@
       ]
     },
     {
+      "activePlayer": 1,
+      "phase": "resolving",
+      "firstPlayer": 0,
+      "legalActionCount": 2,
+      "encodedAction": 817,
+      "throneValue": 1,
+      "courtSize": 9,
+      "handSizes": [
+        3,
+        2,
+        3
+      ],
+      "informationStateStrings": [
+        "phase=resolving;active=1;firstPlayer=0;player=0;hand=[Assassin:2,Elder:3,Inquisitor:4];kingFace=down;successor=set;dungeon=set;throne=Fool:1:up;courtSize=9;accused=Executioner;forgotten=set",
+        "phase=resolving;active=1;firstPlayer=0;player=1;hand=[Immortal:6,Zealot:3];kingFace=up;successor=set;dungeon=set;throne=Fool:1:up;courtSize=9;accused=Executioner;forgotten=set",
+        "phase=resolving;active=1;firstPlayer=0;player=2;hand=[Bard:4,Oathbound:6,Warden:7];kingFace=down;successor=set;dungeon=set;throne=Fool:1:up;courtSize=9;accused=Executioner;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          3,
+          0,
+          1,
+          1,
+          1,
+          9,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          2,
+          1,
+          1,
+          1,
+          1,
+          9,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          3,
+          0,
+          1,
+          1,
+          1,
+          9,
+          4,
+          1,
+          0
+        ]
+      ]
+    },
+    {
       "activePlayer": 2,
       "phase": "play",
       "firstPlayer": 0,
@@ -1372,7 +1516,7 @@
       "firstPlayer": 0,
       "legalActionCount": 2,
       "encodedAction": 12,
-      "throneValue": 6,
+      "throneValue": 5,
       "courtSize": 12,
       "handSizes": [
         2,
@@ -1396,7 +1540,7 @@
           0,
           1,
           1,
-          6,
+          5,
           12,
           4,
           1,
@@ -1413,7 +1557,7 @@
           1,
           1,
           1,
-          6,
+          5,
           12,
           4,
           1,
@@ -1430,7 +1574,7 @@
           0,
           1,
           1,
-          6,
+          5,
           12,
           4,
           1,
@@ -1444,5 +1588,5 @@
     0,
     1
   ],
-  "totalSteps": 19
+  "totalSteps": 21
 }

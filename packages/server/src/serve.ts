@@ -80,7 +80,9 @@ const loadBotStrategy = (): BotStrategy => {
 
 const port = parseIntOr(process.env.PORT, 30588);
 const targetScore = parseIntOr(process.env.TARGET_SCORE, 7);
-const botStrategy = loadBotStrategy();
+// Trained policies are for the pre-effects game and produce nonsensical decisions.
+// Use random until the game is retrained with card effects enabled.
+const botStrategy = RandomStrategy;
 
 const handle = startServer(ImposterKingsGame, {
   port,

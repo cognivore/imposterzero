@@ -34,7 +34,8 @@ export type CardFilter =
   | { readonly tag: "notRoyalty" }
   | { readonly tag: "notDisgracedOrRoyalty" }
   | { readonly tag: "hasKeyword"; readonly keyword: CardKeyword }
-  | { readonly tag: "minValue"; readonly value: number };
+  | { readonly tag: "minValue"; readonly value: number }
+  | { readonly tag: "hasName"; readonly name: CardName };
 
 // ---------------------------------------------------------------------------
 // Trigger and modifier types (Phase 4/5 forward declarations)
@@ -75,29 +76,33 @@ export type PlayCondition =
 export type EffectProgram =
   // Terminal
   | { readonly tag: "done" }
-  // Non-interactive state mutations (Phase 2)
+  // Sequencing — processes steps left-to-right, threading state
+  | { readonly tag: "sequence"; readonly steps: ReadonlyArray<EffectProgram> }
+  // Non-interactive state mutations
   | { readonly tag: "disgraceAllInCourt"; readonly except: CardRef | null; readonly then: EffectProgram }
   | { readonly tag: "disgraceInCourt"; readonly target: CardRef; readonly then: EffectProgram }
   | { readonly tag: "moveCard"; readonly card: CardRef; readonly from: ZoneRef; readonly to: ZoneRef; readonly then: EffectProgram }
   | { readonly tag: "setKingFace"; readonly player: PlayerRef; readonly face: FaceState; readonly then: EffectProgram }
   | { readonly tag: "ifCond"; readonly predicate: StatePredicate; readonly then_: EffectProgram; readonly else_: EffectProgram }
-  // Interactive — yield NeedChoice (Phase 3)
+  // Interactive — yield NeedChoice
   | { readonly tag: "chooseCard"; readonly player: PlayerRef; readonly zone: ZoneRef; readonly filter: CardFilter | null; readonly andThen: (cardId: number) => EffectProgram }
   | { readonly tag: "choosePlayer"; readonly andThen: (player: PlayerId) => EffectProgram }
   | { readonly tag: "nameCard"; readonly andThen: (name: CardName) => EffectProgram }
   | { readonly tag: "nameValue"; readonly min: number; readonly max: number; readonly andThen: (value: number) => EffectProgram }
   | { readonly tag: "forEachOpponent"; readonly effect: (opponent: PlayerId) => EffectProgram; readonly then: EffectProgram }
   | { readonly tag: "optional"; readonly effect: EffectProgram; readonly otherwise: EffectProgram }
-  // Reaction checkpoint (Phase 4)
+  // Reaction checkpoint
   | { readonly tag: "triggerReaction"; readonly trigger: TriggerKind; readonly continuation: EffectProgram; readonly onReacted: EffectProgram }
-  | { readonly tag: "forceLoser"; readonly player: PlayerRef };
+  | { readonly tag: "forceLoser"; readonly player: PlayerRef }
+  // Ability prevention (reaction body for King's Hand)
+  | { readonly tag: "preventEffect" };
 
 // ---------------------------------------------------------------------------
 // Card effect — attached to card definitions
 // ---------------------------------------------------------------------------
 
 export type CardEffect =
-  | { readonly tag: "onPlay"; readonly effect: EffectProgram }
+  | { readonly tag: "onPlay"; readonly effect: EffectProgram; readonly isOptional: boolean }
   | { readonly tag: "reaction"; readonly trigger: TriggerKind; readonly effect: EffectProgram }
   | { readonly tag: "continuous"; readonly modifier: ModifierSpec }
   | { readonly tag: "playOverride"; readonly condition: PlayCondition };
@@ -111,7 +116,8 @@ export type ChoiceOption =
   | { readonly kind: "player"; readonly player: PlayerId }
   | { readonly kind: "cardName"; readonly name: CardName }
   | { readonly kind: "value"; readonly value: number }
-  | { readonly kind: "pass" };
+  | { readonly kind: "pass" }
+  | { readonly kind: "proceed" };
 
 export type Resolution =
   | { readonly tag: "done"; readonly state: import("../state.js").IKState }
@@ -131,6 +137,7 @@ export interface EffectContext {
   readonly playedCard: IKCard;
   readonly activePlayer: PlayerId;
   readonly numPlayers: number;
+  readonly playedFrom: "hand" | "antechamber" | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -218,9 +225,13 @@ export const optional = (
   otherwise: EffectProgram = done,
 ): EffectProgram => ({ tag: "optional", effect, otherwise });
 
-export const onPlay = (effect: EffectProgram): CardEffect => ({
+export const onPlay = (
+  effect: EffectProgram,
+  isOptional = true,
+): CardEffect => ({
   tag: "onPlay",
   effect,
+  isOptional,
 });
 
 export const playOverride = (condition: PlayCondition): CardEffect => ({
@@ -248,3 +259,12 @@ export const triggerReaction = (
   continuation: EffectProgram,
   onReacted: EffectProgram,
 ): EffectProgram => ({ tag: "triggerReaction", trigger, continuation, onReacted });
+
+export const seq = (...steps: ReadonlyArray<EffectProgram>): EffectProgram =>
+  steps.length === 0
+    ? done
+    : steps.length === 1
+      ? steps[0]!
+      : { tag: "sequence", steps };
+
+export const preventEffect: EffectProgram = { tag: "preventEffect" };

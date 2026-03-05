@@ -36,7 +36,7 @@ export const ImposterKingsObserver: Observer<IKState> = {
     const activeOneHot = Array.from({ length: state.numPlayers }, (_, p) =>
       p === state.activePlayer ? 1 : 0,
     );
-    const isPlayLike = state.phase === "play" || state.phase === "resolving";
+    const isPlayLike = state.phase === "play" || state.phase === "resolving" || state.phase === "end_of_turn";
     const phaseOneHot = [
       state.phase === "crown" ? 1 : 0,
       state.phase === "setup" ? 1 : 0,

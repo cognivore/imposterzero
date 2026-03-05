@@ -648,6 +648,78 @@
     },
     {
       "activePlayer": 1,
+      "phase": "resolving",
+      "firstPlayer": 0,
+      "legalActionCount": 2,
+      "encodedAction": 817,
+      "throneValue": 7,
+      "courtSize": 3,
+      "handSizes": [
+        5,
+        5,
+        4
+      ],
+      "informationStateStrings": [
+        "phase=resolving;active=1;firstPlayer=0;player=0;hand=[Inquisitor:4,Elder:3,Elder:3,Herald:6,Oathbound:6];kingFace=up;successor=set;dungeon=set;throne=Warlord:7:up;courtSize=3;accused=Bard;forgotten=set",
+        "phase=resolving;active=1;firstPlayer=0;player=1;hand=[Assassin:2,Executioner:4,Sentry:8,Warden:7,Judge:5];kingFace=up;successor=set;dungeon=set;throne=Warlord:7:up;courtSize=3;accused=Bard;forgotten=set",
+        "phase=resolving;active=1;firstPlayer=0;player=2;hand=[Soldier:5,Inquisitor:4,Princess:9,Queen:9];kingFace=up;successor=set;dungeon=set;throne=Warlord:7:up;courtSize=3;accused=Bard;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          5,
+          1,
+          1,
+          1,
+          7,
+          3,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          5,
+          1,
+          1,
+          1,
+          7,
+          3,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          4,
+          1,
+          1,
+          1,
+          7,
+          3,
+          4,
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "activePlayer": 1,
       "phase": "play",
       "firstPlayer": 0,
       "legalActionCount": 6,
@@ -1005,12 +1077,804 @@
           0
         ]
       ]
+    },
+    {
+      "activePlayer": 0,
+      "phase": "play",
+      "firstPlayer": 0,
+      "legalActionCount": 2,
+      "encodedAction": 4,
+      "throneValue": 9,
+      "courtSize": 8,
+      "handSizes": [
+        4,
+        3,
+        2
+      ],
+      "informationStateStrings": [
+        "phase=play;active=0;firstPlayer=0;player=0;hand=[Inquisitor:4,Elder:3,Elder:3,Oathbound:6];kingFace=down;successor=set;dungeon=set;throne=Princess:9:up;courtSize=8;accused=Bard;forgotten=set",
+        "phase=play;active=0;firstPlayer=0;player=1;hand=[Executioner:4,Warden:7,Judge:5];kingFace=up;successor=set;dungeon=set;throne=Princess:9:up;courtSize=8;accused=Bard;forgotten=set",
+        "phase=play;active=0;firstPlayer=0;player=2;hand=[Inquisitor:4,Queen:9];kingFace=up;successor=set;dungeon=set;throne=Princess:9:up;courtSize=8;accused=Bard;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          4,
+          0,
+          1,
+          1,
+          9,
+          8,
+          4,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          3,
+          1,
+          1,
+          1,
+          9,
+          8,
+          4,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          2,
+          1,
+          1,
+          1,
+          9,
+          8,
+          4,
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "activePlayer": 1,
+      "phase": "play",
+      "firstPlayer": 0,
+      "legalActionCount": 4,
+      "encodedAction": 21,
+      "throneValue": 3,
+      "courtSize": 9,
+      "handSizes": [
+        3,
+        3,
+        2
+      ],
+      "informationStateStrings": [
+        "phase=play;active=1;firstPlayer=0;player=0;hand=[Inquisitor:4,Elder:3,Oathbound:6];kingFace=down;successor=set;dungeon=set;throne=Elder:3:up;courtSize=9;accused=Bard;forgotten=set",
+        "phase=play;active=1;firstPlayer=0;player=1;hand=[Executioner:4,Warden:7,Judge:5];kingFace=up;successor=set;dungeon=set;throne=Elder:3:up;courtSize=9;accused=Bard;forgotten=set",
+        "phase=play;active=1;firstPlayer=0;player=2;hand=[Inquisitor:4,Queen:9];kingFace=up;successor=set;dungeon=set;throne=Elder:3:up;courtSize=9;accused=Bard;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          3,
+          0,
+          1,
+          1,
+          3,
+          9,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          3,
+          1,
+          1,
+          1,
+          3,
+          9,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          2,
+          1,
+          1,
+          1,
+          3,
+          9,
+          4,
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "activePlayer": 2,
+      "phase": "play",
+      "firstPlayer": 0,
+      "legalActionCount": 3,
+      "encodedAction": 7,
+      "throneValue": 4,
+      "courtSize": 10,
+      "handSizes": [
+        3,
+        2,
+        2
+      ],
+      "informationStateStrings": [
+        "phase=play;active=2;firstPlayer=0;player=0;hand=[Inquisitor:4,Elder:3,Oathbound:6];kingFace=down;successor=set;dungeon=set;throne=Executioner:4:up;courtSize=10;accused=Bard;forgotten=set",
+        "phase=play;active=2;firstPlayer=0;player=1;hand=[Warden:7,Judge:5];kingFace=up;successor=set;dungeon=set;throne=Executioner:4:up;courtSize=10;accused=Bard;forgotten=set",
+        "phase=play;active=2;firstPlayer=0;player=2;hand=[Inquisitor:4,Queen:9];kingFace=up;successor=set;dungeon=set;throne=Executioner:4:up;courtSize=10;accused=Bard;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          3,
+          0,
+          1,
+          1,
+          4,
+          10,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          2,
+          1,
+          1,
+          1,
+          4,
+          10,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          2,
+          1,
+          1,
+          1,
+          4,
+          10,
+          4,
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "activePlayer": 0,
+      "phase": "play",
+      "firstPlayer": 0,
+      "legalActionCount": 2,
+      "encodedAction": 6,
+      "throneValue": 4,
+      "courtSize": 11,
+      "handSizes": [
+        3,
+        2,
+        1
+      ],
+      "informationStateStrings": [
+        "phase=play;active=0;firstPlayer=0;player=0;hand=[Inquisitor:4,Elder:3,Oathbound:6];kingFace=down;successor=set;dungeon=set;throne=Inquisitor:4:up;courtSize=11;accused=Bard;forgotten=set",
+        "phase=play;active=0;firstPlayer=0;player=1;hand=[Warden:7,Judge:5];kingFace=up;successor=set;dungeon=set;throne=Inquisitor:4:up;courtSize=11;accused=Bard;forgotten=set",
+        "phase=play;active=0;firstPlayer=0;player=2;hand=[Queen:9];kingFace=up;successor=set;dungeon=set;throne=Inquisitor:4:up;courtSize=11;accused=Bard;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          3,
+          0,
+          1,
+          1,
+          4,
+          11,
+          4,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          2,
+          1,
+          1,
+          1,
+          4,
+          11,
+          4,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          4,
+          11,
+          4,
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "activePlayer": 1,
+      "phase": "play",
+      "firstPlayer": 0,
+      "legalActionCount": 3,
+      "encodedAction": 16,
+      "throneValue": 4,
+      "courtSize": 12,
+      "handSizes": [
+        2,
+        2,
+        1
+      ],
+      "informationStateStrings": [
+        "phase=play;active=1;firstPlayer=0;player=0;hand=[Elder:3,Oathbound:6];kingFace=down;successor=set;dungeon=set;throne=Inquisitor:4:up;courtSize=12;accused=Bard;forgotten=set",
+        "phase=play;active=1;firstPlayer=0;player=1;hand=[Warden:7,Judge:5];kingFace=up;successor=set;dungeon=set;throne=Inquisitor:4:up;courtSize=12;accused=Bard;forgotten=set",
+        "phase=play;active=1;firstPlayer=0;player=2;hand=[Queen:9];kingFace=up;successor=set;dungeon=set;throne=Inquisitor:4:up;courtSize=12;accused=Bard;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          2,
+          0,
+          1,
+          1,
+          4,
+          12,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          2,
+          1,
+          1,
+          1,
+          4,
+          12,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          4,
+          12,
+          4,
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "activePlayer": 2,
+      "phase": "play",
+      "firstPlayer": 0,
+      "legalActionCount": 2,
+      "encodedAction": 20,
+      "throneValue": 7,
+      "courtSize": 13,
+      "handSizes": [
+        2,
+        1,
+        1
+      ],
+      "informationStateStrings": [
+        "phase=play;active=2;firstPlayer=0;player=0;hand=[Elder:3,Oathbound:6];kingFace=down;successor=set;dungeon=set;throne=Warden:7:up;courtSize=13;accused=Bard;forgotten=set",
+        "phase=play;active=2;firstPlayer=0;player=1;hand=[Judge:5];kingFace=up;successor=set;dungeon=set;throne=Warden:7:up;courtSize=13;accused=Bard;forgotten=set",
+        "phase=play;active=2;firstPlayer=0;player=2;hand=[Queen:9];kingFace=up;successor=set;dungeon=set;throne=Warden:7:up;courtSize=13;accused=Bard;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          2,
+          0,
+          1,
+          1,
+          7,
+          13,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          7,
+          13,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          7,
+          13,
+          4,
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "activePlayer": 0,
+      "phase": "play",
+      "firstPlayer": 0,
+      "legalActionCount": 1,
+      "encodedAction": 3,
+      "throneValue": 9,
+      "courtSize": 14,
+      "handSizes": [
+        2,
+        1,
+        0
+      ],
+      "informationStateStrings": [
+        "phase=play;active=0;firstPlayer=0;player=0;hand=[Elder:3,Oathbound:6];kingFace=down;successor=set;dungeon=set;throne=Queen:9:up;courtSize=14;accused=Bard;forgotten=set",
+        "phase=play;active=0;firstPlayer=0;player=1;hand=[Judge:5];kingFace=up;successor=set;dungeon=set;throne=Queen:9:up;courtSize=14;accused=Bard;forgotten=set",
+        "phase=play;active=0;firstPlayer=0;player=2;hand=[];kingFace=up;successor=set;dungeon=set;throne=Queen:9:up;courtSize=14;accused=Bard;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          2,
+          0,
+          1,
+          1,
+          9,
+          14,
+          4,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          9,
+          14,
+          4,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          1,
+          9,
+          14,
+          4,
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "activePlayer": 1,
+      "phase": "play",
+      "firstPlayer": 0,
+      "legalActionCount": 2,
+      "encodedAction": 10,
+      "throneValue": 3,
+      "courtSize": 15,
+      "handSizes": [
+        1,
+        1,
+        0
+      ],
+      "informationStateStrings": [
+        "phase=play;active=1;firstPlayer=0;player=0;hand=[Oathbound:6];kingFace=down;successor=set;dungeon=set;throne=Elder:3:up;courtSize=15;accused=Bard;forgotten=set",
+        "phase=play;active=1;firstPlayer=0;player=1;hand=[Judge:5];kingFace=up;successor=set;dungeon=set;throne=Elder:3:up;courtSize=15;accused=Bard;forgotten=set",
+        "phase=play;active=1;firstPlayer=0;player=2;hand=[];kingFace=up;successor=set;dungeon=set;throne=Elder:3:up;courtSize=15;accused=Bard;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          0,
+          1,
+          1,
+          3,
+          15,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          3,
+          15,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          1,
+          3,
+          15,
+          4,
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "activePlayer": 2,
+      "phase": "play",
+      "firstPlayer": 0,
+      "legalActionCount": 1,
+      "encodedAction": 0,
+      "throneValue": 5,
+      "courtSize": 16,
+      "handSizes": [
+        1,
+        0,
+        0
+      ],
+      "informationStateStrings": [
+        "phase=play;active=2;firstPlayer=0;player=0;hand=[Oathbound:6];kingFace=down;successor=set;dungeon=set;throne=Judge:5:up;courtSize=16;accused=Bard;forgotten=set",
+        "phase=play;active=2;firstPlayer=0;player=1;hand=[];kingFace=up;successor=set;dungeon=set;throne=Judge:5:up;courtSize=16;accused=Bard;forgotten=set",
+        "phase=play;active=2;firstPlayer=0;player=2;hand=[];kingFace=up;successor=set;dungeon=set;throne=Judge:5:up;courtSize=16;accused=Bard;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          1,
+          0,
+          1,
+          1,
+          5,
+          16,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          1,
+          5,
+          16,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          1,
+          5,
+          16,
+          4,
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "activePlayer": 0,
+      "phase": "play",
+      "firstPlayer": 0,
+      "legalActionCount": 1,
+      "encodedAction": 12,
+      "throneValue": 1,
+      "courtSize": 16,
+      "handSizes": [
+        1,
+        0,
+        0
+      ],
+      "informationStateStrings": [
+        "phase=play;active=0;firstPlayer=0;player=0;hand=[Oathbound:6];kingFace=down;successor=set;dungeon=set;throne=Judge:1:down;courtSize=16;accused=Bard;forgotten=set",
+        "phase=play;active=0;firstPlayer=0;player=1;hand=[];kingFace=up;successor=set;dungeon=set;throne=Judge:1:down;courtSize=16;accused=Bard;forgotten=set",
+        "phase=play;active=0;firstPlayer=0;player=2;hand=[];kingFace=down;successor=set;dungeon=set;throne=Judge:1:down;courtSize=16;accused=Bard;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          1,
+          0,
+          1,
+          1,
+          1,
+          16,
+          4,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          1,
+          1,
+          16,
+          4,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          1,
+          1,
+          16,
+          4,
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "activePlayer": 1,
+      "phase": "play",
+      "firstPlayer": 0,
+      "legalActionCount": 1,
+      "encodedAction": 0,
+      "throneValue": 6,
+      "courtSize": 17,
+      "handSizes": [
+        0,
+        0,
+        0
+      ],
+      "informationStateStrings": [
+        "phase=play;active=1;firstPlayer=0;player=0;hand=[];kingFace=down;successor=set;dungeon=set;throne=Oathbound:6:up;courtSize=17;accused=Bard;forgotten=set",
+        "phase=play;active=1;firstPlayer=0;player=1;hand=[];kingFace=up;successor=set;dungeon=set;throne=Oathbound:6:up;courtSize=17;accused=Bard;forgotten=set",
+        "phase=play;active=1;firstPlayer=0;player=2;hand=[];kingFace=down;successor=set;dungeon=set;throne=Oathbound:6:up;courtSize=17;accused=Bard;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          1,
+          6,
+          17,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          1,
+          1,
+          1,
+          6,
+          17,
+          4,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          1,
+          1,
+          6,
+          17,
+          4,
+          1,
+          0
+        ]
+      ]
     }
   ],
   "terminalReturns": [
-    -1,
     0,
-    1
+    1,
+    -1
   ],
-  "totalSteps": 13
+  "totalSteps": 25
 }

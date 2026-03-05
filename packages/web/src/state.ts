@@ -1,6 +1,6 @@
 import { useReducer } from "react";
 import type { PlayerId } from "@imposter-zero/types";
-import type { IKState, IKAction, IKCrownAction, IKSetupAction, IKPlayAction } from "@imposter-zero/engine";
+import type { IKState, IKAction, IKCrownAction, IKSetupAction, IKPlayAction, IKEffectChoiceAction } from "@imposter-zero/engine";
 import type { LobbyState, RoomSummary } from "./lobby-types.js";
 import type { IKServerMessage } from "./ws-client.js";
 
@@ -70,6 +70,19 @@ export type ClientPhase =
       readonly playerNames: readonly string[];
     }
   | {
+      readonly _tag: "resolving";
+      readonly me: string;
+      readonly name: string;
+      readonly myIndex: PlayerId;
+      readonly token: string;
+      readonly roomId: string;
+      readonly gameState: IKState;
+      readonly legalActions: readonly IKEffectChoiceAction[];
+      readonly activePlayer: PlayerId;
+      readonly numPlayers: number;
+      readonly playerNames: readonly string[];
+    }
+  | {
       readonly _tag: "scoring";
       readonly me: string;
       readonly name: string;
@@ -129,7 +142,7 @@ const findMyIndex = (lobby: LobbyState, me: string): PlayerId | null => {
 
 const myIndexOf = (phase: ClientPhase): PlayerId =>
   phase._tag === "lobby" ? (phase.myIndex ?? 0)
-  : phase._tag === "crown" || phase._tag === "setup" || phase._tag === "play" ? phase.myIndex
+  : phase._tag === "crown" || phase._tag === "setup" || phase._tag === "play" || phase._tag === "resolving" ? phase.myIndex
   : phase._tag === "scoring" || phase._tag === "finished" ? phase.myIndex
   : 0;
 
@@ -138,6 +151,7 @@ const playerNamesOfPhase = (phase: ClientPhase, fallback: readonly string[]): re
     case "crown":
     case "setup":
     case "play":
+    case "resolving":
     case "scoring":
     case "finished":
       return phase.playerNames;
@@ -151,6 +165,7 @@ const numPlayersOf = (phase: ClientPhase, fallback: number): number => {
     case "crown":
     case "setup":
     case "play":
+    case "resolving":
     case "scoring":
     case "finished":
       return phase.numPlayers;
@@ -169,6 +184,8 @@ const isCrownAction = (a: IKAction): a is IKCrownAction => a.kind === "crown";
 const isSetupAction = (a: IKAction): a is IKSetupAction => a.kind === "commit";
 const isPlayAction = (a: IKAction): a is IKPlayAction =>
   a.kind === "play" || a.kind === "disgrace";
+const isEffectChoiceAction = (a: IKAction): a is IKEffectChoiceAction =>
+  a.kind === "effect_choice";
 
 // ---------------------------------------------------------------------------
 // Reducer
@@ -297,6 +314,22 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
         };
       }
 
+      if (msg.state.phase === "resolving") {
+        return {
+          _tag: "resolving",
+          me,
+          name: name ?? "",
+          myIndex,
+          token,
+          roomId: rid,
+          gameState: msg.state,
+          legalActions: msg.legalActions.filter(isEffectChoiceAction),
+          activePlayer: msg.activePlayer,
+          numPlayers,
+          playerNames,
+        };
+      }
+
       return {
         _tag: "play",
         me,
@@ -390,7 +423,7 @@ export const detectLogEvents = (
     });
   }
 
-  if (prev._tag === "play" && next._tag === "play") {
+  if ((prev._tag === "play" || prev._tag === "resolving") && next._tag === "play") {
     const prevCourt = prev.gameState.shared.court;
     const nextCourt = next.gameState.shared.court;
     const actingPlayer = prev.activePlayer;
@@ -425,7 +458,7 @@ export const detectLogEvents = (
     }
   }
 
-  if (prev._tag === "play" && next._tag === "scoring") {
+  if ((prev._tag === "play" || prev._tag === "resolving") && next._tag === "scoring") {
     const roundsPlayed = next.roundsPlayed;
     events.push({
       kind: "round_end",
