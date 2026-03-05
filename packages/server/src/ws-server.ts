@@ -11,10 +11,10 @@ import {
 } from "./room.js";
 import { ConnectionRegistry, type RegistryEntry } from "./connection-registry.js";
 import {
-  type NonEmptyReadonlyArray,
+  type BotStrategy,
+  RandomStrategy,
   addBot,
   isBot,
-  pickRandom,
 } from "./bot-player.js";
 import {
   type ManagedRoom,
@@ -39,6 +39,7 @@ export interface ServerOptions {
   readonly autoAdvanceScoring?: boolean;
   readonly reconnectWindowMs?: number;
   readonly botDelayMs?: number;
+  readonly botStrategy?: BotStrategy;
 }
 
 export interface ServerHandle {
@@ -65,6 +66,7 @@ export const startServer = (
     autoAdvanceScoring = true,
     reconnectWindowMs = 60_000,
     botDelayMs = 250,
+    botStrategy = RandomStrategy,
   } = options;
 
   const store: RoomStore = emptyStore();
@@ -151,7 +153,11 @@ export const startServer = (
       const legal = current.game.legalActions(current.session.state);
       if (legal.length === 0) return;
 
-      const action = pickRandom(legal as NonEmptyReadonlyArray<IKAction>);
+      const action = botStrategy.selectAction(
+        current.session.state,
+        activePlayer,
+        legal,
+      );
       const now = Date.now();
       const result = roomTransition(m.room, { kind: "action", playerId: activeBotId, action, now }, now);
       if (!result.ok) return;

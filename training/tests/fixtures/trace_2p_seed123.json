@@ -5,216 +5,724 @@
   "maxCardId": 21,
   "initialHands": [
     [
-      14,
+      16,
       5,
-      19,
-      15,
-      17,
+      12,
+      4,
       10,
-      6,
+      1,
       13,
-      7
+      11,
+      9
     ],
     [
-      4,
+      6,
+      19,
+      0,
       2,
-      18,
-      9,
-      1,
-      12,
-      11,
       8,
-      16
+      15,
+      18,
+      14,
+      7
     ]
   ],
   "initialHandValues": [
     [
-      7,
-      4,
-      9,
-      7,
       8,
-      6,
       4,
+      6,
+      3,
+      6,
+      2,
       7,
+      6,
       5
     ],
     [
-      3,
-      3,
+      4,
       9,
+      1,
+      3,
       5,
-      2,
-      6,
-      6,
-      5,
-      8
+      7,
+      9,
+      7,
+      5
     ]
   ],
-  "accused": 3,
-  "accusedValue": 3,
-  "forgotten": 0,
+  "accused": 17,
+  "accusedValue": 8,
+  "forgotten": 3,
+  "firstPlayer": 0,
   "steps": [
     {
       "activePlayer": 0,
-      "phase": "setup",
-      "legalActionCount": 72,
-      "encodedAction": 336,
+      "phase": "crown",
+      "firstPlayer": 0,
+      "legalActionCount": 2,
+      "encodedAction": 507,
       "throneValue": 0,
       "courtSize": 0,
       "handSizes": [
         9,
         9
+      ],
+      "informationStateStrings": [
+        "phase=crown;active=0;firstPlayer=0;player=0;hand=[Sentry:8,Inquisitor:4,Immortal:6,Zealot:3,Oathbound:6,Assassin:2,Warlord:7,Oathbound:6,Judge:5];kingFace=up;successor=none;dungeon=none;throne=none;courtSize=0;accused=King's Hand;forgotten=set",
+        "phase=crown;active=0;firstPlayer=0;player=1;hand=[Inquisitor:4,Queen:9,Fool:1,Elder:3,Soldier:5,Warden:7,Princess:9,Mystic:7,Soldier:5];kingFace=up;successor=none;dungeon=none;throne=none;courtSize=0;accused=King's Hand;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          1,
+          0,
+          1,
+          0,
+          0,
+          9,
+          1,
+          0,
+          0,
+          0,
+          0,
+          8,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          1,
+          0,
+          0,
+          9,
+          1,
+          0,
+          0,
+          0,
+          0,
+          8,
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "activePlayer": 0,
+      "phase": "setup",
+      "firstPlayer": 0,
+      "legalActionCount": 72,
+      "encodedAction": 380,
+      "throneValue": 0,
+      "courtSize": 0,
+      "handSizes": [
+        9,
+        9
+      ],
+      "informationStateStrings": [
+        "phase=setup;active=0;firstPlayer=0;player=0;hand=[Sentry:8,Inquisitor:4,Immortal:6,Zealot:3,Oathbound:6,Assassin:2,Warlord:7,Oathbound:6,Judge:5];kingFace=up;successor=none;dungeon=none;throne=none;courtSize=0;accused=King's Hand;forgotten=set",
+        "phase=setup;active=0;firstPlayer=0;player=1;hand=[Inquisitor:4,Queen:9,Fool:1,Elder:3,Soldier:5,Warden:7,Princess:9,Mystic:7,Soldier:5];kingFace=up;successor=none;dungeon=none;throne=none;courtSize=0;accused=King's Hand;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          1,
+          0,
+          0,
+          1,
+          0,
+          9,
+          1,
+          0,
+          0,
+          0,
+          0,
+          8,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          1,
+          0,
+          9,
+          1,
+          0,
+          0,
+          0,
+          0,
+          8,
+          1,
+          0
+        ]
       ]
     },
     {
       "activePlayer": 1,
       "phase": "setup",
+      "firstPlayer": 0,
       "legalActionCount": 72,
-      "encodedAction": 113,
+      "encodedAction": 174,
       "throneValue": 0,
       "courtSize": 0,
       "handSizes": [
         7,
         9
+      ],
+      "informationStateStrings": [
+        "phase=setup;active=1;firstPlayer=0;player=0;hand=[Immortal:6,Zealot:3,Oathbound:6,Assassin:2,Warlord:7,Oathbound:6,Judge:5];kingFace=up;successor=set;dungeon=set;throne=none;courtSize=0;accused=King's Hand;forgotten=set",
+        "phase=setup;active=1;firstPlayer=0;player=1;hand=[Inquisitor:4,Queen:9,Fool:1,Elder:3,Soldier:5,Warden:7,Princess:9,Mystic:7,Soldier:5];kingFace=up;successor=none;dungeon=none;throne=none;courtSize=0;accused=King's Hand;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          0,
+          1,
+          0,
+          1,
+          0,
+          7,
+          1,
+          1,
+          1,
+          0,
+          0,
+          8,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          1,
+          0,
+          9,
+          1,
+          0,
+          0,
+          0,
+          0,
+          8,
+          1,
+          0
+        ]
       ]
     },
     {
       "activePlayer": 0,
       "phase": "play",
+      "firstPlayer": 0,
       "legalActionCount": 7,
-      "encodedAction": 19,
+      "encodedAction": 13,
       "throneValue": 0,
       "courtSize": 0,
       "handSizes": [
         7,
         7
+      ],
+      "informationStateStrings": [
+        "phase=play;active=0;firstPlayer=0;player=0;hand=[Immortal:6,Zealot:3,Oathbound:6,Assassin:2,Warlord:7,Oathbound:6,Judge:5];kingFace=up;successor=set;dungeon=set;throne=none;courtSize=0;accused=King's Hand;forgotten=set",
+        "phase=play;active=0;firstPlayer=0;player=1;hand=[Fool:1,Elder:3,Soldier:5,Warden:7,Princess:9,Mystic:7,Soldier:5];kingFace=up;successor=set;dungeon=set;throne=none;courtSize=0;accused=King's Hand;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          1,
+          0,
+          0,
+          0,
+          1,
+          7,
+          1,
+          1,
+          1,
+          0,
+          0,
+          8,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          1,
+          7,
+          1,
+          1,
+          1,
+          0,
+          0,
+          8,
+          1,
+          0
+        ]
       ]
     },
     {
       "activePlayer": 1,
       "phase": "play",
-      "legalActionCount": 2,
-      "encodedAction": 18,
-      "throneValue": 9,
+      "firstPlayer": 0,
+      "legalActionCount": 4,
+      "encodedAction": 16,
+      "throneValue": 6,
       "courtSize": 1,
       "handSizes": [
         6,
         7
+      ],
+      "informationStateStrings": [
+        "phase=play;active=1;firstPlayer=0;player=0;hand=[Zealot:3,Oathbound:6,Assassin:2,Warlord:7,Oathbound:6,Judge:5];kingFace=up;successor=set;dungeon=set;throne=Immortal:6:up;courtSize=1;accused=King's Hand;forgotten=set",
+        "phase=play;active=1;firstPlayer=0;player=1;hand=[Fool:1,Elder:3,Soldier:5,Warden:7,Princess:9,Mystic:7,Soldier:5];kingFace=up;successor=set;dungeon=set;throne=Immortal:6:up;courtSize=1;accused=King's Hand;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          0,
+          1,
+          0,
+          0,
+          1,
+          6,
+          1,
+          1,
+          1,
+          6,
+          1,
+          8,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          1,
+          7,
+          1,
+          1,
+          1,
+          6,
+          1,
+          8,
+          1,
+          0
+        ]
       ]
     },
     {
       "activePlayer": 0,
       "phase": "play",
-      "legalActionCount": 1,
-      "encodedAction": 22,
-      "throneValue": 9,
+      "firstPlayer": 0,
+      "legalActionCount": 2,
+      "encodedAction": 14,
+      "throneValue": 7,
       "courtSize": 2,
       "handSizes": [
         6,
         6
+      ],
+      "informationStateStrings": [
+        "phase=play;active=0;firstPlayer=0;player=0;hand=[Zealot:3,Oathbound:6,Assassin:2,Warlord:7,Oathbound:6,Judge:5];kingFace=up;successor=set;dungeon=set;throne=Warden:7:up;courtSize=2;accused=King's Hand;forgotten=set",
+        "phase=play;active=0;firstPlayer=0;player=1;hand=[Fool:1,Elder:3,Soldier:5,Princess:9,Mystic:7,Soldier:5];kingFace=up;successor=set;dungeon=set;throne=Warden:7:up;courtSize=2;accused=King's Hand;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          1,
+          0,
+          0,
+          0,
+          1,
+          6,
+          1,
+          1,
+          1,
+          7,
+          2,
+          8,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          1,
+          6,
+          1,
+          1,
+          1,
+          7,
+          2,
+          8,
+          1,
+          0
+        ]
       ]
     },
     {
       "activePlayer": 1,
       "phase": "play",
-      "legalActionCount": 7,
-      "encodedAction": 9,
-      "throneValue": 1,
-      "courtSize": 2,
-      "handSizes": [
-        6,
-        6
-      ]
-    },
-    {
-      "activePlayer": 0,
-      "phase": "play",
-      "legalActionCount": 5,
-      "encodedAction": 15,
-      "throneValue": 5,
+      "firstPlayer": 0,
+      "legalActionCount": 3,
+      "encodedAction": 19,
+      "throneValue": 7,
       "courtSize": 3,
       "handSizes": [
-        6,
-        5
+        5,
+        6
+      ],
+      "informationStateStrings": [
+        "phase=play;active=1;firstPlayer=0;player=0;hand=[Zealot:3,Oathbound:6,Assassin:2,Oathbound:6,Judge:5];kingFace=up;successor=set;dungeon=set;throne=Warlord:7:up;courtSize=3;accused=King's Hand;forgotten=set",
+        "phase=play;active=1;firstPlayer=0;player=1;hand=[Fool:1,Elder:3,Soldier:5,Princess:9,Mystic:7,Soldier:5];kingFace=up;successor=set;dungeon=set;throne=Warlord:7:up;courtSize=3;accused=King's Hand;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          0,
+          1,
+          0,
+          0,
+          1,
+          5,
+          1,
+          1,
+          1,
+          7,
+          3,
+          8,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          1,
+          6,
+          1,
+          1,
+          1,
+          7,
+          3,
+          8,
+          1,
+          0
+        ]
       ]
     },
     {
-      "activePlayer": 1,
+      "activePlayer": 0,
       "phase": "play",
-      "legalActionCount": 2,
-      "encodedAction": 16,
-      "throneValue": 7,
+      "firstPlayer": 0,
+      "legalActionCount": 1,
+      "encodedAction": 0,
+      "throneValue": 9,
       "courtSize": 4,
       "handSizes": [
         5,
         5
+      ],
+      "informationStateStrings": [
+        "phase=play;active=0;firstPlayer=0;player=0;hand=[Zealot:3,Oathbound:6,Assassin:2,Oathbound:6,Judge:5];kingFace=up;successor=set;dungeon=set;throne=Princess:9:up;courtSize=4;accused=King's Hand;forgotten=set",
+        "phase=play;active=0;firstPlayer=0;player=1;hand=[Fool:1,Elder:3,Soldier:5,Mystic:7,Soldier:5];kingFace=up;successor=set;dungeon=set;throne=Princess:9:up;courtSize=4;accused=King's Hand;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          1,
+          0,
+          0,
+          0,
+          1,
+          5,
+          1,
+          1,
+          1,
+          9,
+          4,
+          8,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          1,
+          5,
+          1,
+          1,
+          1,
+          9,
+          4,
+          8,
+          1,
+          0
+        ]
+      ]
+    },
+    {
+      "activePlayer": 1,
+      "phase": "play",
+      "firstPlayer": 0,
+      "legalActionCount": 6,
+      "encodedAction": 1,
+      "throneValue": 1,
+      "courtSize": 4,
+      "handSizes": [
+        5,
+        5
+      ],
+      "informationStateStrings": [
+        "phase=play;active=1;firstPlayer=0;player=0;hand=[Zealot:3,Oathbound:6,Assassin:2,Oathbound:6,Judge:5];kingFace=down;successor=set;dungeon=set;throne=Princess:1:down;courtSize=4;accused=King's Hand;forgotten=set",
+        "phase=play;active=1;firstPlayer=0;player=1;hand=[Fool:1,Elder:3,Soldier:5,Mystic:7,Soldier:5];kingFace=up;successor=set;dungeon=set;throne=Princess:1:down;courtSize=4;accused=King's Hand;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          0,
+          1,
+          0,
+          0,
+          1,
+          5,
+          0,
+          1,
+          1,
+          1,
+          4,
+          8,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          1,
+          5,
+          1,
+          1,
+          1,
+          1,
+          4,
+          8,
+          1,
+          0
+        ]
       ]
     },
     {
       "activePlayer": 0,
       "phase": "play",
-      "legalActionCount": 1,
-      "encodedAction": 17,
-      "throneValue": 8,
+      "firstPlayer": 0,
+      "legalActionCount": 5,
+      "encodedAction": 5,
+      "throneValue": 1,
       "courtSize": 5,
       "handSizes": [
         5,
         4
+      ],
+      "informationStateStrings": [
+        "phase=play;active=0;firstPlayer=0;player=0;hand=[Zealot:3,Oathbound:6,Assassin:2,Oathbound:6,Judge:5];kingFace=down;successor=set;dungeon=set;throne=Fool:1:up;courtSize=5;accused=King's Hand;forgotten=set",
+        "phase=play;active=0;firstPlayer=0;player=1;hand=[Elder:3,Soldier:5,Mystic:7,Soldier:5];kingFace=up;successor=set;dungeon=set;throne=Fool:1:up;courtSize=5;accused=King's Hand;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          1,
+          0,
+          0,
+          0,
+          1,
+          5,
+          0,
+          1,
+          1,
+          1,
+          5,
+          8,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          1,
+          4,
+          1,
+          1,
+          1,
+          1,
+          5,
+          8,
+          1,
+          0
+        ]
       ]
     },
     {
       "activePlayer": 1,
       "phase": "play",
-      "legalActionCount": 1,
-      "encodedAction": 22,
-      "throneValue": 8,
+      "firstPlayer": 0,
+      "legalActionCount": 5,
+      "encodedAction": 3,
+      "throneValue": 3,
       "courtSize": 6,
       "handSizes": [
         4,
         4
+      ],
+      "informationStateStrings": [
+        "phase=play;active=1;firstPlayer=0;player=0;hand=[Oathbound:6,Assassin:2,Oathbound:6,Judge:5];kingFace=down;successor=set;dungeon=set;throne=Zealot:3:up;courtSize=6;accused=King's Hand;forgotten=set",
+        "phase=play;active=1;firstPlayer=0;player=1;hand=[Elder:3,Soldier:5,Mystic:7,Soldier:5];kingFace=up;successor=set;dungeon=set;throne=Zealot:3:up;courtSize=6;accused=King's Hand;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          0,
+          1,
+          0,
+          0,
+          1,
+          4,
+          0,
+          1,
+          1,
+          3,
+          6,
+          8,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          1,
+          4,
+          1,
+          1,
+          1,
+          3,
+          6,
+          8,
+          1,
+          0
+        ]
       ]
     },
     {
       "activePlayer": 0,
       "phase": "play",
-      "legalActionCount": 4,
-      "encodedAction": 10,
-      "throneValue": 1,
-      "courtSize": 6,
-      "handSizes": [
-        4,
-        4
-      ]
-    },
-    {
-      "activePlayer": 1,
-      "phase": "play",
-      "legalActionCount": 2,
-      "encodedAction": 12,
-      "throneValue": 6,
+      "firstPlayer": 0,
+      "legalActionCount": 3,
+      "encodedAction": 11,
+      "throneValue": 3,
       "courtSize": 7,
       "handSizes": [
-        3,
-        4
+        4,
+        3
+      ],
+      "informationStateStrings": [
+        "phase=play;active=0;firstPlayer=0;player=0;hand=[Oathbound:6,Assassin:2,Oathbound:6,Judge:5];kingFace=down;successor=set;dungeon=set;throne=Elder:3:up;courtSize=7;accused=King's Hand;forgotten=set",
+        "phase=play;active=0;firstPlayer=0;player=1;hand=[Soldier:5,Mystic:7,Soldier:5];kingFace=up;successor=set;dungeon=set;throne=Elder:3:up;courtSize=7;accused=King's Hand;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          1,
+          0,
+          0,
+          0,
+          1,
+          4,
+          0,
+          1,
+          1,
+          3,
+          7,
+          8,
+          1,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          1,
+          3,
+          1,
+          1,
+          1,
+          3,
+          7,
+          8,
+          1,
+          0
+        ]
       ]
     },
     {
-      "activePlayer": 0,
+      "activePlayer": 1,
       "phase": "play",
-      "legalActionCount": 1,
-      "encodedAction": 13,
+      "firstPlayer": 0,
+      "legalActionCount": 2,
+      "encodedAction": 15,
       "throneValue": 6,
       "courtSize": 8,
       "handSizes": [
         3,
         3
+      ],
+      "informationStateStrings": [
+        "phase=play;active=1;firstPlayer=0;player=0;hand=[Assassin:2,Oathbound:6,Judge:5];kingFace=down;successor=set;dungeon=set;throne=Oathbound:6:up;courtSize=8;accused=King's Hand;forgotten=set",
+        "phase=play;active=1;firstPlayer=0;player=1;hand=[Soldier:5,Mystic:7,Soldier:5];kingFace=up;successor=set;dungeon=set;throne=Oathbound:6:up;courtSize=8;accused=King's Hand;forgotten=set"
+      ],
+      "observationTensors": [
+        [
+          0,
+          1,
+          0,
+          0,
+          1,
+          3,
+          0,
+          1,
+          1,
+          6,
+          8,
+          8,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0,
+          1,
+          3,
+          1,
+          1,
+          1,
+          6,
+          8,
+          8,
+          1,
+          0
+        ]
       ]
     }
   ],
   "terminalReturns": [
-    1,
-    -1
+    -1,
+    1
   ],
   "totalSteps": 13
 }

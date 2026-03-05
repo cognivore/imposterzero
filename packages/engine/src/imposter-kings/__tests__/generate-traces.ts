@@ -14,7 +14,9 @@ import { legalActions, apply, isTerminal, currentPlayer, returns } from "../rule
 import { encodeAction, type ActionCodecConfig } from "../actions.js";
 import { playerZones } from "../state.js";
 import { throneValue } from "../selectors.js";
+import { ImposterKingsObserver } from "../game.js";
 import type { IKState } from "../state.js";
+import type { PlayerId } from "@imposter-zero/types";
 
 const seededRandom = (seed: number) => {
   let s = seed;
@@ -27,11 +29,14 @@ const seededRandom = (seed: number) => {
 interface TraceStep {
   activePlayer: number;
   phase: string;
+  firstPlayer: number;
   legalActionCount: number;
   encodedAction: number;
   throneValue: number;
   courtSize: number;
   handSizes: number[];
+  informationStateStrings: string[];
+  observationTensors: number[][];
 }
 
 interface Trace {
@@ -44,6 +49,7 @@ interface Trace {
   accused: number | null;
   accusedValue: number | null;
   forgotten: number | null;
+  firstPlayer: number;
   steps: TraceStep[];
   terminalReturns: number[];
   totalSteps: number;
@@ -72,14 +78,24 @@ const generateTrace = (numPlayers: number, seed: number): Trace => {
     const action = legal[0]!;
     const encoded = encodeAction(action, codecConfig);
 
+    const infoStateStrings = Array.from({ length: numPlayers }, (_, p) =>
+      ImposterKingsObserver.informationStateString(current, p as PlayerId),
+    );
+    const obsTensors = Array.from({ length: numPlayers }, (_, p) =>
+      [...ImposterKingsObserver.observationTensor(current, p as PlayerId)],
+    );
+
     steps.push({
       activePlayer: current.activePlayer,
       phase: current.phase,
+      firstPlayer: current.firstPlayer,
       legalActionCount: legal.length,
       encodedAction: encoded,
       throneValue: throneValue(current),
       courtSize: current.shared.court.length,
       handSizes: current.players.map((p) => p.hand.length),
+      informationStateStrings: infoStateStrings,
+      observationTensors: obsTensors,
     });
 
     current = apply(current, action);
@@ -95,6 +111,7 @@ const generateTrace = (numPlayers: number, seed: number): Trace => {
     accused,
     accusedValue,
     forgotten,
+    firstPlayer: state.firstPlayer,
     steps,
     terminalReturns: [...returns(current)],
     totalSteps: steps.length,
@@ -116,7 +133,7 @@ const traces = [
 for (const trace of traces) {
   const filename = `trace_${trace.numPlayers}p_seed${trace.seed}.json`;
   writeFileSync(join(fixtureDir, filename), JSON.stringify(trace, null, 2) + "\n");
-  console.log(`Generated ${filename}: ${trace.totalSteps} steps`);
+  console.log(`Generated ${filename}: ${trace.totalSteps} steps, firstPlayer=${trace.firstPlayer}`);
 }
 
 console.log("Done.");

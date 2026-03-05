@@ -2,17 +2,22 @@
 Imposter Zero — OpenSpiel game definition.
 
 Faithful port of the TypeScript engine (packages/engine/src/imposter-kings).
-Phases: setup (commit successor + dungeon) then play (play card or disgrace).
+Phases: crown (select first player) → setup (commit successor + dungeon) → play.
 Terminal: active player has no legal play actions during play phase.
+
+Action codec layout (matches TS encodeAction/decodeAction):
+  0                            → disgrace
+  [1, maxCardId+1]            → play(cardId = encoded - 1)
+  [maxCardId+2, ...]          → commit(succ, dung) as 2D grid
+  [crownBase, ...]            → crown(firstPlayer)
 """
 
+import copy
 import random
 from typing import Optional
 
 import numpy as np
 import pyspiel
-
-_NUM_PLAYERS = 2
 
 # ---------------------------------------------------------------------------
 # Card definitions — mirrors card.ts
@@ -66,10 +71,22 @@ def _reserve_count(num_players):
 
 # ---------------------------------------------------------------------------
 # Action codec — mirrors actions.ts
+#
+# Layout:
+#   DISGRACE_SLOT = 0
+#   PLAY_OFFSET   = 1
+#   play(cardId)  = PLAY_OFFSET + cardId           (slots 1..maxCardId+1)
+#   commitBase    = PLAY_OFFSET + maxCardId + 1     (= maxCardId + 2)
+#   commit(s, d)  = commitBase + s * stride + d     (stride = maxCardId + 1)
+#   crownBase     = commitBase + stride * stride
+#   crown(p)      = crownBase + p
 # ---------------------------------------------------------------------------
 
+_DISGRACE_SLOT = 0
+_PLAY_OFFSET = 1
+
+
 def _max_card_id(deck_size, num_players):
-    """King IDs start at deck_size, one per player."""
     return deck_size + num_players - 1
 
 
@@ -77,52 +94,80 @@ def _span(max_card_id):
     return max_card_id + 1
 
 
-def _commit_offset(max_card_id):
-    return _span(max_card_id) + 1
+def _commit_base(max_card_id):
+    return _PLAY_OFFSET + max_card_id + 1
 
 
-def _num_distinct_actions(max_card_id):
+def _crown_base(max_card_id):
     s = _span(max_card_id)
-    return s + 1 + s * s
+    return _commit_base(max_card_id) + s * s
+
+
+def _num_distinct_actions(max_card_id, num_players):
+    return _crown_base(max_card_id) + num_players
 
 
 def _encode_play(card_id):
-    return card_id
+    return _PLAY_OFFSET + card_id
 
 
-def _encode_disgrace(max_card_id):
-    return _span(max_card_id)
+def _encode_disgrace():
+    return _DISGRACE_SLOT
 
 
 def _encode_commit(successor_id, dungeon_id, max_card_id):
-    s = _span(max_card_id)
-    return _commit_offset(max_card_id) + successor_id * s + dungeon_id
+    stride = _span(max_card_id)
+    return _commit_base(max_card_id) + successor_id * stride + dungeon_id
 
 
-def _decode_action(encoded, max_card_id):
-    """Returns (kind, *args): ('play', card_id) | ('disgrace',) | ('commit', succ, dung)."""
-    s = _span(max_card_id)
-    if encoded < s:
-        return ("play", encoded)
-    if encoded == s:
+def _encode_crown(first_player):
+    """Encode crown action. Requires max_card_id for the base offset."""
+    raise ValueError("Use _encode_crown_with_config instead")
+
+
+def _encode_crown_action(first_player, max_card_id):
+    return _crown_base(max_card_id) + first_player
+
+
+def _decode_action(encoded, max_card_id, num_players):
+    """Returns (kind, *args): ('disgrace',) | ('play', cardId) | ('commit', s, d) | ('crown', p)."""
+    if encoded == _DISGRACE_SLOT:
         return ("disgrace",)
-    raw = encoded - _commit_offset(max_card_id)
-    successor_id = raw // s
-    dungeon_id = raw % s
-    return ("commit", successor_id, dungeon_id)
+
+    s = _span(max_card_id)
+    play_max = _PLAY_OFFSET + max_card_id
+    if encoded <= play_max:
+        return ("play", encoded - _PLAY_OFFSET)
+
+    cb = _commit_base(max_card_id)
+    commit_slots = s * s
+    commit_max = cb + commit_slots - 1
+    if encoded <= commit_max:
+        offset = encoded - cb
+        successor_id = offset // s
+        dungeon_id = offset % s
+        return ("commit", successor_id, dungeon_id)
+
+    crb = _crown_base(max_card_id)
+    crown_player = encoded - crb
+    if 0 <= crown_player < num_players:
+        return ("crown", crown_player)
+
+    raise ValueError(f"Cannot decode action {encoded} (maxCardId={max_card_id}, numPlayers={num_players})")
 
 
 # ---------------------------------------------------------------------------
-# Compute game dimensions for 2-player
+# Compute game dimensions for 2-player (default)
 # ---------------------------------------------------------------------------
 
+_NUM_PLAYERS = 2
 _DECK_2P = _regulation_deck(2)
 _MAX_CARD_ID_2P = _max_card_id(len(_DECK_2P), _NUM_PLAYERS)
 
 _MAX_SETUP_ACTIONS = _NUM_PLAYERS
 _MAX_HAND_CARDS = (len(_DECK_2P) - _reserve_count(_NUM_PLAYERS)) // _NUM_PLAYERS
 _MAX_PLAY_ACTIONS = 2 * _MAX_HAND_CARDS + _NUM_PLAYERS
-_MAX_GAME_LENGTH = _MAX_SETUP_ACTIONS + _MAX_PLAY_ACTIONS
+_MAX_GAME_LENGTH = 1 + _MAX_SETUP_ACTIONS + _MAX_PLAY_ACTIONS  # +1 for crown
 
 _GAME_TYPE = pyspiel.GameType(
     short_name="imposter_zero",
@@ -141,7 +186,7 @@ _GAME_TYPE = pyspiel.GameType(
 )
 
 _GAME_INFO = pyspiel.GameInfo(
-    num_distinct_actions=_num_distinct_actions(_MAX_CARD_ID_2P),
+    num_distinct_actions=_num_distinct_actions(_MAX_CARD_ID_2P, _NUM_PLAYERS),
     max_chance_outcomes=0,
     num_players=_NUM_PLAYERS,
     min_utility=-1.0,
@@ -164,10 +209,10 @@ class ImposterZeroGame(pyspiel.Game):
         return ImposterZeroState(self, seed=self._seed)
 
     def observation_tensor_size(self):
-        return _NUM_PLAYERS + 8
+        return _NUM_PLAYERS + 12
 
     def information_state_tensor_size(self):
-        return _NUM_PLAYERS + 8
+        return _NUM_PLAYERS + 12
 
 
 class ImposterZeroState(pyspiel.State):
@@ -183,7 +228,9 @@ class ImposterZeroState(pyspiel.State):
         self._deal(deck_kinds, rng)
 
     def _deal(self, deck_kinds, rng):
-        """Mirrors deal.ts: shuffle, reserve, round-robin deal, assign kings."""
+        """Mirrors deal.ts: pick trueKing, shuffle, reserve, round-robin deal, assign kings."""
+        self._first_player = rng.randint(0, self._num_players - 1)
+
         cards = list(range(self._deck_size))
         rng.shuffle(cards)
 
@@ -217,20 +264,52 @@ class ImposterZeroState(pyspiel.State):
         self._successors = [None] * self._num_players
         self._dungeons = [None] * self._num_players
         self._court = []
-        self._phase = "setup"
-        self._active_player = 0
+        self._phase = "crown"
+        self._active_player = self._first_player
         self._turn_count = 0
+
+    # -- Cloning (required for MCCFR tree traversal) --
+
+    def _clone_impl(self):
+        cloned = ImposterZeroState.__new__(ImposterZeroState)
+        pyspiel.State.__init__(cloned, self.get_game())
+
+        cloned._num_players = self._num_players
+        cloned._deck_size = self._deck_size
+        cloned._max_card_id = self._max_card_id
+        cloned._first_player = self._first_player
+        cloned._card_values = self._card_values
+        cloned._card_names = self._card_names
+        cloned._accused = self._accused
+        cloned._forgotten = self._forgotten
+        cloned._hands = [list(h) for h in self._hands]
+        cloned._king_face_up = list(self._king_face_up)
+        cloned._successors = list(self._successors)
+        cloned._dungeons = list(self._dungeons)
+        cloned._court = list(self._court)
+        cloned._phase = self._phase
+        cloned._active_player = self._active_player
+        cloned._turn_count = self._turn_count
+
+        return cloned
 
     # -- OpenSpiel interface --
 
     def current_player(self):
-        if self._phase == "play" and self._legal_actions_internal() == []:
+        if self._phase == "play" and not self._legal_actions_internal():
             return pyspiel.PlayerId.TERMINAL
         return self._active_player
 
     def _legal_actions_internal(self):
         """Compute legal actions without calling is_terminal (avoids recursion)."""
         p = self._active_player
+
+        if self._phase == "crown":
+            return sorted(
+                _encode_crown_action(fp, self._max_card_id)
+                for fp in range(self._num_players)
+            )
+
         if self._phase == "setup":
             if self._successors[p] is not None:
                 return []
@@ -250,7 +329,7 @@ class ImposterZeroState(pyspiel.State):
                 actions.append(_encode_play(card_id))
 
         if self._king_face_up[p] and len(self._court) > 0:
-            actions.append(_encode_disgrace(self._max_card_id))
+            actions.append(_encode_disgrace())
 
         return sorted(actions)
 
@@ -259,18 +338,23 @@ class ImposterZeroState(pyspiel.State):
             return []
         return self._legal_actions_internal()
 
-
-        return sorted(actions)
-
     def _apply_action(self, action):
-        decoded = _decode_action(action, self._max_card_id)
+        decoded = _decode_action(action, self._max_card_id, self._num_players)
 
-        if decoded[0] == "commit":
+        if decoded[0] == "crown":
+            self._apply_crown(decoded[1])
+        elif decoded[0] == "commit":
             self._apply_commit(decoded[1], decoded[2])
         elif decoded[0] == "play":
             self._apply_play(decoded[1])
         else:
             self._apply_disgrace()
+
+    def _apply_crown(self, first_player):
+        self._first_player = first_player
+        self._active_player = first_player
+        self._phase = "setup"
+        self._turn_count += 1
 
     def _apply_commit(self, successor_id, dungeon_id):
         p = self._active_player
@@ -282,7 +366,7 @@ class ImposterZeroState(pyspiel.State):
 
         if all(s is not None for s in self._successors):
             self._phase = "play"
-            self._active_player = 0
+            self._active_player = self._first_player
 
     def _apply_play(self, card_id):
         p = self._active_player
@@ -325,7 +409,9 @@ class ImposterZeroState(pyspiel.State):
         return result
 
     def _action_to_string(self, player, action):
-        decoded = _decode_action(action, self._max_card_id)
+        decoded = _decode_action(action, self._max_card_id, self._num_players)
+        if decoded[0] == "crown":
+            return f"p{player}:crown({decoded[1]})"
         if decoded[0] == "commit":
             s_name = self._card_names.get(decoded[1], f"?{decoded[1]}")
             d_name = self._card_names.get(decoded[2], f"?{decoded[2]}")
@@ -351,6 +437,7 @@ class ImposterZeroState(pyspiel.State):
         return ";".join([
             f"phase={self._phase}",
             f"active={self._active_player}",
+            f"firstPlayer={self._first_player}",
             f"player={player}",
             f"hand=[{hand_str}]",
             f"kingFace={'up' if self._king_face_up[player] else 'down'}",
@@ -370,7 +457,12 @@ class ImposterZeroState(pyspiel.State):
             player = self._active_player
         hand = self._hands[player]
         active_one_hot = [1.0 if p == self._active_player else 0.0 for p in range(self._num_players)]
-        return active_one_hot + [
+        phase_one_hot = [
+            1.0 if self._phase == "crown" else 0.0,
+            1.0 if self._phase == "setup" else 0.0,
+            1.0 if self._phase == "play" else 0.0,
+        ]
+        return active_one_hot + phase_one_hot + [
             float(len(hand)),
             1.0 if self._king_face_up[player] else 0.0,
             1.0 if self._successors[player] is not None else 0.0,
@@ -379,6 +471,7 @@ class ImposterZeroState(pyspiel.State):
             float(len(self._court)),
             float(self._card_values[self._accused]) if self._accused is not None else 0.0,
             1.0 if self._forgotten is not None else 0.0,
+            float(self._first_player),
         ]
 
     def observation_tensor(self, player=None):
@@ -387,8 +480,8 @@ class ImposterZeroState(pyspiel.State):
     def __str__(self):
         return (
             f"ImposterZero(phase={self._phase}, player={self._active_player}, "
-            f"turn={self._turn_count}, court={len(self._court)}, "
-            f"terminal={self.is_terminal()})"
+            f"firstPlayer={self._first_player}, turn={self._turn_count}, "
+            f"court={len(self._court)}, terminal={self.is_terminal()})"
         )
 
 

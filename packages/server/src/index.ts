@@ -71,11 +71,15 @@ export {
 
 export {
   type BotRegistry,
+  type BotStrategy,
+  type TabularPolicy,
   type NonEmptyReadonlyArray,
   emptyBotRegistry,
   addBot,
   isBot,
   pickRandom,
+  RandomStrategy,
+  createTabularStrategy,
 } from "./bot-player.js";
 
 export {
