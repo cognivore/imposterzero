@@ -83,13 +83,74 @@ def select_action(net, state, player, device):
     return chosen_abs, log_prob, entropy, concrete
 
 
-def play_episode(game, net, device):
-    """Self-play one full game, return per-player trajectories."""
+def select_action_from_policy(state, player, policy_data):
+    """Pick an action using a loaded JSON policy (no gradients)."""
+    legal = state.legal_actions()
+    groups = group_legal_by_abstract(state, legal, player)
+    abs_actions = list(groups.keys())
+
+    obs = enriched_obs(state, player)
+    weights = policy_data["weights"]
+
+    x = obs
+    layer_idx = 1
+    while f"w{layer_idx}" in weights:
+        w = weights[f"w{layer_idx}"]
+        b = weights[f"b{layer_idx}"]
+        is_last = f"w{layer_idx + 1}" not in weights
+        new_x = []
+        for i in range(len(w)):
+            val = b[i] + sum(w[i][j] * x[j] for j in range(len(x)))
+            new_x.append(val if is_last else max(0.0, val))
+        x = new_x
+        layer_idx += 1
+
+    action_list = policy_data["metadata"]["abstract_actions"]
+    logits = x
+
+    best_val = float("-inf")
+    best_abs = abs_actions[0]
+    for a in abs_actions:
+        idx = action_list.index(a) if a in action_list else -1
+        val = logits[idx] if 0 <= idx < len(logits) else 0.0
+        if val > best_val:
+            best_val = val
+            best_abs = a
+
+    import math
+    exp_vals = {}
+    for a in abs_actions:
+        idx = action_list.index(a) if a in action_list else -1
+        raw = logits[idx] if 0 <= idx < len(logits) else 0.0
+        exp_vals[a] = math.exp(raw - best_val)
+    total = sum(exp_vals.values())
+    probs = [exp_vals[a] / total for a in abs_actions]
+
+    chosen_abs = random.choices(abs_actions, weights=probs, k=1)[0]
+    return random.choice(groups[chosen_abs])
+
+
+def play_episode(game, net, device, opponent_policies=None, training_seat=None):
+    """Play one full game. If opponent_policies are provided, only the
+    training_seat player uses the network; opponents use the loaded policies.
+    With no opponents, all players share the network (self-play).
+    """
     state = game.new_initial_state()
-    trajectories = {p: [] for p in range(game.num_players())}
+    n = game.num_players()
+    trajectories = {p: [] for p in range(n)}
 
     while not state.is_terminal():
         player = state.current_player()
+
+        if opponent_policies and player != training_seat:
+            opp_idx = player if player < training_seat else player - 1
+            if opp_idx < len(opponent_policies) and opponent_policies[opp_idx] is not None:
+                concrete = select_action_from_policy(state, player, opponent_policies[opp_idx])
+            else:
+                concrete = random.choice(state.legal_actions())
+            state.apply_action(concrete)
+            continue
+
         _, log_prob, ent, concrete = select_action(net, state, player, device)
         trajectories[player].append((log_prob, ent))
         state.apply_action(concrete)
@@ -98,13 +159,15 @@ def play_episode(game, net, device):
     return trajectories, returns
 
 
-def compute_loss(trajectories, returns, entropy_coeff, num_players):
-    """REINFORCE loss with entropy bonus, aggregated across all players."""
+def compute_loss(trajectories, returns, entropy_coeff, num_players, training_seat=None):
+    """REINFORCE loss with entropy bonus. If training_seat is set, only
+    accumulate gradients for that player."""
     policy_loss = torch.tensor(0.0)
     entropy_bonus = torch.tensor(0.0)
     n_steps = 0
 
-    for player in range(num_players):
+    players = [training_seat] if training_seat is not None else range(num_players)
+    for player in players:
         reward = returns[player]
         for log_prob, ent in trajectories[player]:
             policy_loss = policy_loss - reward * log_prob
@@ -146,14 +209,13 @@ def export_weights(net, output_path, metadata):
     """
     sd = net.state_dict()
     weights = {}
-    layer_idx = 1
-    for key in sorted(sd.keys()):
-        param = sd[key].cpu().tolist()
-        if key.endswith(".weight"):
-            weights[f"w{layer_idx}"] = param
-        elif key.endswith(".bias"):
-            weights[f"b{layer_idx}"] = param
-            layer_idx += 1
+    linear_keys = [(k.rsplit(".", 1)[0], k) for k in sd if k.endswith(".weight")]
+    linear_keys.sort(key=lambda t: t[1])
+    for i, (prefix, wkey) in enumerate(linear_keys):
+        bkey = prefix + ".bias"
+        weights[f"w{i + 1}"] = sd[wkey].cpu().tolist()
+        if bkey in sd:
+            weights[f"b{i + 1}"] = sd[bkey].cpu().tolist()
 
     payload = {"metadata": metadata, "weights": weights}
     os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
@@ -163,8 +225,47 @@ def export_weights(net, output_path, metadata):
     print(f"  -> Exported: {size_kb:.1f} KB -> {output_path}")
 
 
-def _make_metadata(input_size, hidden_size, num_layers, episode, wr):
-    return {
+def _extract_weight_pairs(rw):
+    """Extract (weight_matrix, bias_vector) pairs from a policy JSON weights dict.
+
+    Handles two formats:
+      - Standard: w1/b1, w2/b2, ...  (new export code)
+      - Legacy:   b1/w2, b2/w3, ...  (old sorted-key export with alphabetical bias-before-weight bug)
+    """
+    if "w1" in rw:
+        pairs = []
+        i = 1
+        while f"w{i}" in rw:
+            pairs.append((rw[f"w{i}"], rw.get(f"b{i}")))
+            i += 1
+        return pairs
+
+    max_b = max((int(k[1:]) for k in rw if k.startswith("b")), default=0)
+    max_w = max((int(k[1:]) for k in rw if k.startswith("w")), default=0)
+    n_layers = max_b
+    pairs = []
+    for i in range(n_layers):
+        w_key = f"w{i + 2}"
+        b_key = f"b{i + 1}"
+        pairs.append((rw.get(w_key), rw.get(b_key)))
+    return pairs
+
+
+def _load_opponent_policies(paths):
+    """Load opponent policy JSONs. Returns list of parsed dicts (or None for random)."""
+    opponents = []
+    for p in paths:
+        if p.lower() == "random":
+            opponents.append(None)
+        else:
+            with open(p) as f:
+                opponents.append(json.load(f))
+            print(f"  Loaded opponent: {p}")
+    return opponents
+
+
+def _make_metadata(input_size, hidden_size, num_layers, episode, wr, opponents=None):
+    meta = {
         "algorithm": "reinforce_self_play",
         "num_players": 3,
         "input_size": input_size,
@@ -176,13 +277,19 @@ def _make_metadata(input_size, hidden_size, num_layers, episode, wr):
         "win_rate_vs_random": round(wr, 4),
         "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
+    if opponents:
+        meta["trained_against"] = [
+            p.get("metadata", {}).get("exported_at", "unknown") if p else "random"
+            for p in opponents
+        ]
+    return meta
 
 
 def main():
     parser = argparse.ArgumentParser(description="Train 3p Imposter Zero via REINFORCE self-play")
     parser.add_argument("--episodes", type=int, default=200_000)
-    parser.add_argument("--max_time", type=int, default=0, help="Max training wall-time in seconds (0 = unlimited)")
-    parser.add_argument("--patience", type=int, default=0, help="Stop after N consecutive evals without improvement (0 = disabled)")
+    parser.add_argument("--max_time", type=int, default=0, help="Max wall-time in seconds (0 = unlimited)")
+    parser.add_argument("--patience", type=int, default=0, help="Stop after N evals without improvement (0 = disabled)")
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--entropy_coeff", type=float, default=0.02)
@@ -192,6 +299,10 @@ def main():
     parser.add_argument("--eval_every", type=int, default=10_000)
     parser.add_argument("--eval_games", type=int, default=2000)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--opponents", type=str, nargs="*", default=None,
+                        help="Paths to opponent policy JSONs (or 'random'). Training player rotates seats.")
+    parser.add_argument("--resume", type=str, default=None,
+                        help="Path to policy JSON to load weights from (fine-tuning). Must match architecture.")
     args = parser.parse_args()
 
     if args.seed is not None:
@@ -199,16 +310,41 @@ def main():
         torch.manual_seed(args.seed)
 
     device = torch.device("cpu")
+    opponent_policies = _load_opponent_policies(args.opponents) if args.opponents else None
+    mode = "vs-opponents" if opponent_policies else "self-play"
+    if args.resume:
+        mode = f"fine-tune ({mode})"
 
     game = pyspiel.load_game("imposter_zero_3p")
+    n_players = game.num_players()
     input_size = enriched_obs_size()
     net = PolicyNet(input_size, args.hidden_size, NUM_ABSTRACT_ACTIONS, args.num_layers).to(device)
+
+    if args.resume:
+        with open(args.resume) as f:
+            resume_data = json.load(f)
+        rw = resume_data["weights"]
+
+        wb_pairs = _extract_weight_pairs(rw)
+        sd = net.state_dict()
+        linear_keys = [(k.rsplit(".", 1)[0], k) for k in sd if k.endswith(".weight")]
+        linear_keys.sort(key=lambda t: t[1])
+        if len(wb_pairs) != len(linear_keys):
+            raise ValueError(f"Resume weight count ({len(wb_pairs)}) != network layers ({len(linear_keys)})")
+        for (w_data, b_data), (prefix, wkey) in zip(wb_pairs, linear_keys):
+            sd[wkey] = torch.tensor(w_data)
+            bkey = prefix + ".bias"
+            if bkey in sd and b_data is not None:
+                sd[bkey] = torch.tensor(b_data)
+        net.load_state_dict(sd)
+        print(f"  Resumed from: {args.resume}")
+
     optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
 
     time_limit = f"{args.max_time}s" if args.max_time > 0 else "unlimited"
     patience_str = str(args.patience) if args.patience > 0 else "disabled"
 
-    print(f"Imposter Zero 3p — REINFORCE Self-Play")
+    print(f"Imposter Zero 3p — REINFORCE ({mode})")
     print(f"  Device:     {device}")
     print(f"  Network:    {input_size} -> {'x'.join([str(args.hidden_size)] * (args.num_layers - 1))} -> {NUM_ABSTRACT_ACTIONS} ({args.num_layers} layers)")
     print(f"  Parameters: {sum(p.numel() for p in net.parameters()):,}")
@@ -218,6 +354,10 @@ def main():
     print(f"  Batch:      {args.batch_size}")
     print(f"  LR:         {args.lr}")
     print(f"  Entropy:    {args.entropy_coeff}")
+    if opponent_policies:
+        for i, op in enumerate(opponent_policies):
+            label = "random" if op is None else op.get("metadata", {}).get("algorithm", "neural")
+            print(f"  Opponent {i}: {label}")
     print()
 
     start_time = time.time()
@@ -234,9 +374,14 @@ def main():
 
         batch_loss = torch.tensor(0.0, device="cpu")
 
-        for _ in range(args.batch_size):
-            trajectories, returns = play_episode(game, net, device)
-            loss = compute_loss(trajectories, returns, args.entropy_coeff, game.num_players())
+        for b in range(args.batch_size):
+            training_seat = (episode + b) % n_players if opponent_policies else None
+            trajectories, returns = play_episode(
+                game, net, device, opponent_policies, training_seat,
+            )
+            loss = compute_loss(
+                trajectories, returns, args.entropy_coeff, n_players, training_seat,
+            )
             batch_loss = batch_loss + loss
             episode += 1
 
@@ -273,7 +418,7 @@ def main():
             if wr > best_wr:
                 best_wr = wr
                 evals_without_improvement = 0
-                meta = _make_metadata(input_size, args.hidden_size, args.num_layers, episode, wr)
+                meta = _make_metadata(input_size, args.hidden_size, args.num_layers, episode, wr, opponent_policies)
                 export_weights(net, args.output, meta)
             else:
                 evals_without_improvement += 1
@@ -292,7 +437,7 @@ def main():
     print(f"Best win rate: {best_wr:.1%}")
 
     if wr >= best_wr:
-        meta = _make_metadata(input_size, args.hidden_size, args.num_layers, episode, wr)
+        meta = _make_metadata(input_size, args.hidden_size, args.num_layers, episode, wr, opponent_policies)
         export_weights(net, args.output, meta)
 
 

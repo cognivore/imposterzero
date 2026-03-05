@@ -303,12 +303,23 @@ interface LayerParams {
 }
 
 const parseLayerParams = (weights: NeuralPolicy["weights"]): readonly LayerParams[] => {
+  if (weights.w1) {
+    const layers: LayerParams[] = [];
+    for (let i = 1; ; i++) {
+      const w = weights[`w${i}`] as Matrix | undefined;
+      const b = weights[`b${i}`] as readonly number[] | undefined;
+      if (!w || !b) break;
+      layers.push({ w, b });
+    }
+    return layers;
+  }
+
+  const maxB = Math.max(...Object.keys(weights).filter((k) => k.startsWith("b")).map((k) => parseInt(k.slice(1), 10)));
   const layers: LayerParams[] = [];
-  for (let i = 1; ; i++) {
-    const w = weights[`w${i}`] as Matrix | undefined;
-    const b = weights[`b${i}`] as readonly number[] | undefined;
-    if (!w || !b) break;
-    layers.push({ w, b });
+  for (let i = 0; i < maxB; i++) {
+    const w = weights[`w${i + 2}`] as Matrix | undefined;
+    const b = weights[`b${i + 1}`] as readonly number[] | undefined;
+    if (w && b) layers.push({ w, b });
   }
   return layers;
 };
