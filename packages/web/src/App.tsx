@@ -2,6 +2,7 @@ import { useRef, useEffect } from "react";
 import { useGameReducer, detectLogEvents, type ClientPhase } from "./state.js";
 import { useWebSocket } from "./ws-client.js";
 import { useGameLogStore } from "./stores/game-log.js";
+import { useOrientation } from "./hooks/useOrientation.js";
 import { BrowserView } from "./views/BrowserView.js";
 import { LobbyView } from "./views/LobbyView.js";
 import { CrownView } from "./views/CrownView.js";
@@ -9,12 +10,15 @@ import { SetupView } from "./views/SetupView.js";
 import { PlayView } from "./views/PlayView.js";
 import { ScoringView } from "./views/ScoringView.js";
 import { MatchOverView } from "./views/MatchOverView.js";
+import { LandscapeOverlay } from "./views/LandscapeOverlay.js";
 
 const wsUrl: string = __WS_URL__;
 
 const absurd = (_: never): never => {
   throw new Error("non-exhaustive match");
 };
+
+const GAME_PHASES = new Set(["crown", "setup", "play", "scoring", "finished"]);
 
 const renderPhase = (
   phase: ClientPhase,
@@ -49,8 +53,13 @@ const useGameLogSync = (phase: ClientPhase): void => {
     const prev = prevPhaseRef.current;
     prevPhaseRef.current = phase;
 
-    const events = detectLogEvents(prev, phase);
     const store = useGameLogStore.getState();
+
+    if (prev._tag !== "crown" && phase._tag === "crown") {
+      store.clear();
+    }
+
+    const events = detectLogEvents(prev, phase);
     for (const event of events) {
       store.addEntry({ ...event, timestamp: Date.now() });
     }
@@ -60,12 +69,20 @@ const useGameLogSync = (phase: ClientPhase): void => {
 export const App: React.FC = () => {
   const { phase, dispatch } = useGameReducer();
   const { send } = useWebSocket(wsUrl, dispatch);
+  const { requiresLandscape } = useOrientation();
 
   useGameLogSync(phase);
 
+  const showLandscapeOverlay = requiresLandscape && GAME_PHASES.has(phase._tag);
+
   return (
     <div className="app">
-      <div key={phase._tag} className="phase-container">
+      {showLandscapeOverlay && <LandscapeOverlay />}
+      <div
+        key={phase._tag}
+        className="phase-container"
+        style={showLandscapeOverlay ? { display: "none" } : undefined}
+      >
         {renderPhase(phase, send)}
       </div>
     </div>

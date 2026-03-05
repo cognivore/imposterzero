@@ -22,12 +22,16 @@ export const CourtDisplay: React.FC<Props> = ({ court, playerNames, throneValue 
           <div
             key={`court-${entry.card.id}-${idx}`}
             className={`court-entry ${idx === court.length - 1 ? "court-entry--top" : ""}`}
-            style={{ transform: `translateY(${idx * 4}px)`, zIndex: idx }}
+            style={{
+              transform: `translateY(${Math.min(idx, 8) * 4}px)`,
+              zIndex: idx,
+            }}
           >
             <Card
               visual={toCardVisual(entry.card)}
               orientation={entry.face === "up" ? "front" : "back"}
               size="small"
+              previewSource="court"
             />
           </div>
         ))}

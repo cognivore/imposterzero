@@ -26,8 +26,24 @@
   --card-bg:         #faf5e6;
   --card-border:     #c4b67d;
   --card-radius:     8px;
-  --card-width:      80px;
-  --card-height:     112px;
+
+  /* ── Card scale: fluid, viewport-driven ── */
+  --card-aspect: 1.4;
+  --card-width:  clamp(80px, 5.5vw + 24px, 128px);
+  --card-height: calc(var(--card-width) * var(--card-aspect));
+
+  --card-small-ratio:   0.65;
+  --card-small-width:   calc(var(--card-width) * var(--card-small-ratio));
+  --card-small-height:  calc(var(--card-small-width) * var(--card-aspect));
+
+  --card-preview-ratio: 2.5;
+  --card-preview-width:  clamp(180px, calc(var(--card-width) * var(--card-preview-ratio)), 280px);
+  --card-preview-height: calc(var(--card-preview-width) * var(--card-aspect));
+
+  /* ── Card typography: scales with card width ── */
+  --card-font-value:  clamp(1.2rem, calc(var(--card-width) * 0.25), 2rem);
+  --card-font-name:   clamp(0.45rem, calc(var(--card-width) * 0.075), 0.7rem);
+  --card-font-short:  clamp(0.4rem, calc(var(--card-width) * 0.065), 0.6rem);
 
   /* Card back */
   --card-back-bg:       #2a1f4e;
@@ -125,6 +141,8 @@ body {
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s, opacity 0.15s, transform 0.1s;
+  min-height: 44px;
+  min-width: 44px;
 }
 
 .btn:active:not(:disabled) {
@@ -192,8 +210,8 @@ body {
 }
 
 .card-perspective--small {
-  width: calc(var(--card-width) * 0.65);
-  height: calc(var(--card-height) * 0.65);
+  width: var(--card-small-width);
+  height: var(--card-small-height);
 }
 
 .card-perspective--interactive {
@@ -234,16 +252,18 @@ body {
   background: var(--card-bg);
   border: 2px solid var(--card-border);
   color: #2a2a2a;
+  padding: 4px 0;
+  gap: 1px;
 }
 
 .card-value {
-  font-size: 1.5rem;
+  font-size: var(--card-font-value);
   font-weight: 800;
   line-height: 1;
 }
 
 .card-name {
-  font-size: 0.65rem;
+  font-size: var(--card-font-name);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -264,6 +284,34 @@ body {
 
 .card-perspective--small .card-name {
   font-size: 0.5rem;
+}
+
+/* ---- Card content area (shortText + artwork) ---- */
+
+.card-artwork-thumb {
+  width: calc(100% - 8px);
+  height: calc(var(--card-width) * 0.5);
+  border-radius: 3px;
+  object-fit: cover;
+  margin-bottom: 2px;
+}
+
+.card-short-text {
+  font-size: var(--card-font-short);
+  line-height: 1.2;
+  color: #777;
+  text-align: center;
+  max-height: 2.4em;
+  overflow: hidden;
+  width: 100%;
+  padding: 0 4px;
+}
+
+.card-divider {
+  width: 60%;
+  height: 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  margin: 2px 0;
 }
 
 /* ---- Card Back (full-bleed pattern) ---- */
@@ -320,6 +368,209 @@ body {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--text-dim);
+}
+
+/* =========================================================================
+   Preview Zone (desktop hover preview)
+   ========================================================================= */
+
+.preview-zone {
+  position: fixed;
+  right: var(--space-lg);
+  top: 50%;
+  transform: translateY(-50%);
+  width: calc(var(--card-preview-width) + 20px);
+  z-index: 50;
+  pointer-events: none;
+}
+
+.preview-card {
+  width: var(--card-preview-width);
+  background: var(--card-bg);
+  border: 2px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  color: #2a2a2a;
+}
+
+.preview-artwork-full {
+  width: 100%;
+  height: calc(var(--card-preview-width) * 0.6);
+  border-radius: var(--radius);
+  object-fit: cover;
+  margin-bottom: var(--space-sm);
+}
+
+.preview-value {
+  font-size: 2rem;
+  font-weight: 800;
+  text-align: center;
+  line-height: 1;
+}
+
+.preview-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: center;
+  color: #555;
+  margin-top: 2px;
+}
+
+.preview-keywords {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.preview-keyword {
+  font-size: 0.6rem;
+  text-transform: capitalize;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: rgba(0, 0, 0, 0.06);
+  color: #666;
+  font-weight: 600;
+}
+
+.preview-divider {
+  width: 80%;
+  height: 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  margin: var(--space-sm) auto;
+}
+
+.preview-full-text {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: #333;
+  padding: 0 var(--space-sm);
+  flex: 1;
+}
+
+.preview-flavor {
+  font-size: 0.7rem;
+  font-style: italic;
+  color: #888;
+  padding: var(--space-sm) var(--space-sm) 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  margin-top: var(--space-sm);
+}
+
+.preview-placeholder {
+  color: var(--text-dim);
+  font-style: italic;
+  font-size: 0.85rem;
+  text-align: center;
+  padding: var(--space-xl);
+}
+
+@media (max-width: 1023px) and (min-width: 768px) {
+  .preview-zone {
+    background: rgba(30, 30, 46, 0.92);
+    border-radius: var(--radius-lg);
+    padding: var(--space-sm);
+    backdrop-filter: blur(8px);
+  }
+}
+
+@media (max-width: 767px) {
+  .preview-zone {
+    display: none;
+  }
+}
+
+/* =========================================================================
+   Card Inspect Modal (mobile tap-to-inspect)
+   ========================================================================= */
+
+.inspect-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+}
+
+.inspect-modal-card {
+  width: min(280px, 80vw);
+  background: var(--card-bg);
+  border: 2px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  color: #2a2a2a;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.inspect-modal-artwork {
+  width: 100%;
+  border-radius: var(--radius);
+  object-fit: cover;
+}
+
+.inspect-modal-actions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: center;
+}
+
+/* =========================================================================
+   Landscape Overlay (portrait orientation blocker)
+   ========================================================================= */
+
+.landscape-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: var(--felt);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-lg);
+  color: var(--text);
+  text-align: center;
+  padding: var(--space-xl);
+}
+
+.landscape-overlay__icon {
+  width: 80px;
+  height: 80px;
+  animation: rotate-phone 2s ease-in-out infinite;
+}
+
+@keyframes rotate-phone {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-15deg); }
+  75% { transform: rotate(90deg); }
+}
+
+.landscape-overlay__title {
+  font-size: 1.4rem;
+  color: var(--gold);
+}
+
+.landscape-overlay__text {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+  max-width: 280px;
+  line-height: 1.5;
 }
 
 /* =========================================================================
@@ -437,7 +688,7 @@ body {
 }
 
 .court-entry + .court-entry {
-  margin-left: -28px;
+  margin-left: calc(var(--card-small-width) * -0.68);
 }
 
 .court-entry {
@@ -476,6 +727,8 @@ body {
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s;
+  min-height: 44px;
+  min-width: 44px;
 }
 
 .game-log-toggle:hover {
@@ -717,14 +970,9 @@ body {
 /* ---- Side zones (Accused + Forgotten, right edge) ---- */
 
 .side-zones {
-  position: fixed;
-  top: 50%;
-  right: var(--space-lg);
-  transform: translateY(-50%);
   display: flex;
-  flex-direction: column;
+  justify-content: center;
   gap: var(--space-lg);
-  z-index: 10;
 }
 
 .side-zone {
@@ -1372,30 +1620,37 @@ body {
 }
 
 /* =========================================================================
-   Responsive
+   Responsive — Breakpoints
    ========================================================================= */
 
-@media (max-width: 640px) {
+/* ── Desktop: fixed preview zone ── */
+@media (min-width: 1024px) {
+  .game-board-with-preview {
+    padding-right: calc(var(--card-preview-width) + 40px);
+  }
+}
+
+/* ── Tablet landscape: floating preview ── */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .game-board-with-preview {
+    padding-right: 0;
+  }
+}
+
+/* ── Mobile landscape ── */
+@media (max-width: 767px) {
+  :root {
+    --card-width:  clamp(56px, 9vw, 72px);
+    --card-height: calc(var(--card-width) * var(--card-aspect));
+  }
+
   .lobby-card {
     padding: var(--space-lg);
   }
 
-  :root {
-    --card-width: 64px;
-    --card-height: 90px;
-  }
-
-  .card-value {
-    font-size: 1.2rem;
-  }
-
-  .card-name {
-    font-size: 0.55rem;
-  }
-
-  .card-perspective--small .card-value {
-    font-size: 0.85rem;
-  }
+  .status-bar { display: none; }
+  .game-log-panel { width: 240px; }
+  .hand { gap: 4px; }
 
   .opponents-row {
     gap: 0.75rem;
@@ -1412,9 +1667,5 @@ body {
 
   .create-card {
     width: 100%;
-  }
-
-  .game-log-panel {
-    width: 240px;
   }
 }

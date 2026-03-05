@@ -3,6 +3,7 @@ import { useHover } from "@use-gesture/react";
 import type { CardVisual, CardOrientation } from "./types.js";
 import { CardFront } from "./CardFront.js";
 import { CardBack } from "./CardBack.js";
+import { usePreviewStore, type PreviewSource } from "../../stores/preview.js";
 
 interface CardProps {
   readonly visual: CardVisual;
@@ -11,6 +12,7 @@ interface CardProps {
   readonly interactive?: boolean;
   readonly selected?: boolean;
   readonly dimmed?: boolean;
+  readonly previewSource?: PreviewSource;
   readonly onClick?: () => void;
 }
 
@@ -21,8 +23,11 @@ export const Card: React.FC<CardProps> = ({
   interactive = false,
   selected = false,
   dimmed = false,
+  previewSource = null,
   onClick,
 }) => {
+  const setHovered = usePreviewStore((s) => s.setHovered);
+
   const flipSpring = useSpring({
     rotateY: orientation === "front" ? 0 : 180,
     config: { tension: 500, friction: 38, mass: 0.8 },
@@ -42,12 +47,18 @@ export const Card: React.FC<CardProps> = ({
   }));
 
   const bind = useHover(({ hovering }) => {
-    if (!interactive || dimmed) return;
-    hoverApi.start({
-      y: hovering ? -8 : 0,
-      shadow: hovering ? 16 : 0,
-      tiltX: hovering ? -2 : 0,
-    });
+    if (!interactive && !previewSource) return;
+    if (dimmed) return;
+    if (interactive) {
+      hoverApi.start({
+        y: hovering ? -8 : 0,
+        shadow: hovering ? 16 : 0,
+        tiltX: hovering ? -2 : 0,
+      });
+    }
+    if (previewSource && orientation === "front") {
+      setHovered(hovering ? visual : null, hovering ? previewSource : null);
+    }
   });
 
   const perspectiveClass = [
@@ -93,6 +104,9 @@ export const Card: React.FC<CardProps> = ({
           value={visual.front.value}
           name={visual.front.name}
           tier={visual.front.tier}
+          shortText={visual.front.shortText}
+          artwork={visual.front.artwork}
+          showContent={size === "normal"}
         />
         <CardBack design={visual.back.design} />
       </animated.div>

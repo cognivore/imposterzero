@@ -1,5 +1,6 @@
 export {
   type CardOps,
+  type CardKeyword,
   type CardName,
   type IKCardProps,
   type IKCardKind,

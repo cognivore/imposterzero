@@ -5,6 +5,8 @@ export interface CardOps<C> {
   readonly name: (card: C) => string;
 }
 
+export type CardKeyword = "royalty" | "immune_to_kings_hand" | "reaction" | "steadfast";
+
 export type CardName =
   | "Fool"
   | "Assassin"
@@ -27,10 +29,23 @@ export type CardName =
   | "Herald"
   | "Spy"
   | "Arbiter"
+  | "Flagbearer"
+  | "Stranger"
+  | "Aegis"
+  | "Ancestor"
+  | "Informant"
+  | "Nakturn"
+  | "Lockshift"
+  | "Conspiracist"
+  | "Exile"
   | "King";
 
 export interface IKCardProps extends Record<string, unknown> {
   readonly value: number;
+  readonly keywords: readonly CardKeyword[];
+  readonly shortText: string;
+  readonly fullText: string;
+  readonly flavorText: string;
 }
 
 export type IKCardKind = CardKind<IKCardProps> & { readonly name: CardName };
@@ -43,50 +58,268 @@ export const ikCardOps: CardOps<IKCard> = {
 
 export const KING_CARD_KIND: IKCardKind = {
   name: "King",
-  props: { value: 0 },
+  props: {
+    value: 0,
+    keywords: [],
+    shortText: "Flip to Disgrace and take Successor.",
+    fullText:
+      "Flip to Disgrace the card on the Throne and take your Successor as your turn.",
+    flavorText: "His authority rests upon his identity",
+  },
 };
+
+interface CardContent {
+  readonly keywords: readonly CardKeyword[];
+  readonly shortText: string;
+  readonly fullText: string;
+  readonly flavorTexts: readonly string[];
+}
 
 const copies = (
   name: Exclude<CardName, "King">,
   value: number,
   count: number,
+  content: CardContent,
 ): ReadonlyArray<IKCardKind> =>
-  Array.from({ length: count }, () => ({
+  Array.from({ length: count }, (_, i) => ({
     name,
-    props: { value },
+    props: {
+      value,
+      keywords: content.keywords,
+      shortText: content.shortText,
+      fullText: content.fullText,
+      flavorText: content.flavorTexts[i] ?? content.flavorTexts.at(-1) ?? "",
+    },
   }));
 
+// ---------------------------------------------------------------------------
+// Card content — authored from website artwork + Print-and-Play PDF
+// ---------------------------------------------------------------------------
+
+const FOOL: CardContent = {
+  keywords: [],
+  shortText: "Take any faceup card from Court.",
+  fullText:
+    "You may choose any other card from the Court that is not Disgraced, then put the chosen card into your hand.",
+  flavorTexts: ["High and low, tricking others at every turn"],
+};
+
+const ASSASSIN: CardContent = {
+  keywords: ["reaction"],
+  shortText: "Reaction: counter a King flip.",
+  fullText:
+    "Reaction: If another player flips their King, you may reveal this card from your hand to prevent their King\u2019s power and cause them to lose this round.",
+  flavorTexts: ["Things got complicated with the contract"],
+};
+
+const ELDER: CardContent = {
+  keywords: ["immune_to_kings_hand"],
+  shortText: "May play on any Royalty.",
+  fullText: "You may play this card on any Royalty.",
+  flavorTexts: [
+    "Kingdom politics are beneath them, unless necessary",
+    "Experience never fades for the undying",
+  ],
+};
+
+const ZEALOT: CardContent = {
+  keywords: ["immune_to_kings_hand"],
+  shortText: "If King flipped, play on non-Royalty.",
+  fullText:
+    "If your King is flipped, you may play this card on any non-Royalty card.",
+  flavorTexts: ["Their loyalty has swallowed their sanity"],
+};
+
+const INQUISITOR: CardContent = {
+  keywords: [],
+  shortText: "Name a card; others play it out.",
+  fullText:
+    "You may say a card name. Other players with that card in their hand must play one to their Antechamber.",
+  flavorTexts: [
+    "Inquisitors live to point their fingers",
+    "Being correct was never the objective",
+  ],
+};
+
+const EXECUTIONER: CardContent = {
+  keywords: [],
+  shortText: "Name a value; all Condemn it.",
+  fullText:
+    "You may say any number equal to or less than the highest base value card in Court. All players must Condemn a card in their hand with that base value.",
+  flavorTexts: [
+    'Only the "guilty" make his acquaintance',
+    "Must only meet him once",
+  ],
+};
+
+const BARD: CardContent = {
+  keywords: [],
+  shortText: "Inspire with words and melody.",
+  fullText: "The Bard\u2019s ability text has not yet been confirmed.",
+  flavorTexts: [""],
+};
+
+const SOLDIER: CardContent = {
+  keywords: [],
+  shortText: "Name a card; +2 value, Disgrace 3.",
+  fullText:
+    "Say a card name. If any opponents have that card in their hand, this card gains +2 value while on the Throne and you may Disgrace up to three cards in the Court.",
+  flavorTexts: [
+    "They owe him their lives, but hate the lives he\u2019s given",
+    "Amidst the chaos, they find their purpose",
+  ],
+};
+
+const JUDGE: CardContent = {
+  keywords: [],
+  shortText: "Guess opponent\u2019s card for bonus play.",
+  fullText:
+    "Guess a card name in an opponent\u2019s hand. If correct, you may play a card to your Antechamber with a base value of 2 or more.",
+  flavorTexts: [
+    "Duty-bound to distill facts from stories",
+    "Even during war, the truth must be discovered",
+  ],
+};
+
+const ARBITER: CardContent = {
+  keywords: [],
+  shortText: "Arbitrate disputes in Court.",
+  fullText: "The Arbiter\u2019s ability text has not yet been confirmed.",
+  flavorTexts: [""],
+};
+
+const OATHBOUND: CardContent = {
+  keywords: ["immune_to_kings_hand"],
+  shortText: "Play on higher card to Disgrace it.",
+  fullText:
+    "You may play this on a higher value card to Disgrace that card, then you must play another card of any value. That card is Immune to King\u2019s Hand.",
+  flavorTexts: [
+    "None dare challenge their decisions",
+    "Now only six, they fight to preserve the world",
+  ],
+};
+
+const IMMORTAL: CardContent = {
+  keywords: ["steadfast"],
+  shortText: "Warlord gains Royalty; Royalty/Elders weakened.",
+  fullText:
+    "Steadfast (Cannot be Muted or have its value lowered by other cards). While this card is in Court, this card and the Warlord gain Royalty. All other Royalty and Elders lose 1 value and are Muted. This card has a value of 5 in Court.",
+  flavorTexts: [
+    "The Bhunari seemingly suffer no casualties in battle. In court however\u2026",
+  ],
+};
+
+const HERALD: CardContent = {
+  keywords: [],
+  shortText: "Swap Successor; chain a 5+ play.",
+  fullText:
+    "Shuffle your Successor into your hand and place a new Successor. Then you may play another card value 5 or higher to take the Herald back into your hand. This ability is prevented if played from your Antechamber.",
+  flavorTexts: ["Those who speak, speak at his discretion"],
+};
+
+const WARLORD: CardContent = {
+  keywords: [],
+  shortText: "+1 value per Royalty in Court.",
+  fullText:
+    "If there are any Royalty in the Court, this card gains +1 value in your hand and an additional +1 value after being played.",
+  flavorTexts: ["In chaos, her influence shines"],
+};
+
+const MYSTIC: CardContent = {
+  keywords: [],
+  shortText: "Disgrace to blank a card value.",
+  fullText:
+    "If there are any Disgraced cards in Court, you may Disgrace this card after playing it to choose a number between 1\u20138. Cards of that base value lose their card text and have a value of 3 after being played for this round.",
+  flavorTexts: ["She speaks and the Court is silenced"],
+};
+
+const WARDEN: CardContent = {
+  keywords: [],
+  shortText: "Swap hand card with Accused.",
+  fullText:
+    "If there are four or more faceup cards in the Court, you may exchange any card from your hand with the Accused card.",
+  flavorTexts: ["Evidence can change with a little loose change"],
+};
+
+const SENTRY: CardContent = {
+  keywords: [],
+  shortText: "Disgrace to swap with Court card.",
+  fullText:
+    "You may Disgrace this card after playing it to choose a card from the Court that is not Disgraced or Royalty. Exchange a card from your hand with the chosen card.",
+  flavorTexts: ["Forsaking their own, they help the Court see others anew"],
+};
+
+const KINGS_HAND: CardContent = {
+  keywords: ["immune_to_kings_hand", "reaction"],
+  shortText: "Reaction: cancel any card ability.",
+  fullText:
+    "Reaction: When another player chooses to use a card\u2019s ability, play this card immediately after they choose their target to prevent that ability. Condemn both this card and the played card.",
+  flavorTexts: [
+    "To face him, certain death",
+    "To be near him, a sense of dread",
+  ],
+};
+
+const SPY: CardContent = {
+  keywords: [],
+  shortText: "Disgrace to view/swap Successors.",
+  fullText:
+    "You may Disgrace this card after playing it to look at all Successors. You may then force one player to change their Successor with a card in their hand.",
+  flavorTexts: ["Only hire a Nakht spy if you have nothing to hide"],
+};
+
+const PRINCESS: CardContent = {
+  keywords: ["royalty"],
+  shortText: "Pick a player; swap a card each.",
+  fullText: "You may pick a player. Both of you choose and swap a card.",
+  flavorTexts: ["Friendly eyes mask a cunning spirit"],
+};
+
+const QUEEN: CardContent = {
+  keywords: ["royalty"],
+  shortText: "Disgrace all other Court cards.",
+  fullText: "You must Disgrace all other cards in the Court.",
+  flavorTexts: ["Her presence shakes all convictions"],
+};
+
+// ---------------------------------------------------------------------------
+// Deck definitions
+// ---------------------------------------------------------------------------
+
 const baseDefinitions: ReadonlyArray<IKCardKind> = [
-  ...copies("Fool", 1, 1),
-  ...copies("Assassin", 2, 1),
-  ...copies("Elder", 3, 2),
-  ...copies("Zealot", 3, 1),
-  ...copies("Inquisitor", 4, 2),
-  ...copies("Soldier", 5, 2),
-  ...copies("Judge", 5, 1),
-  ...copies("Oathbound", 6, 2),
-  ...copies("Immortal", 6, 1),
-  ...copies("Warlord", 7, 1),
-  ...copies("Mystic", 7, 1),
-  ...copies("Warden", 7, 1),
-  ...copies("Sentry", 8, 1),
-  ...copies("King's Hand", 8, 1),
-  ...copies("Princess", 9, 1),
-  ...copies("Queen", 9, 1),
+  ...copies("Fool", 1, 1, FOOL),
+  ...copies("Assassin", 2, 1, ASSASSIN),
+  ...copies("Elder", 3, 2, ELDER),
+  ...copies("Zealot", 3, 1, ZEALOT),
+  ...copies("Inquisitor", 4, 2, INQUISITOR),
+  ...copies("Soldier", 5, 2, SOLDIER),
+  ...copies("Judge", 5, 1, JUDGE),
+  ...copies("Oathbound", 6, 2, OATHBOUND),
+  ...copies("Immortal", 6, 1, IMMORTAL),
+  ...copies("Warlord", 7, 1, WARLORD),
+  ...copies("Mystic", 7, 1, MYSTIC),
+  ...copies("Warden", 7, 1, WARDEN),
+  ...copies("Sentry", 8, 1, SENTRY),
+  ...copies("King's Hand", 8, 1, KINGS_HAND),
+  ...copies("Princess", 9, 1, PRINCESS),
+  ...copies("Queen", 9, 1, QUEEN),
 ];
 
 const threePlayerExtras: ReadonlyArray<IKCardKind> = [
-  ...copies("Executioner", 4, 1),
-  ...copies("Bard", 4, 2),
-  ...copies("Herald", 6, 1),
-  ...copies("Spy", 8, 1),
+  ...copies("Executioner", 4, 1, EXECUTIONER),
+  ...copies("Bard", 4, 2, BARD),
+  ...copies("Herald", 6, 1, HERALD),
+  ...copies("Spy", 8, 1, SPY),
 ];
 
 const fourPlayerExtras: ReadonlyArray<IKCardKind> = [
-  ...copies("Fool", 1, 1),
-  ...copies("Assassin", 2, 1),
-  ...copies("Executioner", 4, 1),
-  ...copies("Arbiter", 5, 1),
+  ...copies("Fool", 1, 1, FOOL),
+  ...copies("Assassin", 2, 1, ASSASSIN),
+  ...copies("Executioner", 4, 1, {
+    ...EXECUTIONER,
+    flavorTexts: ["Must only meet him once"],
+  }),
+  ...copies("Arbiter", 5, 1, ARBITER),
 ];
 
 export const BASE_DECK: ReadonlyArray<IKCardKind> = baseDefinitions;

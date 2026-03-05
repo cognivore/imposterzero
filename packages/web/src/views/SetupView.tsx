@@ -5,7 +5,10 @@ import type { ClientPhase } from "../state.js";
 import type { IKClientMessage } from "../ws-client.js";
 import { Card } from "./card/Card.js";
 import { SetupSlot } from "./card/SetupSlot.js";
-import { toCardVisual } from "./card/types.js";
+import { toCardVisual, type CardVisual } from "./card/types.js";
+import { PreviewZone } from "./PreviewZone.js";
+import { CardInspectModal } from "./CardInspectModal.js";
+import { useTouchDevice } from "../hooks/useTouchDevice.js";
 
 type SetupPhase = Extract<ClientPhase, { readonly _tag: "setup" }>;
 
@@ -18,9 +21,11 @@ export const SetupView: React.FC<Props> = ({ phase, send }) => {
   const { gameState, legalActions, activePlayer, myIndex } = phase;
   const myZones = gameState.players[myIndex];
   const isMyTurn = activePlayer === myIndex;
+  const isTouch = useTouchDevice();
 
   const [successorId, setSuccessorId] = useState<number | null>(null);
   const [dungeonId, setDungeonId] = useState<number | null>(null);
+  const [inspectCard, setInspectCard] = useState<CardVisual | null>(null);
 
   const canCommit = useCallback(
     (): boolean =>
@@ -28,7 +33,8 @@ export const SetupView: React.FC<Props> = ({ phase, send }) => {
       dungeonId !== null &&
       successorId !== dungeonId &&
       legalActions.some(
-        (a) => a.kind === "commit" && a.successorId === successorId && a.dungeonId === dungeonId,
+        (a: IKSetupAction) =>
+          a.kind === "commit" && a.successorId === successorId && a.dungeonId === dungeonId,
       ),
     [successorId, dungeonId, legalActions],
   );
@@ -40,8 +46,14 @@ export const SetupView: React.FC<Props> = ({ phase, send }) => {
     setDungeonId(null);
   };
 
-  const handleCardClick = (cardId: number) => {
+  const handleCardClick = (cardId: number, visual: CardVisual) => {
     if (!isMyTurn) return;
+
+    if (isTouch) {
+      setInspectCard(visual);
+      return;
+    }
+
     if (successorId === null) {
       setSuccessorId(cardId);
     } else if (dungeonId === null) {
@@ -75,7 +87,7 @@ export const SetupView: React.FC<Props> = ({ phase, send }) => {
   });
 
   return (
-    <div className="game-board">
+    <div className="game-board game-board-with-preview">
       <div className="phase-banner">
         <h2>Setup Phase</h2>
         <p>{isMyTurn ? "Choose your Successor and Dungeon cards" : "Waiting for other players..."}</p>
@@ -100,6 +112,7 @@ export const SetupView: React.FC<Props> = ({ phase, send }) => {
           {trail.map((style, i) => {
             const card = myZones.hand[i];
             if (card === undefined) return null;
+            const visual = toCardVisual(card);
             const isSelected = card.id === successorId || card.id === dungeonId;
             return (
               <animated.div
@@ -113,11 +126,12 @@ export const SetupView: React.FC<Props> = ({ phase, send }) => {
                 }}
               >
                 <Card
-                  visual={toCardVisual(card)}
+                  visual={visual}
                   orientation="front"
                   interactive={isMyTurn && !isSelected}
                   dimmed={isSelected}
-                  onClick={() => handleCardClick(card.id)}
+                  previewSource="hand"
+                  onClick={() => handleCardClick(card.id, visual)}
                 />
               </animated.div>
             );
@@ -135,6 +149,17 @@ export const SetupView: React.FC<Props> = ({ phase, send }) => {
             Commit Selection
           </button>
         </div>
+      )}
+
+      <PreviewZone />
+
+      {inspectCard !== null && (
+        <CardInspectModal
+          card={inspectCard}
+          canPlay={false}
+          onPlay={null}
+          onClose={() => setInspectCard(null)}
+        />
       )}
     </div>
   );

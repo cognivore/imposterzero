@@ -19,8 +19,9 @@ test("create and join room", async ({ browser }) => {
   await waitForBrowser(pageB);
   await setName(pageB, "JoinerPlayer");
 
-  await expect(pageB.locator(".room-entry")).toBeVisible({ timeout: 5000 });
-  await pageB.click(".room-entry button:has-text('Join')");
+  const joinableRoom = pageB.locator(".room-entry:not(.room-active)").first();
+  await expect(joinableRoom).toBeVisible({ timeout: 5000 });
+  await joinableRoom.locator("button:has-text('Join')").click();
   await expect(pageB.locator(".lobby-title")).toBeVisible({ timeout: 5000 });
 
   await expect(pageA.locator(".player-count")).toContainText("2 / 2", { timeout: 5000 });

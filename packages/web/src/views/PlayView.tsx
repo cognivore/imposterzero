@@ -1,12 +1,16 @@
+import { useState, useCallback } from "react";
 import { useTrail, animated, to } from "@react-spring/web";
 import type { PlayerId } from "@imposter-zero/types";
 import type { IKPlayAction } from "@imposter-zero/engine";
 import type { ClientPhase } from "../state.js";
 import type { IKClientMessage } from "../ws-client.js";
 import { Card } from "./card/Card.js";
-import { toCardVisual, ANONYMOUS_CARD } from "./card/types.js";
+import { toCardVisual, ANONYMOUS_CARD, type CardVisual } from "./card/types.js";
 import { CourtDisplay } from "./CourtDisplay.js";
 import { GameLogPanel } from "./GameLog.js";
+import { PreviewZone } from "./PreviewZone.js";
+import { CardInspectModal } from "./CardInspectModal.js";
+import { useTouchDevice } from "../hooks/useTouchDevice.js";
 
 type PlayPhase = Extract<ClientPhase, { readonly _tag: "play" }>;
 
@@ -31,6 +35,11 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
   const { gameState, legalActions, activePlayer, myIndex, numPlayers, playerNames } = phase;
   const myZones = gameState.players[myIndex];
   const isMyTurn = activePlayer === myIndex;
+  const isTouch = useTouchDevice();
+
+  const [inspectCard, setInspectCard] = useState<CardVisual | null>(null);
+  const [inspectPlayable, setInspectPlayable] = useState(false);
+  const [inspectPlayCb, setInspectPlayCb] = useState<(() => void) | null>(null);
 
   const handlePlayCard = (cardId: number) => {
     send({ type: "action", action: { kind: "play", cardId } });
@@ -39,6 +48,21 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
   const handleDisgrace = () => {
     send({ type: "action", action: { kind: "disgrace" } });
   };
+
+  const openInspect = useCallback(
+    (visual: CardVisual, playable: boolean, playCb: (() => void) | null) => {
+      setInspectCard(visual);
+      setInspectPlayable(playable);
+      setInspectPlayCb(() => playCb);
+    },
+    [],
+  );
+
+  const closeInspect = useCallback(() => {
+    setInspectCard(null);
+    setInspectPlayable(false);
+    setInspectPlayCb(null);
+  }, []);
 
   if (myZones === undefined) return null;
 
@@ -53,10 +77,9 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
   });
 
   const { accused, forgotten } = gameState.shared;
-  const hasSideCards = accused !== null || forgotten !== null;
 
   return (
-    <div className="game-board">
+    <div className="game-board game-board-with-preview">
       <div className="opponents-row">
         {opponents.map((opIdx) => {
           const opZones = gameState.players[opIdx];
@@ -77,6 +100,7 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
                     visual={toCardVisual(opZones.king.card)}
                     orientation={opZones.king.face === "up" ? "front" : "back"}
                     size="small"
+                    previewSource="opponent"
                   />
                 </div>
                 <div>
@@ -100,6 +124,31 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
           playerNames={playerNames}
           throneValue={throneValue(phase)}
         />
+        {(accused !== null || forgotten !== null) && (
+          <div className="side-zones">
+            {accused !== null && (
+              <div className="side-zone">
+                <span className="zone-label">Accused</span>
+                <Card
+                  visual={toCardVisual(accused)}
+                  orientation="front"
+                  size="small"
+                  previewSource="side"
+                />
+              </div>
+            )}
+            {forgotten !== null && (
+              <div className="side-zone">
+                <span className="zone-label">Forgotten</span>
+                <Card
+                  visual={toCardVisual(forgotten.card)}
+                  orientation="back"
+                  size="small"
+                />
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="player-area">
@@ -108,6 +157,7 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
           <Card
             visual={toCardVisual(myZones.king.card)}
             orientation={myZones.king.face === "up" ? "front" : "back"}
+            previewSource="hand"
           />
         </div>
 
@@ -120,7 +170,15 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
             {trail.map((style, i) => {
               const card = myZones.hand[i];
               if (card === undefined) return null;
+              const visual = toCardVisual(card);
               const playable = isMyTurn && canPlayCard(card.id, legalActions);
+              const handleClick = () => {
+                if (isTouch) {
+                  openInspect(visual, playable, playable ? () => handlePlayCard(card.id) : null);
+                } else if (playable) {
+                  handlePlayCard(card.id);
+                }
+              };
               return (
                 <animated.div
                   key={card.id}
@@ -133,11 +191,12 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
                   }}
                 >
                   <Card
-                    visual={toCardVisual(card)}
+                    visual={visual}
                     orientation="front"
-                    interactive={playable}
-                    dimmed={isMyTurn && !playable}
-                    onClick={() => handlePlayCard(card.id)}
+                    interactive={playable || isTouch}
+                    dimmed={isMyTurn && !playable && !isTouch}
+                    previewSource="hand"
+                    onClick={handleClick}
                   />
                 </animated.div>
               );
@@ -160,32 +219,17 @@ export const PlayView: React.FC<Props> = ({ phase, send }) => {
         <span>King is {myZones.king.face === "up" ? "face up" : "face down"}</span>
       </div>
 
-      {hasSideCards && (
-        <div className="side-zones">
-          {accused !== null && (
-            <div className="side-zone">
-              <span className="zone-label">Accused</span>
-              <Card
-                visual={toCardVisual(accused)}
-                orientation="front"
-                size="small"
-              />
-            </div>
-          )}
-          {forgotten !== null && (
-            <div className="side-zone">
-              <span className="zone-label">Forgotten</span>
-              <Card
-                visual={toCardVisual(forgotten.card)}
-                orientation="back"
-                size="small"
-              />
-            </div>
-          )}
-        </div>
-      )}
-
+      <PreviewZone />
       <GameLogPanel />
+
+      {inspectCard !== null && (
+        <CardInspectModal
+          card={inspectCard}
+          canPlay={inspectPlayable}
+          onPlay={inspectPlayCb}
+          onClose={closeInspect}
+        />
+      )}
     </div>
   );
 };
