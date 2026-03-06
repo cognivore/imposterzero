@@ -20,6 +20,8 @@ const matchesQuery = (
       return card.kind.name === query.name;
     case "byKeyword":
       return card.kind.props.keywords.includes(query.keyword);
+    case "byBaseValue":
+      return card.kind.props.value === query.value;
     case "allInCourt":
       return state.shared.court.some((e) => e.card.id === card.id);
     case "allInCourtExceptSelf":

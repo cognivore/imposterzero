@@ -7,23 +7,29 @@ import {
   reaction,
   continuous,
   disgraceAll,
+  disgrace,
   played,
   active,
   done,
   chooseCard,
   choosePlayer,
   checkZone,
+  anyOpponentHas,
+  addRoundModifier,
   move,
   court as courtZone,
   activeHand,
   optional,
   nameCard,
+  nameValue,
+  ifCond,
+  seq,
   forEachOpponent,
   playerZone,
   playerId,
 } from "./effects/program.js";
 import type { CardRef, ModifierSpec } from "./effects/program.js";
-import { kingIsFlipped, courtHasRoyalty } from "./effects/predicates.js";
+import { kingIsFlipped, courtHasRoyalty, courtHasDisgraced } from "./effects/predicates.js";
 
 export interface CardOps<C> {
   readonly value: (card: C) => number;
@@ -223,6 +229,35 @@ const BARD: CardContent = {
   flavorTexts: [""],
 };
 
+const disgraceUpTo3 = optional(
+  chooseCard(active, courtZone, { tag: "notDisgraced" }, (id1) =>
+    disgrace({ kind: "id", cardId: id1 } as CardRef,
+      optional(
+        chooseCard(active, courtZone, { tag: "notDisgraced" }, (id2) =>
+          disgrace({ kind: "id", cardId: id2 } as CardRef,
+            optional(
+              chooseCard(active, courtZone, { tag: "notDisgraced" }, (id3) =>
+                disgrace({ kind: "id", cardId: id3 } as CardRef),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  ),
+);
+
+const soldierEffect = nameCard((name) =>
+  anyOpponentHas(
+    "hand",
+    { tag: "hasName", name },
+    seq(
+      addRoundModifier(played, { tag: "valueChange", delta: 2, target: { tag: "self" } }),
+      disgraceUpTo3,
+    ),
+  ),
+);
+
 const SOLDIER: CardContent = {
   keywords: [],
   shortText: "Name a card; +2 value, Disgrace 3.",
@@ -232,6 +267,7 @@ const SOLDIER: CardContent = {
     "They owe him their lives, but hate the lives he\u2019s given",
     "Amidst the chaos, they find their purpose",
   ],
+  effects: [onPlay(soldierEffect, false)],
 };
 
 const judgeEffect = optional(
@@ -342,12 +378,32 @@ const WARLORD: CardContent = {
   ],
 };
 
+const mysticEffect = ifCond(
+  courtHasDisgraced,
+  optional(
+    seq(
+      disgrace(played),
+      nameValue(1, 8, (value) =>
+        addRoundModifier(played, {
+          tag: "mute",
+          target: {
+            tag: "and",
+            left: { tag: "allInCourt" },
+            right: { tag: "byBaseValue", value },
+          },
+        }),
+      ),
+    ),
+  ),
+);
+
 const MYSTIC: CardContent = {
   keywords: [],
   shortText: "Disgrace to blank a card value.",
   fullText:
     "If there are any Disgraced cards in Court, you may Disgrace this card after playing it to choose a number between 1\u20138. Cards of that base value lose their card text and have a value of 3 after being played for this round.",
   flavorTexts: ["She speaks and the Court is silenced"],
+  effects: [onPlay(mysticEffect)],
 };
 
 const WARDEN: CardContent = {

@@ -47,6 +47,7 @@ export type CardQuery =
   | { readonly tag: "self" }
   | { readonly tag: "byName"; readonly name: CardName }
   | { readonly tag: "byKeyword"; readonly keyword: CardKeyword }
+  | { readonly tag: "byBaseValue"; readonly value: number }
   | { readonly tag: "allInCourt" }
   | { readonly tag: "allInCourtExceptSelf" }
   | { readonly tag: "and"; readonly left: CardQuery; readonly right: CardQuery }
@@ -85,6 +86,8 @@ export type EffectProgram =
   | { readonly tag: "setKingFace"; readonly player: PlayerRef; readonly face: FaceState; readonly then: EffectProgram }
   | { readonly tag: "ifCond"; readonly predicate: StatePredicate; readonly then_: EffectProgram; readonly else_: EffectProgram }
   | { readonly tag: "checkZone"; readonly zone: ZoneRef; readonly filter: CardFilter | null; readonly then_: EffectProgram; readonly else_: EffectProgram }
+  | { readonly tag: "anyOpponentHas"; readonly slot: IKPlayerZoneSlot; readonly filter: CardFilter; readonly then_: EffectProgram; readonly else_: EffectProgram }
+  | { readonly tag: "addRoundModifier"; readonly source: CardRef; readonly spec: ModifierSpec; readonly then: EffectProgram }
   // Interactive — yield NeedChoice
   | { readonly tag: "chooseCard"; readonly player: PlayerRef; readonly zone: ZoneRef; readonly filter: CardFilter | null; readonly andThen: (cardId: number) => EffectProgram }
   | { readonly tag: "choosePlayer"; readonly andThen: (player: PlayerId) => EffectProgram }
@@ -201,6 +204,19 @@ export const checkZone = (
   then_: EffectProgram,
   else_: EffectProgram = done,
 ): EffectProgram => ({ tag: "checkZone", zone, filter, then_, else_ });
+
+export const anyOpponentHas = (
+  slot: IKPlayerZoneSlot,
+  filter: CardFilter,
+  then_: EffectProgram,
+  else_: EffectProgram = done,
+): EffectProgram => ({ tag: "anyOpponentHas", slot, filter, then_, else_ });
+
+export const addRoundModifier = (
+  source: CardRef,
+  spec: ModifierSpec,
+  then: EffectProgram = done,
+): EffectProgram => ({ tag: "addRoundModifier", source, spec, then });
 
 export const chooseCard = (
   player: PlayerRef,

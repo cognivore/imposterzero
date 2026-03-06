@@ -178,6 +178,31 @@ export const resolve = (
       return resolve(hasMatch ? program.then_ : program.else_, state, ctx);
     }
 
+    case "anyOpponentHas": {
+      const found = Array.from(
+        { length: ctx.numPlayers },
+        (_, i) => i as PlayerId,
+      )
+        .filter((p) => p !== ctx.activePlayer)
+        .some((opp) => {
+          const cards = readZone(state, { scope: "player", player: opp, slot: program.slot });
+          return cards.some((c) => matchesFilter(c, program.filter, state));
+        });
+      return resolve(found ? program.then_ : program.else_, state, ctx);
+    }
+
+    case "addRoundModifier": {
+      const sourceId = resolveCard(program.source, ctx);
+      const s: IKState = {
+        ...state,
+        roundModifiers: [
+          ...state.roundModifiers,
+          { sourceCardId: sourceId, spec: program.spec },
+        ],
+      };
+      return resolve(program.then, s, ctx);
+    }
+
     case "chooseCard": {
       const player = resolvePlayer(program.player, ctx);
       const zone = resolveZone(program.zone, ctx);

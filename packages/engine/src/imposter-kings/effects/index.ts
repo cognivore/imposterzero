@@ -28,6 +28,8 @@ export {
   flipKing,
   ifCond,
   checkZone,
+  anyOpponentHas,
+  addRoundModifier,
   chooseCard,
   choosePlayer,
   nameCard,
