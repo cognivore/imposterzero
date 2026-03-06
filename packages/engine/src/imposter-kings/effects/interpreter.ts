@@ -169,6 +169,15 @@ export const resolve = (
       return resolve(cond ? program.then_ : program.else_, state, ctx);
     }
 
+    case "checkZone": {
+      const zone = resolveZone(program.zone, ctx);
+      const cards = readZone(state, zone);
+      const hasMatch = program.filter
+        ? cards.some((c) => matchesFilter(c, program.filter!, state))
+        : cards.length > 0;
+      return resolve(hasMatch ? program.then_ : program.else_, state, ctx);
+    }
+
     case "chooseCard": {
       const player = resolvePlayer(program.player, ctx);
       const zone = resolveZone(program.zone, ctx);

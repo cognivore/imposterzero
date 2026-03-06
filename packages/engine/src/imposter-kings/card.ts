@@ -11,6 +11,8 @@ import {
   active,
   done,
   chooseCard,
+  choosePlayer,
+  checkZone,
   move,
   court as courtZone,
   activeHand,
@@ -232,6 +234,26 @@ const SOLDIER: CardContent = {
   ],
 };
 
+const judgeEffect = optional(
+  choosePlayer((opp) =>
+    nameCard((name) =>
+      checkZone(
+        playerZone(playerId(opp), "hand"),
+        { tag: "hasName", name },
+        optional(
+          chooseCard(active, activeHand, { tag: "minValue", value: 2 }, (cardId) =>
+            move(
+              { kind: "id", cardId } as CardRef,
+              activeHand,
+              playerZone(active, "antechamber"),
+            ),
+          ),
+        ),
+      ),
+    ),
+  ),
+);
+
 const JUDGE: CardContent = {
   keywords: [],
   shortText: "Guess opponent\u2019s card for bonus play.",
@@ -241,6 +263,7 @@ const JUDGE: CardContent = {
     "Duty-bound to distill facts from stories",
     "Even during war, the truth must be discovered",
   ],
+  effects: [onPlay(judgeEffect)],
 };
 
 const ARBITER: CardContent = {

@@ -27,6 +27,7 @@ export {
   move,
   flipKing,
   ifCond,
+  checkZone,
   chooseCard,
   choosePlayer,
   nameCard,

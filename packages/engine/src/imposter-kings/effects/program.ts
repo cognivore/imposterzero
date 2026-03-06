@@ -84,6 +84,7 @@ export type EffectProgram =
   | { readonly tag: "moveCard"; readonly card: CardRef; readonly from: ZoneRef; readonly to: ZoneRef; readonly then: EffectProgram }
   | { readonly tag: "setKingFace"; readonly player: PlayerRef; readonly face: FaceState; readonly then: EffectProgram }
   | { readonly tag: "ifCond"; readonly predicate: StatePredicate; readonly then_: EffectProgram; readonly else_: EffectProgram }
+  | { readonly tag: "checkZone"; readonly zone: ZoneRef; readonly filter: CardFilter | null; readonly then_: EffectProgram; readonly else_: EffectProgram }
   // Interactive — yield NeedChoice
   | { readonly tag: "chooseCard"; readonly player: PlayerRef; readonly zone: ZoneRef; readonly filter: CardFilter | null; readonly andThen: (cardId: number) => EffectProgram }
   | { readonly tag: "choosePlayer"; readonly andThen: (player: PlayerId) => EffectProgram }
@@ -193,6 +194,13 @@ export const ifCond = (
   then_: EffectProgram,
   else_: EffectProgram = done,
 ): EffectProgram => ({ tag: "ifCond", predicate, then_, else_ });
+
+export const checkZone = (
+  zone: ZoneRef,
+  filter: CardFilter | null,
+  then_: EffectProgram,
+  else_: EffectProgram = done,
+): EffectProgram => ({ tag: "checkZone", zone, filter, then_, else_ });
 
 export const chooseCard = (
   player: PlayerRef,
