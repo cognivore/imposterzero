@@ -455,11 +455,37 @@ const SPY: CardContent = {
   flavorTexts: ["Only hire a Nakht spy if you have nothing to hide"],
 };
 
+const princessEffect = optional(
+  choosePlayer((opp) =>
+    chooseCard(active, activeHand, null, (myCardId) =>
+      chooseCard(
+        playerId(opp),
+        playerZone(playerId(opp), "hand"),
+        null,
+        (oppCardId) =>
+          seq(
+            move(
+              { kind: "id", cardId: myCardId } as CardRef,
+              activeHand,
+              playerZone(playerId(opp), "hand"),
+            ),
+            move(
+              { kind: "id", cardId: oppCardId } as CardRef,
+              playerZone(playerId(opp), "hand"),
+              activeHand,
+            ),
+          ),
+      ),
+    ),
+  ),
+);
+
 const PRINCESS: CardContent = {
   keywords: ["royalty"],
   shortText: "Pick a player; swap a card each.",
   fullText: "You may pick a player. Both of you choose and swap a card.",
   flavorTexts: ["Friendly eyes mask a cunning spirit"],
+  effects: [onPlay(princessEffect)],
 };
 
 const QUEEN: CardContent = {

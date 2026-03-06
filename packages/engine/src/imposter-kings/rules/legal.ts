@@ -50,10 +50,12 @@ export const canPlayCard = (
       }
       case "onHigherValue": {
         const top = throne(state);
+        const hand = playerZones(state, state.activePlayer).hand;
         return (
           top !== null &&
           top.face === "up" &&
-          top.card.kind.props.value > ikCardOps.value(card)
+          top.card.kind.props.value > ikCardOps.value(card) &&
+          hand.length >= 2
         );
       }
     }
