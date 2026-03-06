@@ -854,8 +854,8 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  padding: var(--space-xl);
-  gap: var(--space-lg);
+  padding: var(--space-lg) var(--space-xl);
+  gap: var(--space-md);
 }
 
 .crown-title {
