@@ -2,13 +2,15 @@ import { useRef, useEffect } from "react";
 import { useGameReducer, detectLogEvents, type ClientPhase } from "./state.js";
 import { useWebSocket } from "./ws-client.js";
 import { useGameLogStore } from "./stores/game-log.js";
+import { useDisgracedTracker } from "./stores/disgraced-tracker.js";
+import { useSeenCardsTracker } from "./stores/seen-cards.js";
+import { traceResolution, type TraceEntry } from "@imposter-zero/engine";
 import { useOrientation } from "./hooks/useOrientation.js";
 import { BrowserView } from "./views/BrowserView.js";
 import { LobbyView } from "./views/LobbyView.js";
 import { CrownView } from "./views/CrownView.js";
 import { SetupView } from "./views/SetupView.js";
-import { PlayView } from "./views/PlayView.js";
-import { ResolvingView } from "./views/ResolvingView.js";
+import { GameLayout } from "./views/GameLayout.js";
 import { ScoringView } from "./views/ScoringView.js";
 import { MatchOverView } from "./views/MatchOverView.js";
 import { LandscapeOverlay } from "./views/LandscapeOverlay.js";
@@ -35,11 +37,9 @@ const renderPhase = (
     case "crown":
       return <CrownView phase={phase} send={send} />;
     case "setup":
-      return <SetupView phase={phase} send={send} />;
     case "play":
-      return <PlayView phase={phase} send={send} />;
     case "resolving":
-      return <ResolvingView phase={phase} send={send} />;
+      return <GameLayout phase={phase} send={send} />;
     case "scoring":
       return <ScoringView phase={phase} send={send} />;
     case "finished":
@@ -49,8 +49,23 @@ const renderPhase = (
   }
 };
 
+const DEPTH_INDENT = "\u2003";
+
+const traceEntryToLogEntry = (
+  entry: TraceEntry,
+  turnNumber: number,
+): Omit<import("./stores/game-log.js").GameLogEntry, "id"> => ({
+  turnNumber,
+  playerName: "",
+  playerIndex: -1,
+  description: DEPTH_INDENT.repeat(entry.depth) + (entry.tag === "choice" ? "→ " : "") + entry.description,
+  timestamp: Date.now(),
+  kind: "trace",
+});
+
 const useGameLogSync = (phase: ClientPhase): void => {
   const prevPhaseRef = useRef<ClientPhase>(phase);
+  const traceCountRef = useRef(0);
 
   useEffect(() => {
     const prev = prevPhaseRef.current;
@@ -60,11 +75,41 @@ const useGameLogSync = (phase: ClientPhase): void => {
 
     if (prev._tag !== "crown" && phase._tag === "crown") {
       store.clear();
+      traceCountRef.current = 0;
+      useDisgracedTracker.getState().clear();
+      useSeenCardsTracker.getState().clear();
     }
 
     const events = detectLogEvents(prev, phase);
     for (const event of events) {
       store.addEntry({ ...event, timestamp: Date.now() });
+    }
+
+    const isResolving = phase._tag === "resolving" || phase._tag === "play";
+    const wasResolving = prev._tag === "resolving";
+    const gameState = isResolving && "gameState" in phase ? phase.gameState : null;
+    const prevGameState = wasResolving && "gameState" in prev ? prev.gameState : null;
+
+    try {
+      if (wasResolving && phase._tag !== "resolving" && prevGameState?.pendingResolution) {
+        const fullTrace = traceResolution(prevGameState, true);
+        const newEntries = fullTrace.slice(traceCountRef.current);
+        const turn = prevGameState.turnCount;
+        for (const entry of newEntries) {
+          store.addEntry(traceEntryToLogEntry(entry, turn));
+        }
+        traceCountRef.current = 0;
+      } else if (phase._tag === "resolving" && gameState?.pendingResolution) {
+        const currentTrace = traceResolution(gameState);
+        const newEntries = currentTrace.slice(traceCountRef.current);
+        const turn = gameState.turnCount;
+        for (const entry of newEntries) {
+          store.addEntry(traceEntryToLogEntry(entry, turn));
+        }
+        traceCountRef.current = currentTrace.length;
+      }
+    } catch {
+      /* tracing must never crash the app */
     }
   }, [phase]);
 };
@@ -82,7 +127,6 @@ export const App: React.FC = () => {
     <div className="app">
       {showLandscapeOverlay && <LandscapeOverlay />}
       <div
-        key={phase._tag}
         className="phase-container"
         style={showLandscapeOverlay ? { display: "none" } : undefined}
       >

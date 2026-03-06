@@ -57,7 +57,7 @@ const validateInvariants = (state: IKState): string[] => {
     const zones = state.players[p]!;
     const hasSuccessor = zones.successor !== null;
     const hasDungeon = zones.dungeon !== null;
-    if (hasSuccessor !== hasDungeon) {
+    if (hasSuccessor !== hasDungeon && state.phase !== "resolving" && state.phase !== "end_of_turn") {
       violations.push(`Player ${p}: successor/dungeon mismatch (${hasSuccessor}/${hasDungeon})`);
     }
   }

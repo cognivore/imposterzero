@@ -32,10 +32,13 @@ export {
   anyOpponentHas,
   addRoundModifier,
   forcePlay,
+  condemn,
+  withFirstCardIn,
   chooseCard,
   choosePlayer,
   nameCard,
   nameValue,
+  nameValueUpToCourtMax,
   forEachOpponent,
   optional,
   onPlay,
@@ -46,6 +49,7 @@ export {
   triggerReaction,
   seq,
   preventEffect,
+  khWindow,
 } from "./program.js";
 
 export {
@@ -66,6 +70,20 @@ export {
 } from "./predicates.js";
 
 export { resolve, replay } from "./interpreter.js";
+
+export {
+  type TraceEntry,
+  type TraceSink,
+  type DescribeStep,
+  describeStep,
+  describeProgram,
+  describeChoice,
+  describeCardRef,
+  describePlayerRef,
+  describeZoneRef,
+  describePredicate,
+  findCardName,
+} from "./trace.js";
 
 export {
   effectiveValue,

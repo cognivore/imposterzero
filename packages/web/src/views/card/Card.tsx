@@ -8,11 +8,14 @@ import { usePreviewStore, type PreviewSource } from "../../stores/preview.js";
 interface CardProps {
   readonly visual: CardVisual;
   readonly orientation: CardOrientation;
-  readonly size?: "normal" | "small";
+  readonly size?: "normal" | "small" | "micro";
   readonly interactive?: boolean;
   readonly selected?: boolean;
   readonly dimmed?: boolean;
+  readonly veiled?: boolean;
   readonly previewSource?: PreviewSource;
+  /** Show preview on hover even when orientation is "back" (e.g. player's own Successor/Dungeon) */
+  readonly forcePreview?: boolean;
   readonly onClick?: () => void;
 }
 
@@ -23,7 +26,9 @@ export const Card: React.FC<CardProps> = ({
   interactive = false,
   selected = false,
   dimmed = false,
+  veiled = false,
   previewSource = null,
+  forcePreview = false,
   onClick,
 }) => {
   const setHovered = usePreviewStore((s) => s.setHovered);
@@ -56,7 +61,7 @@ export const Card: React.FC<CardProps> = ({
         tiltX: hovering ? -2 : 0,
       });
     }
-    if (previewSource && orientation === "front") {
+    if (previewSource && (orientation === "front" || forcePreview)) {
       setHovered(hovering ? visual : null, hovering ? previewSource : null);
     }
   });
@@ -64,7 +69,9 @@ export const Card: React.FC<CardProps> = ({
   const perspectiveClass = [
     "card-perspective",
     size === "small" && "card-perspective--small",
+    size === "micro" && "card-perspective--micro",
     dimmed && "card-perspective--dimmed",
+    veiled && "card-perspective--veiled",
     selected && "card-perspective--selected",
     interactive && "card-perspective--interactive",
   ]
@@ -107,6 +114,7 @@ export const Card: React.FC<CardProps> = ({
           shortText={visual.front.shortText}
           artwork={visual.front.artwork}
           showContent={size === "normal"}
+          alt={`${visual.front.name}, value ${visual.front.value}`}
         />
         <CardBack design={visual.back.design} />
       </animated.div>

@@ -30,7 +30,28 @@ import {
   triggerReaction,
 } from "../effects/program.js";
 import { resolve, replay } from "../effects/interpreter.js";
+import { type TraceEntry } from "../effects/trace.js";
+import { regulationDeck, type CardName } from "../card.js";
 import { canPlayCard } from "./legal.js";
+
+// ---------------------------------------------------------------------------
+// Static effect lookup — card name -> onPlay EffectProgram.
+// EffectProgram nodes contain closures that don't survive JSON serialization,
+// so when replaying on the client we must use the live definitions.
+// ---------------------------------------------------------------------------
+
+const effectByCardName: ReadonlyMap<CardName, EffectProgram> = (() => {
+  const map = new Map<CardName, EffectProgram>();
+  for (const kind of regulationDeck(4)) {
+    if (map.has(kind.name)) continue;
+    const onPlay = kind.props.effects.find(
+      (e): e is { readonly tag: "onPlay"; readonly effect: EffectProgram; readonly isOptional: boolean } =>
+        e.tag === "onPlay",
+    );
+    if (onPlay) map.set(kind.name, onPlay.effect);
+  }
+  return map;
+})();
 
 // ---------------------------------------------------------------------------
 // End-of-turn sequence: parting flush, then antechamber forced play
@@ -167,6 +188,7 @@ const enterResolving = (
     currentOptions: resolution.options,
     choosingPlayer: resolution.player,
     stateBeforeEffect,
+    isReactionWindow: resolution.isReactionWindow ?? false,
   };
   return {
     ...resolution.state,
@@ -193,10 +215,8 @@ const getEffectProgram = (pending: PendingResolution): EffectProgram | null => {
     const entry = pending.stateBeforeEffect.shared.court.find(
       (e) => e.card.id === source.cardId,
     );
-    const onPlay = entry?.card.kind.props.effects.find(
-      (e) => e.tag === "onPlay",
-    );
-    return onPlay?.effect ?? null;
+    if (!entry) return null;
+    return effectByCardName.get(entry.card.kind.name as CardName) ?? null;
   }
   return buildDisgraceEffect(source.throneCardId);
 };
@@ -235,7 +255,7 @@ export const applyPlaySafe = (
     });
   }
 
-  const moved = moveCard(
+  let moved = moveCard(
     state,
     cardId,
     { scope: "player", player: activePlayer, slot: sourceSlot },
@@ -243,6 +263,10 @@ export const applyPlaySafe = (
     { face: "up", playedBy: activePlayer },
   );
   if (!moved.ok) return err({ kind: "card_not_in_hand", cardId });
+
+  if (card.kind.name === "King's Hand" && !moved.value.publiclyTrackedKH.includes(cardId)) {
+    moved = { ok: true, value: { ...moved.value, publiclyTrackedKH: [...moved.value.publiclyTrackedKH, cardId] } };
+  }
 
   const onPlayEffect = card.kind.props.effects.find(
     (e) => e.tag === "onPlay",
@@ -266,6 +290,15 @@ export const applyPlaySafe = (
   const resolution = resolve(onPlayEffect.effect, moved.value, ctx);
 
   if (resolution.tag === "done") {
+    if (resolution.state.khPrevented) {
+      return ok(refreshModifiers({
+        ...resolution.state,
+        phase: "play",
+        activePlayer,
+        pendingResolution: null,
+        khPrevented: undefined,
+      }));
+    }
     return ok(endOfTurn(resolution.state, state));
   }
 
@@ -311,6 +344,15 @@ export const applyEffectChoiceSafe = (
   const resolution = replay(program, pending.stateBeforeEffect, ctx, nextChoices);
 
   if (resolution.tag === "done") {
+    if (resolution.state.khPrevented) {
+      return ok(refreshModifiers({
+        ...resolution.state,
+        phase: "play",
+        activePlayer: pending.effectPlayer,
+        pendingResolution: null,
+        khPrevented: undefined,
+      }));
+    }
     return ok(endOfTurn(resolution.state, pending.stateBeforeEffect));
   }
 
@@ -319,6 +361,7 @@ export const applyEffectChoiceSafe = (
     choicesMade: nextChoices,
     currentOptions: resolution.options,
     choosingPlayer: resolution.player,
+    isReactionWindow: resolution.isReactionWindow ?? false,
   };
   return ok({
     ...resolution.state,
@@ -411,4 +454,66 @@ export const applyDisgraceSafe = (
       activePlayer,
     ),
   );
+};
+
+// ---------------------------------------------------------------------------
+// Resolution tracing — replays the current pending resolution with a trace
+// sink to produce a full English-language record of every interpreter step.
+//
+// When `tryComplete` is true, the function additionally tries appending each
+// possible next choice to find the one that completed the resolution, so the
+// returned trace includes the final choice and all steps that followed.
+// ---------------------------------------------------------------------------
+
+const buildTraceCtx = (
+  pending: PendingResolution,
+  numPlayers: number,
+): EffectContext | null => {
+  const contextCardId =
+    pending.source.kind === "disgrace"
+      ? pending.source.throneCardId
+      : pending.source.cardId;
+  const contextEntry = pending.stateBeforeEffect.shared.court.find(
+    (e) => e.card.id === contextCardId,
+  );
+  if (!contextEntry) return null;
+  return {
+    playedCard: contextEntry.card,
+    activePlayer: pending.effectPlayer,
+    numPlayers,
+    playedFrom: null,
+  };
+};
+
+export const traceResolution = (
+  state: IKState,
+  tryComplete = false,
+): ReadonlyArray<TraceEntry> => {
+  const pending = state.pendingResolution;
+  if (!pending) return [];
+
+  const program = getEffectProgram(pending);
+  if (!program) return [];
+
+  const ctx = buildTraceCtx(pending, state.numPlayers);
+  if (!ctx) return [];
+
+  if (tryComplete) {
+    for (let i = 0; i < pending.currentOptions.length; i++) {
+      const fullChoices = [...pending.choicesMade, i];
+      const entries: TraceEntry[] = [];
+      const resolution = replay(
+        program, pending.stateBeforeEffect, ctx, fullChoices,
+        (e) => entries.push(e),
+      );
+      if (resolution.tag === "done") return entries;
+    }
+  }
+
+  const entries: TraceEntry[] = [];
+  replay(
+    program, pending.stateBeforeEffect, ctx, pending.choicesMade,
+    (e) => entries.push(e),
+  );
+  return entries;
 };

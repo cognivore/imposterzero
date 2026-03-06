@@ -97,6 +97,7 @@ export const dealWithDeck = (
     forcedLoser: null,
     modifiers: [],
     roundModifiers: [],
+    publiclyTrackedKH: [],
   };
 };
 
@@ -160,5 +161,6 @@ export const deal = (
     forcedLoser: null,
     modifiers: [],
     roundModifiers: [],
+    publiclyTrackedKH: [],
   };
 };

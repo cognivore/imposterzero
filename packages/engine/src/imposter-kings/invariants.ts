@@ -42,7 +42,7 @@ export const validateState = (state: IKState): ReadonlyArray<string> => {
 
     const hasSuccessor = zones.successor !== null;
     const hasDungeon = zones.dungeon !== null;
-    if (hasSuccessor !== hasDungeon) {
+    if (hasSuccessor !== hasDungeon && state.phase !== "resolving" && state.phase !== "end_of_turn") {
       violations.push(
         `Player ${p}: successor/dungeon mismatch (successor=${hasSuccessor}, dungeon=${hasDungeon})`,
       );

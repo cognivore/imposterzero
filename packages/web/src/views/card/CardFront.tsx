@@ -7,6 +7,7 @@ interface Props {
   readonly shortText: string;
   readonly artwork: CardArtwork;
   readonly showContent: boolean;
+  readonly alt?: string;
 }
 
 export const CardFront: React.FC<Props> = ({
@@ -16,8 +17,9 @@ export const CardFront: React.FC<Props> = ({
   shortText,
   artwork,
   showContent,
+  alt,
 }) => (
-  <div className="card-face card-face--front">
+  <div className="card-face card-face--front" role="img" aria-label={alt ?? `${name}, value ${value}`}>
     {showContent && artwork.thumb !== null && (
       <img
         className="card-artwork-thumb"

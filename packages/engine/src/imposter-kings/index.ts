@@ -74,6 +74,7 @@ export {
   isTerminal,
   currentPlayer,
   returns,
+  traceResolution,
 } from "./rules.js";
 
 export {
@@ -133,9 +134,20 @@ export {
   type Resolution,
   type EffectContext,
   type StatePredicate,
+  type TraceEntry,
+  type TraceSink,
+  type DescribeStep,
   resolve,
   replay,
   evaluate,
+  describeStep,
+  describeProgram,
+  describeChoice,
+  describeCardRef,
+  describePlayerRef,
+  describeZoneRef,
+  describePredicate,
+  findCardName,
   effectiveValue,
   effectiveKeywords,
   refreshModifiers,

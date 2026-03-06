@@ -9,6 +9,7 @@ import {
   applyDisgraceSafe,
   applyEffectChoiceSafe,
   applyEndOfTurnSafe,
+  traceResolution,
 } from "./play.js";
 
 export { legalActions } from "./legal.js";
@@ -73,3 +74,5 @@ export const apply = (state: IKState, action: IKAction): IKState => {
   if (result.ok) return result.value;
   throw new Error(transitionErrorMessage(result.error));
 };
+
+export { traceResolution };

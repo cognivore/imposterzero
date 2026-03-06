@@ -17,6 +17,7 @@ export interface PendingResolution {
   readonly currentOptions: ReadonlyArray<ChoiceOption>;
   readonly choosingPlayer: PlayerId;
   readonly stateBeforeEffect: IKState;
+  readonly isReactionWindow: boolean;
 }
 
 export interface ActiveModifier {
@@ -36,6 +37,8 @@ export interface IKState {
   readonly forcedLoser: PlayerId | null;
   readonly modifiers: ReadonlyArray<ActiveModifier>;
   readonly roundModifiers: ReadonlyArray<ActiveModifier>;
+  readonly khPrevented?: boolean;
+  readonly publiclyTrackedKH: ReadonlyArray<number>;
 }
 
 export const throne = (state: IKState): CourtEntry | null =>

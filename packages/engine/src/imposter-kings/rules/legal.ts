@@ -83,6 +83,16 @@ export const legalActions = (state: IKState): ReadonlyArray<IKAction> => {
   if (state.phase === "resolving") {
     const pending = state.pendingResolution;
     if (!pending) return [];
+
+    if (pending.isReactionWindow) {
+      const chooser = pending.choosingPlayer;
+      const hand = playerZones(state, chooser).hand;
+      const hasKH = hand.some((c) => c.kind.name === "King's Hand");
+      if (!hasKH) {
+        return [{ kind: "effect_choice" as const, choice: 0 }];
+      }
+    }
+
     return pending.currentOptions.map((_, i) => ({
       kind: "effect_choice" as const,
       choice: i,

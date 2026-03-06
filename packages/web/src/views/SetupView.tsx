@@ -75,6 +75,8 @@ export const SetupView: React.FC<Props> = ({ phase, send }) => {
 
   if (myZones === undefined) return null;
 
+  const { accused, forgotten } = gameState.shared;
+
   const findCardVisual = (id: number) => {
     const c = myZones.hand.find((card) => card.id === id);
     return c ? toCardVisual(c) : null;
@@ -92,6 +94,32 @@ export const SetupView: React.FC<Props> = ({ phase, send }) => {
         <h2>Setup Phase</h2>
         <p>{isMyTurn ? "Choose your Successor and Dungeon cards" : "Waiting for other players..."}</p>
       </div>
+
+      {(accused !== null || forgotten !== null) && (
+        <div className="side-zones">
+          {accused !== null && (
+            <div className="side-zone">
+              <span className="zone-label">Accused</span>
+              <Card
+                visual={toCardVisual(accused)}
+                orientation="front"
+                size="small"
+                previewSource="side"
+              />
+            </div>
+          )}
+          {forgotten !== null && (
+            <div className="side-zone">
+              <span className="zone-label">Forgotten</span>
+              <Card
+                visual={toCardVisual(forgotten.card)}
+                orientation="back"
+                size="small"
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="setup-slots">
         <SetupSlot

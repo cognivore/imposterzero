@@ -10,7 +10,6 @@ import {
   moveCard as zoneMove,
   disgraceInCourt as zoneDis,
   setKingFace as zoneFlip,
-  type IKZoneAddress,
 } from "../zone-addr.js";
 import type {
   EffectProgram,
@@ -21,8 +20,15 @@ import type {
   ZoneRef,
   CardFilter,
   TriggerKind,
+  ChoiceOption,
 } from "./program.js";
 import { evaluate } from "./predicates.js";
+import {
+  describeProgram,
+  describeChoice,
+  findCardName,
+  type TraceSink,
+} from "./trace.js";
 
 // ---------------------------------------------------------------------------
 // Reference resolution
@@ -45,10 +51,10 @@ const resolveCard = (ref: CardRef, ctx: EffectContext, state: IKState): number =
 const resolvePlayer = (ref: PlayerRef, ctx: EffectContext): PlayerId =>
   ref.kind === "active" ? ctx.activePlayer : ref.player;
 
-const resolveZone = (ref: ZoneRef, ctx: EffectContext): IKZoneAddress =>
+const resolveZone = (ref: ZoneRef, ctx: EffectContext) =>
   ref.kind === "playerZone"
-    ? { scope: "player", player: resolvePlayer(ref.player, ctx), slot: ref.slot }
-    : { scope: "shared", slot: ref.slot };
+    ? ({ scope: "player", player: resolvePlayer(ref.player, ctx), slot: ref.slot } as const)
+    : ({ scope: "shared", slot: ref.slot } as const);
 
 // ---------------------------------------------------------------------------
 // Card filtering for choice options
@@ -76,9 +82,49 @@ const matchesFilter = (
       return card.kind.props.keywords.includes(filter.keyword);
     case "minValue":
       return card.kind.props.value >= filter.value;
+    case "hasBaseValue":
+      return card.kind.props.value === filter.value;
     case "hasName":
       return card.kind.name === filter.name;
   }
+};
+
+// ---------------------------------------------------------------------------
+// Trace helpers
+// ---------------------------------------------------------------------------
+
+const emitStep = (
+  trace: TraceSink | undefined,
+  depth: number,
+  program: EffectProgram,
+  ctx: EffectContext,
+  state: IKState,
+): void => {
+  if (!trace || program.tag === "done") return;
+  trace({ depth, tag: program.tag, description: describeProgram(program, ctx, state) });
+};
+
+const emitChoice = (
+  trace: TraceSink | undefined,
+  depth: number,
+  choiceIdx: number,
+  options: ReadonlyArray<ChoiceOption>,
+  state: IKState,
+  player: PlayerId,
+): void => {
+  if (!trace) return;
+  const option = options[choiceIdx];
+  if (!option) return;
+  trace({ depth, tag: "choice", description: describeChoice(option, state, player) });
+};
+
+const emitRaw = (
+  trace: TraceSink | undefined,
+  depth: number,
+  tag: EffectProgram["tag"],
+  description: string,
+): void => {
+  if (trace) trace({ depth, tag, description });
 };
 
 // ---------------------------------------------------------------------------
@@ -89,7 +135,11 @@ export const resolve = (
   program: EffectProgram,
   state: IKState,
   ctx: EffectContext,
+  trace?: TraceSink,
+  depth = 0,
 ): Resolution => {
+  emitStep(trace, depth, program, ctx, state);
+
   switch (program.tag) {
     case "done":
       return { tag: "done", state };
@@ -100,7 +150,7 @@ export const resolve = (
     case "sequence": {
       let s = state;
       for (const step of program.steps) {
-        const res = resolve(step, s, ctx);
+        const res = resolve(step, s, ctx, trace, depth);
         if (res.tag === "needChoice") {
           const remaining = program.steps.slice(program.steps.indexOf(step) + 1);
           if (remaining.length === 0) return res;
@@ -113,6 +163,8 @@ export const resolve = (
                   { tag: "sequence", steps: remaining },
                   inner.state,
                   ctx,
+                  trace,
+                  depth,
                 );
               }
               if (inner.tag === "needChoice" && remaining.length > 0) {
@@ -126,6 +178,8 @@ export const resolve = (
                         { tag: "sequence", steps: remaining },
                         next.state,
                         ctx,
+                        trace,
+                        depth,
                       );
                     }
                     return next;
@@ -152,13 +206,13 @@ export const resolve = (
         ...state,
         shared: { ...state.shared, court: nextCourt },
       };
-      return resolve(program.then, s, ctx);
+      return resolve(program.then, s, ctx, trace, depth);
     }
 
     case "disgraceInCourt": {
       const cid = resolveCard(program.target, ctx, state);
       const result = zoneDis(state, cid);
-      return resolve(program.then, result.ok ? result.value : state, ctx);
+      return resolve(program.then, result.ok ? result.value : state, ctx, trace, depth);
     }
 
     case "moveCard": {
@@ -166,18 +220,21 @@ export const resolve = (
       const from = resolveZone(program.from, ctx);
       const to = resolveZone(program.to, ctx);
       const result = zoneMove(state, cid, from, to);
-      return resolve(program.then, result.ok ? result.value : state, ctx);
+      let s = result.ok ? result.value : state;
+      if (result.ok) s = trackKHMove(s, cid, from);
+      return resolve(program.then, s, ctx, trace, depth);
     }
 
     case "setKingFace": {
       const player = resolvePlayer(program.player, ctx);
       const s = zoneFlip(state, player, program.face);
-      return resolve(program.then, s, ctx);
+      return resolve(program.then, s, ctx, trace, depth);
     }
 
     case "ifCond": {
       const cond = evaluate(program.predicate, state, ctx);
-      return resolve(cond ? program.then_ : program.else_, state, ctx);
+      emitRaw(trace, depth, "ifCond", `Evaluated to ${cond}.`);
+      return resolve(cond ? program.then_ : program.else_, state, ctx, trace, depth);
     }
 
     case "checkZone": {
@@ -186,7 +243,8 @@ export const resolve = (
       const hasMatch = program.filter
         ? cards.some((c) => matchesFilter(c, program.filter!, state))
         : cards.length > 0;
-      return resolve(hasMatch ? program.then_ : program.else_, state, ctx);
+      emitRaw(trace, depth, "checkZone", hasMatch ? "Match found." : "No match.");
+      return resolve(hasMatch ? program.then_ : program.else_, state, ctx, trace, depth);
     }
 
     case "anyOpponentHas": {
@@ -199,7 +257,8 @@ export const resolve = (
           const cards = readZone(state, { scope: "player", player: opp, slot: program.slot });
           return cards.some((c) => matchesFilter(c, program.filter, state));
         });
-      return resolve(found ? program.then_ : program.else_, state, ctx);
+      emitRaw(trace, depth, "anyOpponentHas", found ? "Opponent has match." : "No opponent match.");
+      return resolve(found ? program.then_ : program.else_, state, ctx, trace, depth);
     }
 
     case "addRoundModifier": {
@@ -211,7 +270,7 @@ export const resolve = (
           { sourceCardId: sourceId, spec: program.spec },
         ],
       };
-      return resolve(program.then, s, ctx);
+      return resolve(program.then, s, ctx, trace, depth);
     }
 
     case "forcePlay": {
@@ -223,12 +282,28 @@ export const resolve = (
       if (!entry) return { tag: "done", state: result.value };
       const onPlay = entry.card.kind.props.effects.find((e) => e.tag === "onPlay");
       if (!onPlay) return { tag: "done", state: result.value };
+      emitRaw(trace, depth + 1, "forcePlay", `${entry.card.kind.name}'s onPlay effect resolves.`);
       return resolve(onPlay.effect, result.value, {
         playedCard: entry.card,
         activePlayer: ctx.activePlayer,
         numPlayers: ctx.numPlayers,
         playedFrom: "hand",
-      });
+      }, trace, depth + 1);
+    }
+
+    case "condemn": {
+      const cid = resolveCard(program.card, ctx, state);
+      const from = resolveZone(program.from, ctx);
+      const result = zoneMove(state, cid, from, { scope: "shared", slot: "condemned" }, { face: "up" });
+      return resolve(program.then, result.ok ? result.value : state, ctx, trace, depth);
+    }
+
+    case "withFirstCardIn": {
+      const zone = resolveZone(program.zone, ctx);
+      const cards = readZone(state, zone);
+      if (cards.length === 0) return { tag: "done", state };
+      emitRaw(trace, depth, "withFirstCardIn", `Found ${cards[0]!.kind.name}.`);
+      return resolve(program.andThen(cards[0]!.id), state, ctx, trace, depth);
     }
 
     case "chooseCard": {
@@ -248,13 +323,15 @@ export const resolve = (
         state,
         player,
         options,
-        resume: (choice) =>
-          resolve(program.andThen(options[choice]!.cardId), state, ctx),
+        resume: (choice) => {
+          emitChoice(trace, depth, choice, options, state, player);
+          return resolve(program.andThen(options[choice]!.cardId), state, ctx, trace, depth);
+        },
       };
     }
 
     case "choosePlayer": {
-      const options = Array.from(
+      const options: ReadonlyArray<ChoiceOption> = Array.from(
         { length: ctx.numPlayers },
         (_, i) => i as PlayerId,
       )
@@ -266,8 +343,10 @@ export const resolve = (
         state,
         player: ctx.activePlayer,
         options,
-        resume: (choice) =>
-          resolve(program.andThen(options[choice]!.player), state, ctx),
+        resume: (choice) => {
+          emitChoice(trace, depth, choice, options, state, ctx.activePlayer);
+          return resolve(program.andThen((options[choice] as { kind: "player"; player: PlayerId }).player), state, ctx, trace, depth);
+        },
       };
     }
 
@@ -278,7 +357,7 @@ export const resolve = (
         "Sentry", "King's Hand", "Princess", "Queen", "Executioner", "Bard",
         "Herald", "Spy", "Arbiter",
       ];
-      const options = allNames.map((n) => ({
+      const options: ReadonlyArray<ChoiceOption> = allNames.map((n) => ({
         kind: "cardName" as const,
         name: n,
       }));
@@ -287,13 +366,15 @@ export const resolve = (
         state,
         player: ctx.activePlayer,
         options,
-        resume: (choice) =>
-          resolve(program.andThen(options[choice]!.name), state, ctx),
+        resume: (choice) => {
+          emitChoice(trace, depth, choice, options, state, ctx.activePlayer);
+          return resolve(program.andThen((options[choice] as { kind: "cardName"; name: CardName }).name), state, ctx, trace, depth);
+        },
       };
     }
 
     case "nameValue": {
-      const options = Array.from(
+      const options: ReadonlyArray<ChoiceOption> = Array.from(
         { length: program.max - program.min + 1 },
         (_, i) => ({ kind: "value" as const, value: program.min + i }),
       );
@@ -302,8 +383,31 @@ export const resolve = (
         state,
         player: ctx.activePlayer,
         options,
-        resume: (choice) =>
-          resolve(program.andThen(options[choice]!.value), state, ctx),
+        resume: (choice) => {
+          emitChoice(trace, depth, choice, options, state, ctx.activePlayer);
+          return resolve(program.andThen((options[choice] as { kind: "value"; value: number }).value), state, ctx, trace, depth);
+        },
+      };
+    }
+
+    case "nameValueUpToCourtMax": {
+      const maxVal = state.shared.court
+        .filter((e) => e.face === "up")
+        .reduce((m, e) => Math.max(m, e.card.kind.props.value), 0);
+      if (maxVal < program.min) return { tag: "done", state };
+      const options: ReadonlyArray<ChoiceOption> = Array.from(
+        { length: maxVal - program.min + 1 },
+        (_, i) => ({ kind: "value" as const, value: program.min + i }),
+      );
+      return {
+        tag: "needChoice",
+        state,
+        player: ctx.activePlayer,
+        options,
+        resume: (choice) => {
+          emitChoice(trace, depth, choice, options, state, ctx.activePlayer);
+          return resolve(program.andThen((options[choice] as { kind: "value"; value: number }).value), state, ctx, trace, depth);
+        },
       };
     }
 
@@ -318,37 +422,38 @@ export const resolve = (
         ...opponents.map((opp) => program.effect(opp)),
         program.then,
       ];
-      return resolve({ tag: "sequence", steps }, state, ctx);
+      return resolve({ tag: "sequence", steps }, state, ctx, trace, depth);
     }
 
     case "optional": {
+      const options: ReadonlyArray<ChoiceOption> = [
+        { kind: "pass" },
+        { kind: "proceed" },
+      ];
       return {
         tag: "needChoice",
         state,
         player: ctx.activePlayer,
-        options: [
-          { kind: "pass" },
-          { kind: "proceed" },
-        ],
-        resume: (choice) =>
-          choice === 1
-            ? resolve(program.effect, state, ctx)
-            : resolve(program.otherwise, state, ctx),
+        options,
+        resume: (choice) => {
+          emitChoice(trace, depth, choice, options, state, ctx.activePlayer);
+          return choice === 1
+            ? resolve(program.effect, state, ctx, trace, depth)
+            : resolve(program.otherwise, state, ctx, trace, depth);
+        },
       };
     }
 
     case "triggerReaction": {
       const reactors = findPotentialReactors(state, ctx, program.trigger);
       if (reactors.length === 0) {
-        return resolve(program.continuation, state, ctx);
+        emitRaw(trace, depth, "triggerReaction", "No reactors found.");
+        return resolve(program.continuation, state, ctx, trace, depth);
       }
       return resolveReactionChain(
-        reactors,
-        0,
-        state,
-        ctx,
-        program.continuation,
-        program.onReacted,
+        reactors, 0, state, ctx,
+        program.continuation, program.onReacted,
+        trace, depth,
       );
     }
 
@@ -356,8 +461,165 @@ export const resolve = (
       const player = resolvePlayer(program.player, ctx);
       return { tag: "done", state: { ...state, forcedLoser: player } };
     }
+
+    case "khReactionWindow": {
+      if (ctx.playedCard.kind.props.keywords.includes("immune_to_kings_hand")) {
+        return resolve(program.continuation, state, ctx, trace, depth);
+      }
+      if (shouldSkipKHWindow(state, ctx)) {
+        emitRaw(trace, depth, "khReactionWindow", "All King's Hand cards accounted for — skipping.");
+        return resolve(program.continuation, state, ctx, trace, depth);
+      }
+      const opponents = opponentsInPlayOrder(state, ctx);
+      return resolveKHReactionChain(
+        opponents, 0, state, ctx,
+        program.continuation,
+        trace, depth,
+      );
+    }
   }
 };
+
+// ---------------------------------------------------------------------------
+// KH public-knowledge tracking
+// ---------------------------------------------------------------------------
+
+const trackKHMove = (
+  state: IKState,
+  cardId: number,
+  from: { readonly scope: "player" | "shared"; readonly slot: string },
+): IKState => {
+  const card = findCardInState(state, cardId);
+  if (!card || card.kind.name !== "King's Hand") return state;
+  if (state.publiclyTrackedKH.includes(cardId)) return state;
+  if (from.scope === "shared") {
+    return { ...state, publiclyTrackedKH: [...state.publiclyTrackedKH, cardId] };
+  }
+  return state;
+};
+
+const findCardInState = (state: IKState, cardId: number): import("../card.js").IKCard | null => {
+  for (const p of state.players) {
+    for (const c of p.hand) if (c.id === cardId) return c;
+    if (p.successor?.card.id === cardId) return p.successor.card;
+    if (p.dungeon?.card.id === cardId) return p.dungeon.card;
+    for (const c of p.antechamber) if (c.id === cardId) return c;
+    for (const c of p.parting) if (c.id === cardId) return c;
+  }
+  for (const e of state.shared.court) if (e.card.id === cardId) return e.card;
+  if (state.shared.accused?.id === cardId) return state.shared.accused;
+  if (state.shared.forgotten?.card.id === cardId) return state.shared.forgotten.card;
+  for (const c of state.shared.army) if (c.id === cardId) return c;
+  for (const e of state.shared.condemned) if (e.card.id === cardId) return e.card;
+  return null;
+};
+
+// ---------------------------------------------------------------------------
+// King's Hand reaction window helpers
+// ---------------------------------------------------------------------------
+
+const shouldSkipKHWindow = (state: IKState, ctx: EffectContext): boolean => {
+  const publiclyKnown = new Set<number>();
+  for (const e of state.shared.court) publiclyKnown.add(e.card.id);
+  if (state.shared.accused) publiclyKnown.add(state.shared.accused.id);
+  for (const c of state.shared.army) publiclyKnown.add(c.id);
+  for (const e of state.shared.condemned) publiclyKnown.add(e.card.id);
+  for (const id of state.publiclyTrackedKH) publiclyKnown.add(id);
+
+  const allKHIds: number[] = [];
+  for (const p of state.players) {
+    for (const c of p.hand) if (c.kind.name === "King's Hand") allKHIds.push(c.id);
+    if (p.successor?.card.kind.name === "King's Hand") allKHIds.push(p.successor.card.id);
+    if (p.dungeon?.card.kind.name === "King's Hand") allKHIds.push(p.dungeon.card.id);
+    for (const c of p.antechamber) if (c.kind.name === "King's Hand") allKHIds.push(c.id);
+  }
+  for (const e of state.shared.court) if (e.card.kind.name === "King's Hand") allKHIds.push(e.card.id);
+  if (state.shared.accused?.kind.name === "King's Hand") allKHIds.push(state.shared.accused.id);
+  for (const c of state.shared.army) if (c.kind.name === "King's Hand") allKHIds.push(c.id);
+  for (const e of state.shared.condemned) if (e.card.kind.name === "King's Hand") allKHIds.push(e.card.id);
+  if (state.shared.forgotten?.card.kind.name === "King's Hand") allKHIds.push(state.shared.forgotten.card.id);
+
+  return allKHIds.every((id) => publiclyKnown.has(id));
+};
+
+const opponentsInPlayOrder = (state: IKState, ctx: EffectContext): ReadonlyArray<PlayerId> => {
+  const opponents: PlayerId[] = [];
+  for (let i = 1; i < ctx.numPlayers; i++) {
+    opponents.push(
+      nextPlayer(state, ((ctx.activePlayer + i - 1) % ctx.numPlayers) as PlayerId),
+    );
+  }
+  return opponents;
+};
+
+const resolveKHReactionChain = (
+  opponents: ReadonlyArray<PlayerId>,
+  idx: number,
+  state: IKState,
+  ctx: EffectContext,
+  continuation: EffectProgram,
+  trace?: TraceSink,
+  depth = 0,
+): Resolution => {
+  if (idx >= opponents.length) {
+    return resolve(continuation, state, ctx, trace, depth);
+  }
+  const opp = opponents[idx]!;
+  const hand = readZone(state, { scope: "player", player: opp, slot: "hand" });
+  const khCard = hand.find((c) => c.kind.name === "King's Hand");
+
+  emitRaw(
+    trace, depth, "khReactionWindow",
+    `Player ${opp} reaction window (King's Hand).`,
+  );
+
+  const options: ReadonlyArray<ChoiceOption> = [{ kind: "pass" }, { kind: "proceed" }];
+  return {
+    tag: "needChoice",
+    state,
+    player: opp,
+    options,
+    isReactionWindow: true,
+    resume: (choice) => {
+      emitChoice(trace, depth, choice, options, state, opp);
+      if (choice === 1 && khCard) {
+        emitRaw(trace, depth, "khReactionWindow", `Player ${opp} reacts with King's Hand!`);
+        let s = state;
+        const removedKH = removeFromZone(s, { scope: "player", player: opp, slot: "hand" }, khCard.id);
+        if (removedKH.ok) {
+          const condemnedKH = insertIntoZone(
+            removedKH.value.state,
+            { scope: "shared", slot: "condemned" },
+            removedKH.value.card,
+            { face: "up" },
+          );
+          s = condemnedKH.ok ? condemnedKH.value : removedKH.value.state;
+        }
+        const playedId = ctx.playedCard.id;
+        const removedPlayed = removeFromZone(s, { scope: "shared", slot: "court" }, playedId);
+        if (removedPlayed.ok) {
+          const condemnedPlayed = insertIntoZone(
+            removedPlayed.value.state,
+            { scope: "shared", slot: "condemned" },
+            removedPlayed.value.card,
+            { face: "up" },
+          );
+          s = condemnedPlayed.ok ? condemnedPlayed.value : removedPlayed.value.state;
+        }
+        return { tag: "done", state: { ...s, khPrevented: true } };
+      }
+      return resolveKHReactionChain(
+        opponents, idx + 1, state, ctx,
+        continuation,
+        trace, depth,
+      );
+    },
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Legacy reaction helpers (Assassin king-flip)
+// ---------------------------------------------------------------------------
 
 const findPotentialReactors = (
   state: IKState,
@@ -391,17 +653,25 @@ const resolveReactionChain = (
   ctx: EffectContext,
   continuation: EffectProgram,
   onReacted: EffectProgram,
+  trace?: TraceSink,
+  depth = 0,
 ): Resolution => {
   if (idx >= reactors.length) {
-    return resolve(continuation, state, ctx);
+    return resolve(continuation, state, ctx, trace, depth);
   }
   const reactor = reactors[idx]!;
+  emitRaw(
+    trace, depth, "triggerReaction",
+    `Player ${reactor.player} may react with ${findCardName(state, reactor.cardId)}.`,
+  );
+  const options: ReadonlyArray<ChoiceOption> = [{ kind: "pass" }, { kind: "proceed" }];
   return {
     tag: "needChoice",
     state,
     player: reactor.player,
-    options: [{ kind: "pass" }, { kind: "proceed" }],
+    options,
     resume: (choice) => {
+      emitChoice(trace, depth, choice, options, state, reactor.player);
       if (choice === 1) {
         const removed = removeFromZone(
           state,
@@ -417,15 +687,74 @@ const resolveReactionChain = (
           );
           if (condemned.ok) s = condemned.value;
         }
-        return resolve(onReacted, s, ctx);
+
+        if (shouldSkipKHWindow(s, ctx)) {
+          return resolve(onReacted, s, ctx, trace, depth + 1);
+        }
+        const khOpponents = opponentsInPlayOrder(s, ctx);
+        return resolveKHCounterReaction(
+          khOpponents, 0, s, ctx,
+          reactor, onReacted, continuation,
+          trace, depth + 1,
+        );
       }
       return resolveReactionChain(
-        reactors,
-        idx + 1,
-        state,
-        ctx,
-        continuation,
-        onReacted,
+        reactors, idx + 1, state, ctx,
+        continuation, onReacted,
+        trace, depth,
+      );
+    },
+  };
+};
+
+const resolveKHCounterReaction = (
+  opponents: ReadonlyArray<PlayerId>,
+  idx: number,
+  state: IKState,
+  ctx: EffectContext,
+  assassinReactor: { readonly player: PlayerId; readonly cardId: number },
+  onReacted: EffectProgram,
+  continuation: EffectProgram,
+  trace?: TraceSink,
+  depth = 0,
+): Resolution => {
+  if (idx >= opponents.length) {
+    return resolve(onReacted, state, ctx, trace, depth);
+  }
+  const opp = opponents[idx]!;
+  const hand = readZone(state, { scope: "player", player: opp, slot: "hand" });
+  const khCard = hand.find((c) => c.kind.name === "King's Hand");
+
+  emitRaw(trace, depth, "khReactionWindow", `Player ${opp} may counter-react with King's Hand.`);
+
+  const options: ReadonlyArray<ChoiceOption> = [{ kind: "pass" }, { kind: "proceed" }];
+  return {
+    tag: "needChoice",
+    state,
+    player: opp,
+    options,
+    isReactionWindow: true,
+    resume: (choice) => {
+      emitChoice(trace, depth, choice, options, state, opp);
+      if (choice === 1 && khCard) {
+        emitRaw(trace, depth, "khReactionWindow", `Player ${opp} counters Assassin with King's Hand!`);
+        let s = state;
+        const removedKH = removeFromZone(s, { scope: "player", player: opp, slot: "hand" }, khCard.id);
+        if (removedKH.ok) {
+          const condemnedKH = insertIntoZone(
+            removedKH.value.state,
+            { scope: "shared", slot: "condemned" },
+            removedKH.value.card,
+            { face: "up" },
+          );
+          s = condemnedKH.ok ? condemnedKH.value : removedKH.value.state;
+        }
+        return resolve(continuation, s, ctx, trace, depth);
+      }
+      return resolveKHCounterReaction(
+        opponents, idx + 1, state, ctx,
+        assassinReactor, onReacted, continuation,
+        trace, depth,
       );
     },
   };
@@ -440,8 +769,9 @@ export const replay = (
   state: IKState,
   ctx: EffectContext,
   choices: ReadonlyArray<number>,
+  trace?: TraceSink,
 ): Resolution => {
-  let resolution = resolve(program, state, ctx);
+  let resolution = resolve(program, state, ctx, trace);
   for (const choice of choices) {
     if (resolution.tag !== "needChoice") break;
     resolution = resolution.resume(choice);

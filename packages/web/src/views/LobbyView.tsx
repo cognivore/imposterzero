@@ -23,6 +23,10 @@ export const LobbyView: React.FC<Props> = ({ phase, send }) => {
     if (next !== phase.targetScore) send({ type: "update_settings", targetScore: next });
   };
 
+  const handleHandHelperToggle = () => {
+    send({ type: "update_settings", handHelper: !phase.handHelper } as never);
+  };
+
   return (
     <div className="lobby">
       <h1 className="lobby-title">Imposter Kings</h1>
@@ -39,26 +43,40 @@ export const LobbyView: React.FC<Props> = ({ phase, send }) => {
         <div className="lobby-settings">
           <span className="setting-pill">{phase.maxPlayers} players max</span>
           {isHost ? (
-            <div className="score-input-row compact">
-              <span className="setting-label">First to</span>
-              <button
-                className="btn btn-selector btn-sm"
-                onClick={() => handleTargetChange(-1)}
-                disabled={phase.targetScore <= 1}
-              >
-                &minus;
-              </button>
-              <span className="score-value">{phase.targetScore}</span>
-              <button
-                className="btn btn-selector btn-sm"
-                onClick={() => handleTargetChange(1)}
-                disabled={phase.targetScore >= 99}
-              >
-                +
-              </button>
-            </div>
+            <>
+              <div className="score-input-row compact">
+                <span className="setting-label">First to</span>
+                <button
+                  className="btn btn-selector btn-sm"
+                  onClick={() => handleTargetChange(-1)}
+                  disabled={phase.targetScore <= 1}
+                >
+                  &minus;
+                </button>
+                <span className="score-value">{phase.targetScore}</span>
+                <button
+                  className="btn btn-selector btn-sm"
+                  onClick={() => handleTargetChange(1)}
+                  disabled={phase.targetScore >= 99}
+                >
+                  +
+                </button>
+              </div>
+              <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={phase.handHelper}
+                  onChange={handleHandHelperToggle}
+                  style={{ width: 16, height: 16 }}
+                />
+                <span className="setting-label">Hand Helper</span>
+              </label>
+            </>
           ) : (
-            <span className="setting-pill">First to {phase.targetScore}</span>
+            <>
+              <span className="setting-pill">First to {phase.targetScore}</span>
+              {phase.handHelper && <span className="setting-pill">Hand Helper</span>}
+            </>
           )}
         </div>
 

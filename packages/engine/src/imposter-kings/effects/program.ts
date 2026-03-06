@@ -36,6 +36,7 @@ export type CardFilter =
   | { readonly tag: "notDisgracedOrRoyalty" }
   | { readonly tag: "hasKeyword"; readonly keyword: CardKeyword }
   | { readonly tag: "minValue"; readonly value: number }
+  | { readonly tag: "hasBaseValue"; readonly value: number }
   | { readonly tag: "hasName"; readonly name: CardName };
 
 // ---------------------------------------------------------------------------
@@ -90,18 +91,23 @@ export type EffectProgram =
   | { readonly tag: "anyOpponentHas"; readonly slot: IKPlayerZoneSlot; readonly filter: CardFilter; readonly then_: EffectProgram; readonly else_: EffectProgram }
   | { readonly tag: "addRoundModifier"; readonly source: CardRef; readonly spec: ModifierSpec; readonly then: EffectProgram }
   | { readonly tag: "forcePlay"; readonly card: CardRef; readonly from: ZoneRef }
+  | { readonly tag: "condemn"; readonly card: CardRef; readonly from: ZoneRef; readonly then: EffectProgram }
+  | { readonly tag: "withFirstCardIn"; readonly zone: ZoneRef; readonly andThen: (cardId: number) => EffectProgram }
   // Interactive — yield NeedChoice
   | { readonly tag: "chooseCard"; readonly player: PlayerRef; readonly zone: ZoneRef; readonly filter: CardFilter | null; readonly andThen: (cardId: number) => EffectProgram }
   | { readonly tag: "choosePlayer"; readonly andThen: (player: PlayerId) => EffectProgram }
   | { readonly tag: "nameCard"; readonly andThen: (name: CardName) => EffectProgram }
   | { readonly tag: "nameValue"; readonly min: number; readonly max: number; readonly andThen: (value: number) => EffectProgram }
+  | { readonly tag: "nameValueUpToCourtMax"; readonly min: number; readonly andThen: (value: number) => EffectProgram }
   | { readonly tag: "forEachOpponent"; readonly effect: (opponent: PlayerId) => EffectProgram; readonly then: EffectProgram }
   | { readonly tag: "optional"; readonly effect: EffectProgram; readonly otherwise: EffectProgram }
   // Reaction checkpoint
   | { readonly tag: "triggerReaction"; readonly trigger: TriggerKind; readonly continuation: EffectProgram; readonly onReacted: EffectProgram }
   | { readonly tag: "forceLoser"; readonly player: PlayerRef }
   // Ability prevention (reaction body for King's Hand)
-  | { readonly tag: "preventEffect" };
+  | { readonly tag: "preventEffect" }
+  // King's Hand reaction window — prompts all opponents in play order
+  | { readonly tag: "khReactionWindow"; readonly continuation: EffectProgram };
 
 // ---------------------------------------------------------------------------
 // Card effect — attached to card definitions
@@ -133,6 +139,7 @@ export type Resolution =
       readonly player: PlayerId;
       readonly options: ReadonlyArray<ChoiceOption>;
       readonly resume: (choice: number) => Resolution;
+      readonly isReactionWindow?: boolean;
     };
 
 // ---------------------------------------------------------------------------
@@ -226,6 +233,17 @@ export const forcePlay = (
   from: ZoneRef,
 ): EffectProgram => ({ tag: "forcePlay", card, from });
 
+export const condemn = (
+  card: CardRef,
+  from: ZoneRef,
+  then: EffectProgram = done,
+): EffectProgram => ({ tag: "condemn", card, from, then });
+
+export const withFirstCardIn = (
+  zone: ZoneRef,
+  andThen: (cardId: number) => EffectProgram,
+): EffectProgram => ({ tag: "withFirstCardIn", zone, andThen });
+
 export const chooseCard = (
   player: PlayerRef,
   zone: ZoneRef,
@@ -246,6 +264,11 @@ export const nameValue = (
   max: number,
   andThen: (v: number) => EffectProgram,
 ): EffectProgram => ({ tag: "nameValue", min, max, andThen });
+
+export const nameValueUpToCourtMax = (
+  min: number,
+  andThen: (v: number) => EffectProgram,
+): EffectProgram => ({ tag: "nameValueUpToCourtMax", min, andThen });
 
 export const forEachOpponent = (
   effect: (opp: PlayerId) => EffectProgram,
@@ -300,3 +323,7 @@ export const seq = (...steps: ReadonlyArray<EffectProgram>): EffectProgram =>
       : { tag: "sequence", steps };
 
 export const preventEffect: EffectProgram = { tag: "preventEffect" };
+
+export const khWindow = (
+  continuation: EffectProgram,
+): EffectProgram => ({ tag: "khReactionWindow", continuation });

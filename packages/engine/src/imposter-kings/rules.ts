@@ -1,1 +1,1 @@
-export { legalActions, apply, applySafe, isTerminal, currentPlayer, returns } from "./rules/index.js";
+export { legalActions, apply, applySafe, isTerminal, currentPlayer, returns, traceResolution } from "./rules/index.js";

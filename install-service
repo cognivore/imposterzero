@@ -30,6 +30,52 @@ header() { echo -e "${BLUE}=== $1 ===${NC}"; }
 
 nix_cmd() { (cd "$PROJECT_DIR" && nix develop --command "$@"); }
 
+# Kill the server process on our port and wait for it to actually die.
+# launchctl unload sends SIGTERM but the Nix-wrapped Node process can take
+# several seconds to release the socket. Without this, the next spawn
+# hits EADDRINUSE every time.
+kill_server_port() {
+    local pid
+    pid=$(lsof -ti :"$SERVER_PORT" 2>/dev/null || true)
+    if [[ -z "$pid" ]]; then
+        return 0
+    fi
+
+    info "Killing process $pid on port $SERVER_PORT..."
+    kill "$pid" 2>/dev/null || true
+
+    local waited=0
+    while lsof -ti :"$SERVER_PORT" &>/dev/null && (( waited < 10 )); do
+        sleep 1
+        (( waited++ ))
+    done
+
+    if lsof -ti :"$SERVER_PORT" &>/dev/null; then
+        warn "Process didn't exit gracefully, force-killing..."
+        kill -9 "$(lsof -ti :"$SERVER_PORT" 2>/dev/null)" 2>/dev/null || true
+        sleep 1
+    fi
+}
+
+# Wait until the WS server is actually accepting HTTP connections.
+# Port binding happens before Node is ready (Nix wrapper overhead), so
+# we poll for HTTP 426 rather than just checking lsof.
+wait_for_server() {
+    info "Waiting for server to accept connections..."
+    local waited=0
+    local code
+    while (( waited < 30 )); do
+        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://localhost:${SERVER_PORT}/" 2>/dev/null) || code="000"
+        if [[ "$code" == "426" || "$code" == "101" ]]; then
+            info "Server is ready (${waited}s)"
+            return 0
+        fi
+        sleep 1
+        (( waited++ ))
+    done
+    warn "Server did not respond after ${waited}s — check logs"
+}
+
 check_prerequisites() {
     if ! command -v nix &>/dev/null; then
         error "nix not found. Please install Nix first."
@@ -178,8 +224,9 @@ do_install() {
     check_prerequisites
 
     if launchctl list 2>/dev/null | grep -q "$SERVICE_NAME"; then
-        warn "Service already loaded. Unloading first..."
+        warn "Service already loaded. Stopping first..."
         launchctl unload "$PLIST_FILE" 2>/dev/null || true
+        kill_server_port
     fi
 
     do_build
@@ -192,7 +239,7 @@ do_install() {
 
     reload_caddy
 
-    sleep 2
+    wait_for_server
     echo ""
     do_status
 }
@@ -202,9 +249,11 @@ do_uninstall() {
 
     if [[ -f "$PLIST_FILE" ]]; then
         launchctl unload "$PLIST_FILE" 2>/dev/null || true
+        kill_server_port
         rm -f "$PLIST_FILE"
         info "Removed LaunchAgent plist"
     else
+        kill_server_port
         warn "Service plist not found"
     fi
 
@@ -244,16 +293,15 @@ do_status() {
     echo ""
     header "Health Check"
 
-    if curl -sN --http1.1 \
-         -H "Connection: Upgrade" \
-         -H "Upgrade: websocket" \
-         -H "Sec-WebSocket-Version: 13" \
-         -H "Sec-WebSocket-Key: dGVzdA==" \
-         "http://localhost:${SERVER_PORT}/" \
-         --max-time 2 -o /dev/null -w "%{http_code}" 2>/dev/null | grep -q "101"; then
-        echo -e "  WS Server (localhost:${SERVER_PORT}): ${GREEN}Healthy${NC}"
-    else
+    # A healthy WS server returns 426 (Upgrade Required) on plain HTTP.
+    local ws_code
+    ws_code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://localhost:${SERVER_PORT}/" 2>/dev/null) || ws_code="000"
+    if [[ "$ws_code" == "426" || "$ws_code" == "101" ]]; then
+        echo -e "  WS Server (localhost:${SERVER_PORT}): ${GREEN}Healthy${NC} (HTTP $ws_code)"
+    elif [[ "$ws_code" == "000" ]]; then
         echo -e "  WS Server (localhost:${SERVER_PORT}): ${RED}Not responding${NC}"
+    else
+        echo -e "  WS Server (localhost:${SERVER_PORT}): ${YELLOW}Unexpected response${NC} (HTTP $ws_code)"
     fi
 
     if [[ -d "$PROJECT_DIR/packages/web/dist" ]]; then
@@ -296,10 +344,11 @@ do_restart() {
 
     if [[ -f "$PLIST_FILE" ]]; then
         launchctl unload "$PLIST_FILE" 2>/dev/null || true
-        sleep 1
+        kill_server_port
         launchctl load "$PLIST_FILE"
         info "Service restarted"
-        sleep 2
+
+        wait_for_server
         do_status
     else
         error "Service not installed. Run: $0 install"

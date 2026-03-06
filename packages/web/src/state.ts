@@ -29,6 +29,7 @@ export type ClientPhase =
       readonly targetScore: number;
       readonly maxPlayers: number;
       readonly hostId: string;
+      readonly handHelper: boolean;
     }
   | {
       readonly _tag: "crown";
@@ -68,6 +69,7 @@ export type ClientPhase =
       readonly activePlayer: PlayerId;
       readonly numPlayers: number;
       readonly playerNames: readonly string[];
+      readonly handHelper: boolean;
     }
   | {
       readonly _tag: "resolving";
@@ -81,6 +83,7 @@ export type ClientPhase =
       readonly activePlayer: PlayerId;
       readonly numPlayers: number;
       readonly playerNames: readonly string[];
+      readonly handHelper: boolean;
     }
   | {
       readonly _tag: "scoring";
@@ -176,6 +179,17 @@ const numPlayersOf = (phase: ClientPhase, fallback: number): number => {
   }
 };
 
+const handHelperOf = (phase: ClientPhase): boolean => {
+  switch (phase._tag) {
+    case "lobby":
+    case "play":
+    case "resolving":
+      return phase.handHelper;
+    default:
+      return false;
+  }
+};
+
 // ---------------------------------------------------------------------------
 // Action type guards — proper narrowing instead of `as` casts
 // ---------------------------------------------------------------------------
@@ -244,12 +258,19 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
         targetScore: 7,
         maxPlayers: 4,
         hostId: "",
+        handHelper: false,
       };
     }
 
     case "room_settings": {
       if (phase._tag === "lobby") {
-        return { ...phase, targetScore: msg.targetScore, maxPlayers: msg.maxPlayers, hostId: msg.hostId };
+        return {
+          ...phase,
+          targetScore: msg.targetScore,
+          maxPlayers: msg.maxPlayers,
+          hostId: msg.hostId,
+          handHelper: (msg as Record<string, unknown>).handHelper === true ? true : phase.handHelper,
+        };
       }
       return phase;
     }
@@ -258,8 +279,8 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
       const { me, token, name } = identity(phase);
       const rid = roomIdOf(phase);
       const lobbySettings = phase._tag === "lobby"
-        ? { targetScore: phase.targetScore, maxPlayers: phase.maxPlayers, hostId: phase.hostId }
-        : { targetScore: 7, maxPlayers: 4, hostId: "" };
+        ? { targetScore: phase.targetScore, maxPlayers: phase.maxPlayers, hostId: phase.hostId, handHelper: phase.handHelper }
+        : { targetScore: 7, maxPlayers: 4, hostId: "", handHelper: false };
       return {
         _tag: "lobby",
         me,
@@ -281,6 +302,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
       const numPlayers = msg.state.numPlayers;
       const rid = roomIdOf(phase);
       const playerNames = msg.playerNames ?? playerNamesOfPhase(phase, []);
+      const handHelper = handHelperOf(phase);
 
       if (msg.state.phase === "crown") {
         return {
@@ -327,6 +349,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
           activePlayer: msg.activePlayer,
           numPlayers,
           playerNames,
+          handHelper,
         };
       }
 
@@ -342,6 +365,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
         activePlayer: msg.activePlayer,
         numPlayers,
         playerNames,
+        handHelper,
       };
     }
 

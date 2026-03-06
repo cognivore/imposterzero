@@ -18,20 +18,25 @@ import {
   anyOpponentHas,
   addRoundModifier,
   forcePlay,
+  condemn,
+  withFirstCardIn,
   move,
   court as courtZone,
+  sharedZone,
   activeHand,
   optional,
   nameCard,
   nameValue,
+  nameValueUpToCourtMax,
   ifCond,
   seq,
   forEachOpponent,
   playerZone,
   playerId,
+  khWindow,
 } from "./effects/program.js";
 import type { CardRef, ModifierSpec } from "./effects/program.js";
-import { kingIsFlipped, courtHasRoyalty, courtHasDisgraced, playedOnHigherValue } from "./effects/predicates.js";
+import { kingIsFlipped, courtHasRoyalty, courtHasDisgraced, courtHasFaceUpAtLeast, playedOnHigherValue } from "./effects/predicates.js";
 
 export interface CardOps<C> {
   readonly value: (card: C) => number;
@@ -135,7 +140,7 @@ const copies = (
 
 const foolEffect = optional(
   chooseCard(active, courtZone, { tag: "notDisgraced" }, (cardId) =>
-    move({ kind: "id", cardId } as CardRef, courtZone, activeHand),
+    khWindow(move({ kind: "id", cardId } as CardRef, courtZone, activeHand)),
   ),
 );
 
@@ -184,19 +189,21 @@ const ZEALOT: CardContent = {
 
 const inquisitorEffect = optional(
   nameCard((name) =>
-    forEachOpponent(
-      (opp) =>
-        chooseCard(
-          playerId(opp),
-          playerZone(playerId(opp), "hand"),
-          { tag: "hasName", name },
-          (cardId) =>
-            move(
-              { kind: "id", cardId } as CardRef,
-              playerZone(playerId(opp), "hand"),
-              playerZone(playerId(opp), "antechamber"),
-            ),
-        ),
+    khWindow(
+      forEachOpponent(
+        (opp) =>
+          chooseCard(
+            playerId(opp),
+            playerZone(playerId(opp), "hand"),
+            { tag: "hasName", name },
+            (cardId) =>
+              move(
+                { kind: "id", cardId } as CardRef,
+                playerZone(playerId(opp), "hand"),
+                playerZone(playerId(opp), "antechamber"),
+              ),
+          ),
+      ),
     ),
   ),
 );
@@ -213,6 +220,30 @@ const INQUISITOR: CardContent = {
   effects: [onPlay(inquisitorEffect)],
 };
 
+const executionerEffect = optional(
+  nameValueUpToCourtMax(1, (value) =>
+    khWindow(
+      seq(
+        chooseCard(active, activeHand, { tag: "hasBaseValue", value }, (cardId) =>
+          condemn({ kind: "id", cardId } as CardRef, activeHand),
+        ),
+        forEachOpponent((opp) =>
+          chooseCard(
+            playerId(opp),
+            playerZone(playerId(opp), "hand"),
+            { tag: "hasBaseValue", value },
+            (cardId) =>
+              condemn(
+                { kind: "id", cardId } as CardRef,
+                playerZone(playerId(opp), "hand"),
+              ),
+          ),
+        ),
+      ),
+    ),
+  ),
+);
+
 const EXECUTIONER: CardContent = {
   keywords: [],
   shortText: "Name a value; all Condemn it.",
@@ -222,6 +253,7 @@ const EXECUTIONER: CardContent = {
     'Only the "guilty" make his acquaintance',
     "Must only meet him once",
   ],
+  effects: [onPlay(executionerEffect)],
 };
 
 const BARD: CardContent = {
@@ -250,12 +282,14 @@ const disgraceUpTo3 = optional(
 );
 
 const soldierEffect = nameCard((name) =>
-  anyOpponentHas(
-    "hand",
-    { tag: "hasName", name },
-    seq(
-      addRoundModifier(played, { tag: "valueChange", delta: 2, target: { tag: "self" } }),
-      disgraceUpTo3,
+  khWindow(
+    anyOpponentHas(
+      "hand",
+      { tag: "hasName", name },
+      seq(
+        addRoundModifier(played, { tag: "valueChange", delta: 2, target: { tag: "self" } }),
+        disgraceUpTo3,
+      ),
     ),
   ),
 );
@@ -275,15 +309,17 @@ const SOLDIER: CardContent = {
 const judgeEffect = optional(
   choosePlayer((opp) =>
     nameCard((name) =>
-      checkZone(
-        playerZone(playerId(opp), "hand"),
-        { tag: "hasName", name },
-        optional(
-          chooseCard(active, activeHand, { tag: "minValue", value: 2 }, (cardId) =>
-            move(
-              { kind: "id", cardId } as CardRef,
-              activeHand,
-              playerZone(active, "antechamber"),
+      khWindow(
+        checkZone(
+          playerZone(playerId(opp), "hand"),
+          { tag: "hasName", name },
+          optional(
+            chooseCard(active, activeHand, { tag: "minValue", value: 2 }, (cardId) =>
+              move(
+                { kind: "id", cardId } as CardRef,
+                activeHand,
+                playerZone(active, "antechamber"),
+              ),
             ),
           ),
         ),
@@ -367,12 +403,40 @@ const IMMORTAL: CardContent = {
   effects: immortalModifiers,
 };
 
+const heraldEffect = khWindow(withFirstCardIn(playerZone(active, "successor"), (succCardId) =>
+  seq(
+    move(
+      { kind: "id", cardId: succCardId } as CardRef,
+      playerZone(active, "successor"),
+      activeHand,
+    ),
+    chooseCard(active, activeHand, null, (newSuccId) =>
+      seq(
+        move(
+          { kind: "id", cardId: newSuccId } as CardRef,
+          activeHand,
+          playerZone(active, "successor"),
+        ),
+        optional(
+          chooseCard(active, activeHand, { tag: "minValue", value: 5 }, (playCardId) =>
+            seq(
+              move({ kind: "id", cardId: playCardId } as CardRef, activeHand, courtZone),
+              move(played, courtZone, activeHand),
+            ),
+          ),
+        ),
+      ),
+    ),
+  ),
+));
+
 const HERALD: CardContent = {
   keywords: [],
   shortText: "Swap Successor; chain a 5+ play.",
   fullText:
     "Shuffle your Successor into your hand and place a new Successor. Then you may play another card value 5 or higher to take the Herald back into your hand. This ability is prevented if played from your Antechamber.",
   flavorTexts: ["Those who speak, speak at his discretion"],
+  effects: [onPlay(heraldEffect, false)],
 };
 
 const WARLORD: CardContent = {
@@ -397,14 +461,16 @@ const mysticEffect = ifCond(
     seq(
       disgrace(played),
       nameValue(1, 8, (value) =>
-        addRoundModifier(played, {
-          tag: "mute",
-          target: {
-            tag: "and",
-            left: { tag: "allInCourt" },
-            right: { tag: "byBaseValue", value },
-          },
-        }),
+        khWindow(
+          addRoundModifier(played, {
+            tag: "mute",
+            target: {
+              tag: "and",
+              left: { tag: "allInCourt" },
+              right: { tag: "byBaseValue", value },
+            },
+          }),
+        ),
       ),
     ),
   ),
@@ -419,13 +485,54 @@ const MYSTIC: CardContent = {
   effects: [onPlay(mysticEffect)],
 };
 
+const wardenEffect = ifCond(
+  courtHasFaceUpAtLeast(4),
+  optional(
+    chooseCard(active, activeHand, null, (handCardId) =>
+      khWindow(
+        withFirstCardIn(sharedZone("accused"), (accusedCardId) =>
+          seq(
+            move(
+              { kind: "id", cardId: accusedCardId } as CardRef,
+              sharedZone("accused"),
+              activeHand,
+            ),
+            move(
+              { kind: "id", cardId: handCardId } as CardRef,
+              activeHand,
+              sharedZone("accused"),
+            ),
+          ),
+        ),
+      ),
+    ),
+  ),
+);
+
 const WARDEN: CardContent = {
   keywords: [],
   shortText: "Swap hand card with Accused.",
   fullText:
     "If there are four or more faceup cards in the Court, you may exchange any card from your hand with the Accused card.",
   flavorTexts: ["Evidence can change with a little loose change"],
+  effects: [onPlay(wardenEffect)],
 };
+
+const sentryEffect = optional(
+  seq(
+    disgrace(played),
+    chooseCard(active, courtZone, { tag: "notDisgracedOrRoyalty" }, (courtCardId) =>
+      khWindow(
+        chooseCard(active, activeHand, null, (handCardId) =>
+          seq(
+            move({ kind: "id", cardId: courtCardId } as CardRef, courtZone, activeHand),
+            move({ kind: "id", cardId: handCardId } as CardRef, activeHand, courtZone),
+          ),
+        ),
+      ),
+    ),
+  ),
+);
 
 const SENTRY: CardContent = {
   keywords: [],
@@ -433,6 +540,7 @@ const SENTRY: CardContent = {
   fullText:
     "You may Disgrace this card after playing it to choose a card from the Court that is not Disgraced or Royalty. Exchange a card from your hand with the chosen card.",
   flavorTexts: ["Forsaking their own, they help the Court see others anew"],
+  effects: [onPlay(sentryEffect)],
 };
 
 const KINGS_HAND: CardContent = {
@@ -447,34 +555,69 @@ const KINGS_HAND: CardContent = {
   effects: [reaction("ability_activation", done)],
 };
 
+const spyEffect = optional(
+  seq(
+    disgrace(played),
+    khWindow(
+      optional(
+        choosePlayer((target) =>
+          chooseCard(
+            playerId(target),
+            playerZone(playerId(target), "hand"),
+            null,
+            (handCardId) =>
+              withFirstCardIn(playerZone(playerId(target), "successor"), (succCardId) =>
+                seq(
+                  move(
+                    { kind: "id", cardId: succCardId } as CardRef,
+                    playerZone(playerId(target), "successor"),
+                    playerZone(playerId(target), "hand"),
+                  ),
+                  move(
+                    { kind: "id", cardId: handCardId } as CardRef,
+                    playerZone(playerId(target), "hand"),
+                    playerZone(playerId(target), "successor"),
+                  ),
+                ),
+              ),
+          ),
+        ),
+      ),
+    ),
+  ),
+);
+
 const SPY: CardContent = {
   keywords: [],
   shortText: "Disgrace to view/swap Successors.",
   fullText:
     "You may Disgrace this card after playing it to look at all Successors. You may then force one player to change their Successor with a card in their hand.",
   flavorTexts: ["Only hire a Nakht spy if you have nothing to hide"],
+  effects: [onPlay(spyEffect)],
 };
 
 const princessEffect = optional(
   choosePlayer((opp) =>
-    chooseCard(active, activeHand, null, (myCardId) =>
-      chooseCard(
-        playerId(opp),
-        playerZone(playerId(opp), "hand"),
-        null,
-        (oppCardId) =>
-          seq(
-            move(
-              { kind: "id", cardId: myCardId } as CardRef,
-              activeHand,
-              playerZone(playerId(opp), "hand"),
+    khWindow(
+      chooseCard(active, activeHand, null, (myCardId) =>
+        chooseCard(
+          playerId(opp),
+          playerZone(playerId(opp), "hand"),
+          null,
+          (oppCardId) =>
+            seq(
+              move(
+                { kind: "id", cardId: myCardId } as CardRef,
+                activeHand,
+                playerZone(playerId(opp), "hand"),
+              ),
+              move(
+                { kind: "id", cardId: oppCardId } as CardRef,
+                playerZone(playerId(opp), "hand"),
+                activeHand,
+              ),
             ),
-            move(
-              { kind: "id", cardId: oppCardId } as CardRef,
-              playerZone(playerId(opp), "hand"),
-              activeHand,
-            ),
-          ),
+        ),
       ),
     ),
   ),
