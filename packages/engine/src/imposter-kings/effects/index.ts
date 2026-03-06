@@ -14,6 +14,7 @@ export {
   type EffectContext,
   done,
   played,
+  belowPlayed,
   active,
   cardId,
   playerId,
@@ -30,6 +31,7 @@ export {
   checkZone,
   anyOpponentHas,
   addRoundModifier,
+  forcePlay,
   chooseCard,
   choosePlayer,
   nameCard,
@@ -60,6 +62,7 @@ export {
   courtHasRoyalty,
   throneIsRoyalty,
   throneIsNotRoyalty,
+  playedOnHigherValue,
 } from "./predicates.js";
 
 export { resolve, replay } from "./interpreter.js";

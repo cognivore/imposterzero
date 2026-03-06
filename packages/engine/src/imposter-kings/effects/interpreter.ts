@@ -28,8 +28,19 @@ import { evaluate } from "./predicates.js";
 // Reference resolution
 // ---------------------------------------------------------------------------
 
-const resolveCard = (ref: CardRef, ctx: EffectContext): number =>
-  ref.kind === "played" ? ctx.playedCard.id : ref.cardId;
+const resolveCard = (ref: CardRef, ctx: EffectContext, state: IKState): number => {
+  switch (ref.kind) {
+    case "played":
+      return ctx.playedCard.id;
+    case "belowPlayed": {
+      const court = state.shared.court;
+      const idx = court.findIndex((e) => e.card.id === ctx.playedCard.id);
+      return idx > 0 ? court[idx - 1]!.card.id : -1;
+    }
+    case "id":
+      return ref.cardId;
+  }
+};
 
 const resolvePlayer = (ref: PlayerRef, ctx: EffectContext): PlayerId =>
   ref.kind === "active" ? ctx.activePlayer : ref.player;
@@ -132,7 +143,7 @@ export const resolve = (
 
     case "disgraceAllInCourt": {
       const exceptId = program.except
-        ? resolveCard(program.except, ctx)
+        ? resolveCard(program.except, ctx, state)
         : null;
       const nextCourt = state.shared.court.map((e) =>
         e.card.id === exceptId ? e : { ...e, face: "down" as const },
@@ -145,13 +156,13 @@ export const resolve = (
     }
 
     case "disgraceInCourt": {
-      const cid = resolveCard(program.target, ctx);
+      const cid = resolveCard(program.target, ctx, state);
       const result = zoneDis(state, cid);
       return resolve(program.then, result.ok ? result.value : state, ctx);
     }
 
     case "moveCard": {
-      const cid = resolveCard(program.card, ctx);
+      const cid = resolveCard(program.card, ctx, state);
       const from = resolveZone(program.from, ctx);
       const to = resolveZone(program.to, ctx);
       const result = zoneMove(state, cid, from, to);
@@ -192,7 +203,7 @@ export const resolve = (
     }
 
     case "addRoundModifier": {
-      const sourceId = resolveCard(program.source, ctx);
+      const sourceId = resolveCard(program.source, ctx, state);
       const s: IKState = {
         ...state,
         roundModifiers: [
@@ -201,6 +212,23 @@ export const resolve = (
         ],
       };
       return resolve(program.then, s, ctx);
+    }
+
+    case "forcePlay": {
+      const cid = resolveCard(program.card, ctx, state);
+      const from = resolveZone(program.from, ctx);
+      const result = zoneMove(state, cid, from, { scope: "shared", slot: "court" });
+      if (!result.ok) return { tag: "done", state };
+      const entry = result.value.shared.court.find((e) => e.card.id === cid);
+      if (!entry) return { tag: "done", state: result.value };
+      const onPlay = entry.card.kind.props.effects.find((e) => e.tag === "onPlay");
+      if (!onPlay) return { tag: "done", state: result.value };
+      return resolve(onPlay.effect, result.value, {
+        playedCard: entry.card,
+        activePlayer: ctx.activePlayer,
+        numPlayers: ctx.numPlayers,
+        playedFrom: "hand",
+      });
     }
 
     case "chooseCard": {

@@ -19,7 +19,8 @@ export type StatePredicate =
   | { readonly tag: "courtHasFaceUpAtLeast"; readonly count: number }
   | { readonly tag: "courtHasRoyalty" }
   | { readonly tag: "throneIsRoyalty" }
-  | { readonly tag: "throneIsNotRoyalty" };
+  | { readonly tag: "throneIsNotRoyalty" }
+  | { readonly tag: "playedOnHigherValue" };
 
 // ---------------------------------------------------------------------------
 // Resolver
@@ -62,6 +63,13 @@ export const evaluate = (
       const top = throne(state);
       return top !== null && (top.face !== "up" || !top.card.kind.props.keywords.includes("royalty"));
     }
+    case "playedOnHigherValue": {
+      const court = state.shared.court;
+      const idx = court.findIndex((e) => e.card.id === ctx.playedCard.id);
+      if (idx <= 0) return false;
+      const below = court[idx - 1]!;
+      return below.face === "up" && below.card.kind.props.value > ctx.playedCard.kind.props.value;
+    }
   }
 };
 
@@ -102,3 +110,4 @@ export const courtHasFaceUpAtLeast = (count: number): StatePredicate => ({
 export const courtHasRoyalty: StatePredicate = { tag: "courtHasRoyalty" };
 export const throneIsRoyalty: StatePredicate = { tag: "throneIsRoyalty" };
 export const throneIsNotRoyalty: StatePredicate = { tag: "throneIsNotRoyalty" };
+export const playedOnHigherValue: StatePredicate = { tag: "playedOnHigherValue" };

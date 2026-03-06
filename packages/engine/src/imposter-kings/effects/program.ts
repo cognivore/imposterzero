@@ -11,6 +11,7 @@ import type { StatePredicate } from "./predicates.js";
 
 export type CardRef =
   | { readonly kind: "played" }
+  | { readonly kind: "belowPlayed" }
   | { readonly kind: "id"; readonly cardId: number };
 
 export type PlayerRef =
@@ -88,6 +89,7 @@ export type EffectProgram =
   | { readonly tag: "checkZone"; readonly zone: ZoneRef; readonly filter: CardFilter | null; readonly then_: EffectProgram; readonly else_: EffectProgram }
   | { readonly tag: "anyOpponentHas"; readonly slot: IKPlayerZoneSlot; readonly filter: CardFilter; readonly then_: EffectProgram; readonly else_: EffectProgram }
   | { readonly tag: "addRoundModifier"; readonly source: CardRef; readonly spec: ModifierSpec; readonly then: EffectProgram }
+  | { readonly tag: "forcePlay"; readonly card: CardRef; readonly from: ZoneRef }
   // Interactive — yield NeedChoice
   | { readonly tag: "chooseCard"; readonly player: PlayerRef; readonly zone: ZoneRef; readonly filter: CardFilter | null; readonly andThen: (cardId: number) => EffectProgram }
   | { readonly tag: "choosePlayer"; readonly andThen: (player: PlayerId) => EffectProgram }
@@ -151,6 +153,7 @@ export interface EffectContext {
 export const done: EffectProgram = { tag: "done" };
 
 export const played: CardRef = { kind: "played" };
+export const belowPlayed: CardRef = { kind: "belowPlayed" };
 export const active: PlayerRef = { kind: "active" };
 export const cardId = (id: number): CardRef => ({ kind: "id", cardId: id });
 export const playerId = (p: PlayerId): PlayerRef => ({ kind: "id", player: p });
@@ -217,6 +220,11 @@ export const addRoundModifier = (
   spec: ModifierSpec,
   then: EffectProgram = done,
 ): EffectProgram => ({ tag: "addRoundModifier", source, spec, then });
+
+export const forcePlay = (
+  card: CardRef,
+  from: ZoneRef,
+): EffectProgram => ({ tag: "forcePlay", card, from });
 
 export const chooseCard = (
   player: PlayerRef,

@@ -9,6 +9,7 @@ import {
   disgraceAll,
   disgrace,
   played,
+  belowPlayed,
   active,
   done,
   chooseCard,
@@ -16,6 +17,7 @@ import {
   checkZone,
   anyOpponentHas,
   addRoundModifier,
+  forcePlay,
   move,
   court as courtZone,
   activeHand,
@@ -29,7 +31,7 @@ import {
   playerId,
 } from "./effects/program.js";
 import type { CardRef, ModifierSpec } from "./effects/program.js";
-import { kingIsFlipped, courtHasRoyalty, courtHasDisgraced } from "./effects/predicates.js";
+import { kingIsFlipped, courtHasRoyalty, courtHasDisgraced, playedOnHigherValue } from "./effects/predicates.js";
 
 export interface CardOps<C> {
   readonly value: (card: C) => number;
@@ -309,6 +311,16 @@ const ARBITER: CardContent = {
   flavorTexts: [""],
 };
 
+const oathboundEffect = ifCond(
+  playedOnHigherValue,
+  seq(
+    disgrace(belowPlayed),
+    chooseCard(active, activeHand, null, (cardId) =>
+      forcePlay({ kind: "id", cardId } as CardRef, activeHand),
+    ),
+  ),
+);
+
 const OATHBOUND: CardContent = {
   keywords: ["immune_to_kings_hand"],
   shortText: "Play on higher card to Disgrace it.",
@@ -318,6 +330,7 @@ const OATHBOUND: CardContent = {
     "None dare challenge their decisions",
     "Now only six, they fight to preserve the world",
   ],
+  effects: [playOverride({ tag: "onHigherValue" }), onPlay(oathboundEffect, false)],
 };
 
 const immortalModifiers: ReadonlyArray<CardEffect> = [
