@@ -81,6 +81,23 @@ export const PlayerZones: React.FC<Props> = ({ myZones, setupSelection = null })
         )}
         <span className="zone-label">Dungeon</span>
       </div>
+
+      {(myZones.army.length > 0 || myZones.exhausted.length > 0) && (
+        <>
+          <div className="player-zone-slot">
+            <div className="army-count-badge">
+              Army: {myZones.army.length}
+            </div>
+            <span className="zone-label">Army</span>
+          </div>
+          <div className="player-zone-slot">
+            <div className="army-count-badge">
+              Exh: {myZones.exhausted.length}
+            </div>
+            <span className="zone-label">Exhausted</span>
+          </div>
+        </>
+      )}
     </div>
   );
 };

@@ -1,8 +1,9 @@
-import { err, ok, type Result } from "@imposter-zero/types";
+import { err, ok, type Result, type PlayerId } from "@imposter-zero/types";
 
 import type { IKAction, IKCrownAction } from "../actions.js";
 import { type TransitionError, transitionErrorMessage } from "../errors.js";
 import type { IKState } from "../state.js";
+import { nextPlayer } from "../state.js";
 import { applyCommitSafe } from "./setup.js";
 import {
   applyPlaySafe,
@@ -11,9 +12,13 @@ import {
   applyEndOfTurnSafe,
   traceResolution,
 } from "./play.js";
+import { applyMusteringSafe } from "./mustering.js";
 
 export { legalActions } from "./legal.js";
 export { isTerminal, currentPlayer, returns } from "./terminal.js";
+
+const hasArmyCards = (state: IKState): boolean =>
+  state.players.some((p) => p.army.length > 0 || p.exhausted.length > 0);
 
 const applyCrownSafe = (
   state: IKState,
@@ -22,12 +27,19 @@ const applyCrownSafe = (
   if (action.firstPlayer < 0 || action.firstPlayer >= state.numPlayers) {
     return err({ kind: "invalid_first_player", player: action.firstPlayer });
   }
+  const useMustering = hasArmyCards(state);
+  const secondPlayerIdx = nextPlayer(
+    { ...state, numPlayers: state.numPlayers },
+    action.firstPlayer,
+  );
   return ok({
     ...state,
-    phase: "setup" as const,
-    activePlayer: action.firstPlayer,
+    phase: useMustering ? ("mustering" as const) : ("setup" as const),
+    activePlayer: useMustering ? secondPlayerIdx : action.firstPlayer,
     firstPlayer: action.firstPlayer,
     turnCount: state.turnCount + 1,
+    musteringPlayersDone: 0,
+    hasExhaustedThisMustering: false,
   });
 };
 
@@ -37,6 +49,13 @@ export const applySafe = (state: IKState, action: IKAction): Result<TransitionEr
       return err({ kind: "phase_mismatch", phase: "crown", actionKind: action.kind });
     }
     return applyCrownSafe(state, action);
+  }
+
+  if (state.phase === "mustering") {
+    if (action.kind !== "begin_recruit" && action.kind !== "recruit" && action.kind !== "recommission" && action.kind !== "end_mustering") {
+      return err({ kind: "phase_mismatch", phase: "mustering", actionKind: action.kind });
+    }
+    return applyMusteringSafe(state, action);
   }
 
   if (state.phase === "setup") {

@@ -23,7 +23,10 @@ export type IKPlayerZoneSlot =
   | "successor"
   | "dungeon"
   | "antechamber"
-  | "parting";
+  | "parting"
+  | "army"
+  | "exhausted"
+  | "recruitDiscard";
 
 export type IKSharedZoneSlot = "court" | "accused" | "forgotten" | "army" | "condemned";
 
@@ -62,6 +65,12 @@ const readPlayerZone = (
       return zones.antechamber;
     case "parting":
       return zones.parting;
+    case "army":
+      return zones.army;
+    case "exhausted":
+      return zones.exhausted;
+    case "recruitDiscard":
+      return zones.recruitDiscard;
   }
 };
 
@@ -179,6 +188,51 @@ const removeFromPlayerZone = (
       const next: IKPlayerZones = {
         ...zones,
         parting: zones.parting.filter((c) => c.id !== cardId),
+      };
+      return ok({
+        card,
+        state: {
+          ...state,
+          players: replacePlayerZones(state.players, player, next),
+        },
+      });
+    }
+    case "army": {
+      const card = zones.army.find((c) => c.id === cardId);
+      if (!card) return err({ kind: "card_not_in_zone", cardId, addr });
+      const next: IKPlayerZones = {
+        ...zones,
+        army: zones.army.filter((c) => c.id !== cardId),
+      };
+      return ok({
+        card,
+        state: {
+          ...state,
+          players: replacePlayerZones(state.players, player, next),
+        },
+      });
+    }
+    case "exhausted": {
+      const card = zones.exhausted.find((c) => c.id === cardId);
+      if (!card) return err({ kind: "card_not_in_zone", cardId, addr });
+      const next: IKPlayerZones = {
+        ...zones,
+        exhausted: zones.exhausted.filter((c) => c.id !== cardId),
+      };
+      return ok({
+        card,
+        state: {
+          ...state,
+          players: replacePlayerZones(state.players, player, next),
+        },
+      });
+    }
+    case "recruitDiscard": {
+      const card = zones.recruitDiscard.find((c) => c.id === cardId);
+      if (!card) return err({ kind: "card_not_in_zone", cardId, addr });
+      const next: IKPlayerZones = {
+        ...zones,
+        recruitDiscard: zones.recruitDiscard.filter((c) => c.id !== cardId),
       };
       return ok({
         card,
@@ -335,6 +389,36 @@ const insertIntoPlayerZone = (
       const next: IKPlayerZones = {
         ...zones,
         parting: [...zones.parting, card],
+      };
+      return ok({
+        ...state,
+        players: replacePlayerZones(state.players, player, next),
+      });
+    }
+    case "army": {
+      const next: IKPlayerZones = {
+        ...zones,
+        army: [...zones.army, card],
+      };
+      return ok({
+        ...state,
+        players: replacePlayerZones(state.players, player, next),
+      });
+    }
+    case "exhausted": {
+      const next: IKPlayerZones = {
+        ...zones,
+        exhausted: [...zones.exhausted, card],
+      };
+      return ok({
+        ...state,
+        players: replacePlayerZones(state.players, player, next),
+      });
+    }
+    case "recruitDiscard": {
+      const next: IKPlayerZones = {
+        ...zones,
+        recruitDiscard: [...zones.recruitDiscard, card],
       };
       return ok({
         ...state,

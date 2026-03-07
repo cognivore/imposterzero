@@ -24,7 +24,7 @@ export interface RoomSummary {
   readonly playerCount: number;
   readonly maxPlayers: number;
   readonly targetScore: number;
-  readonly phase: "lobby" | "playing" | "scoring" | "finished";
+  readonly phase: "lobby" | "drafting" | "playing" | "scoring" | "finished";
   readonly players: ReadonlyArray<{ readonly id: string; readonly ready: boolean }>;
 }
 
@@ -38,7 +38,8 @@ export type ClientMessage<A = unknown> =
   | { readonly type: "create_room"; readonly maxPlayers: number; readonly targetScore: number }
   | { readonly type: "join_room"; readonly roomId: string }
   | { readonly type: "leave_room" }
-  | { readonly type: "update_settings"; readonly targetScore: number }
+  | { readonly type: "update_settings"; readonly targetScore?: number; readonly expansion?: boolean }
+  | { readonly type: "draft_select"; readonly cards: ReadonlyArray<string> }
   | { readonly type: "join"; readonly gameId: string }
   | { readonly type: "ready"; readonly ready: boolean }
   | { readonly type: "action"; readonly action: A }
@@ -56,9 +57,17 @@ export type ServerMessage<S = unknown, A = unknown, L = unknown> =
   | { readonly type: "room_list"; readonly rooms: ReadonlyArray<RoomSummary> }
   | { readonly type: "room_created"; readonly roomId: string }
   | { readonly type: "room_joined"; readonly roomId: string }
-  | { readonly type: "room_settings"; readonly targetScore: number; readonly maxPlayers: number; readonly hostId: string }
+  | { readonly type: "room_settings"; readonly targetScore: number; readonly maxPlayers: number; readonly hostId: string; readonly expansion?: boolean }
   | { readonly type: "lobby_state"; readonly lobby: L }
   | { readonly type: "game_start"; readonly numPlayers: number }
+  | {
+      readonly type: "draft_state";
+      readonly signaturePool: ReadonlyArray<string>;
+      readonly mySelections: ReadonlyArray<string>;
+      readonly selectionsNeeded: number;
+      readonly allReady: boolean;
+      readonly playerNames: ReadonlyArray<string>;
+    }
   | {
       readonly type: "state";
       readonly state: S;
@@ -102,6 +111,7 @@ const KNOWN_TYPES: ReadonlySet<string> = new Set([
   "room_settings",
   "lobby_state",
   "game_start",
+  "draft_state",
   "state",
   "round_over",
   "match_over",

@@ -2382,3 +2382,247 @@ body {
     width: 100%;
   }
 }
+
+/* -----------------------------------------------------------------------
+   Mustering Phase
+   ----------------------------------------------------------------------- */
+
+.mustering-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: var(--space-md);
+  gap: var(--space-md);
+  overflow-y: auto;
+}
+
+.mustering-header {
+  text-align: center;
+}
+
+.mustering-header h2 {
+  color: var(--gold);
+  margin: 0 0 var(--space-xs);
+  font-size: 1.4rem;
+}
+
+.mustering-status {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.mustering-zones {
+  display: flex;
+  gap: var(--space-lg);
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.mustering-zone {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 200px;
+}
+
+.mustering-cards {
+  display: flex;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  min-height: 100px;
+  padding: var(--space-sm);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mustering-card-slot {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  transition: outline 0.15s, transform 0.15s;
+}
+
+.mustering-card-slot:hover {
+  transform: translateY(-2px);
+}
+
+.mustering-card-slot.selected-recruit {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.mustering-card-slot.selected-discard {
+  outline: 2px solid #e74c3c;
+  outline-offset: 2px;
+}
+
+.mustering-card-slot.selected-recomm {
+  outline: 2px solid #e67e22;
+  outline-offset: 2px;
+}
+
+.mustering-card-slot.selected-recover {
+  outline: 2px solid #2ecc71;
+  outline-offset: 2px;
+}
+
+.mustering-hand {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.mustering-hand .hand-cards {
+  justify-content: center;
+}
+
+.mustering-actions {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: center;
+  padding: var(--space-sm) 0;
+}
+
+.mustering-actions .btn {
+  min-width: 120px;
+}
+
+.card-action-hint {
+  font-size: 0.65rem;
+  color: var(--gold);
+  text-align: center;
+  margin-top: 2px;
+  opacity: 0.8;
+}
+
+.empty-zone {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 60px;
+}
+
+/* Army zones in RightRail */
+.army-zone-display {
+  display: flex;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  padding: var(--space-xs);
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: var(--radius-sm);
+  min-height: 24px;
+}
+
+.army-count-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: var(--radius-sm);
+}
+
+.expansion-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  cursor: pointer;
+}
+
+.expansion-toggle input {
+  accent-color: var(--gold);
+}
+
+/* -----------------------------------------------------------------------
+   Draft Phase
+   ----------------------------------------------------------------------- */
+
+.draft-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-lg);
+  gap: var(--space-lg);
+  height: 100%;
+  overflow-y: auto;
+}
+
+.draft-header {
+  text-align: center;
+}
+
+.draft-header h2 {
+  color: var(--gold);
+  margin: 0 0 var(--space-xs);
+  font-size: 1.5rem;
+}
+
+.draft-status {
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.draft-pool {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-md);
+  max-width: 900px;
+  width: 100%;
+}
+
+.draft-card {
+  background: var(--surface-raised);
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+}
+
+.draft-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.draft-card--selected {
+  border-color: var(--gold);
+  box-shadow: 0 0 12px rgba(212, 175, 55, 0.3);
+}
+
+.draft-card--disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.draft-card--disabled:hover {
+  transform: none;
+}
+
+.draft-card__name {
+  font-weight: 700;
+  font-size: 1.1rem;
+  margin-bottom: var(--space-xs);
+  color: var(--text-primary);
+}
+
+.draft-card--selected .draft-card__name {
+  color: var(--gold);
+}
+
+.draft-card__desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.draft-actions {
+  display: flex;
+  gap: var(--space-sm);
+}

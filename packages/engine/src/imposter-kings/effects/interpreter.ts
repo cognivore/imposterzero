@@ -356,6 +356,8 @@ export const resolve = (
         "Judge", "Oathbound", "Immortal", "Warlord", "Mystic", "Warden",
         "Sentry", "King's Hand", "Princess", "Queen", "Executioner", "Bard",
         "Herald", "Spy", "Arbiter",
+        "Flagbearer", "Stranger", "Aegis", "Ancestor", "Informant",
+        "Nakturn", "Lockshift", "Conspiracist", "Exile",
       ];
       const options: ReadonlyArray<ChoiceOption> = allNames.map((n) => ({
         kind: "cardName" as const,
@@ -477,6 +479,105 @@ export const resolve = (
         trace, depth,
       );
     }
+
+    case "rally": {
+      const armyZone = { scope: "player" as const, player: ctx.activePlayer, slot: "army" as const };
+      const handZone = { scope: "player" as const, player: ctx.activePlayer, slot: "hand" as const };
+      const armyCards = readZone(state, armyZone);
+      if (armyCards.length === 0) {
+        emitRaw(trace, depth, "rally", "No cards in army — skipping.");
+        return resolve(program.then, state, ctx, trace, depth);
+      }
+      const options = armyCards.map((c) => ({ kind: "card" as const, cardId: c.id }));
+      return {
+        tag: "needChoice",
+        state,
+        player: ctx.activePlayer,
+        options,
+        resume: (choice) => {
+          emitChoice(trace, depth, choice, options, state, ctx.activePlayer);
+          const chosenId = options[choice]!.cardId;
+          const result = zoneMove(state, chosenId, armyZone, handZone);
+          const s = result.ok ? result.value : state;
+          const tracked: IKState = {
+            ...s,
+            armyRecruitedIds: [...s.armyRecruitedIds, chosenId],
+          };
+          return resolve(program.then, tracked, ctx, trace, depth);
+        },
+      };
+    }
+
+    case "recall": {
+      const exhaustZone = { scope: "player" as const, player: ctx.activePlayer, slot: "exhausted" as const };
+      const armyZone = { scope: "player" as const, player: ctx.activePlayer, slot: "army" as const };
+      const exhaustedCards = readZone(state, exhaustZone);
+      if (exhaustedCards.length === 0) {
+        emitRaw(trace, depth, "recall", "No exhausted cards — skipping.");
+        return resolve(program.then, state, ctx, trace, depth);
+      }
+      const options = exhaustedCards.map((c) => ({ kind: "card" as const, cardId: c.id }));
+      return {
+        tag: "needChoice",
+        state,
+        player: ctx.activePlayer,
+        options,
+        resume: (choice) => {
+          emitChoice(trace, depth, choice, options, state, ctx.activePlayer);
+          const chosenId = options[choice]!.cardId;
+          const result = zoneMove(state, chosenId, exhaustZone, armyZone);
+          return resolve(program.then, result.ok ? result.value : state, ctx, trace, depth);
+        },
+      };
+    }
+
+    case "binaryChoice": {
+      const player = resolvePlayer(program.player, ctx);
+      const options: ReadonlyArray<ChoiceOption> = [
+        { kind: "yesNo", value: false },
+        { kind: "yesNo", value: true },
+      ];
+      return {
+        tag: "needChoice",
+        state,
+        player,
+        options,
+        resume: (choice) => {
+          emitChoice(trace, depth, choice, options, state, player);
+          return resolve(program.andThen(choice === 1), state, ctx, trace, depth);
+        },
+      };
+    }
+
+    case "revealZone": {
+      emitRaw(trace, depth, "revealZone", "Zone revealed.");
+      return resolve(program.then, state, ctx, trace, depth);
+    }
+
+    case "checkDungeon": {
+      const player = resolvePlayer(program.player, ctx);
+      const pz = state.players[player]!;
+      const dungeonCard = pz.dungeon?.card ?? null;
+      const correct = dungeonCard !== null && dungeonCard.kind.name === ctx.playedCard.kind.name;
+      emitRaw(trace, depth, "checkDungeon", correct ? "Dungeon guess correct!" : "Dungeon guess incorrect.");
+      return resolve(program.andThen(correct), state, ctx, trace, depth);
+    }
+
+    case "removeFromRound": {
+      const cid = resolveCard(program.card, ctx, state);
+      const courtIdx = state.shared.court.findIndex((e) => e.card.id === cid);
+      if (courtIdx >= 0) {
+        const s: IKState = {
+          ...state,
+          shared: {
+            ...state.shared,
+            court: state.shared.court.filter((e) => e.card.id !== cid),
+          },
+        };
+        return resolve(program.then, s, ctx, trace, depth);
+      }
+      return resolve(program.then, state, ctx, trace, depth);
+    }
   }
 };
 
@@ -505,6 +606,9 @@ const findCardInState = (state: IKState, cardId: number): import("../card.js").I
     if (p.dungeon?.card.id === cardId) return p.dungeon.card;
     for (const c of p.antechamber) if (c.id === cardId) return c;
     for (const c of p.parting) if (c.id === cardId) return c;
+    for (const c of p.army) if (c.id === cardId) return c;
+    for (const c of p.exhausted) if (c.id === cardId) return c;
+    for (const c of p.recruitDiscard) if (c.id === cardId) return c;
   }
   for (const e of state.shared.court) if (e.card.id === cardId) return e.card;
   if (state.shared.accused?.id === cardId) return state.shared.accused;

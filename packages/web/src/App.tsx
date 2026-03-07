@@ -11,6 +11,8 @@ import { LobbyView } from "./views/LobbyView.js";
 import { CrownView } from "./views/CrownView.js";
 import { SetupView } from "./views/SetupView.js";
 import { GameLayout } from "./views/GameLayout.js";
+import { MusteringView } from "./views/MusteringView.js";
+import { DraftView } from "./views/DraftView.js";
 import { ScoringView } from "./views/ScoringView.js";
 import { MatchOverView } from "./views/MatchOverView.js";
 import { LandscapeOverlay } from "./views/LandscapeOverlay.js";
@@ -21,7 +23,7 @@ const absurd = (_: never): never => {
   throw new Error("non-exhaustive match");
 };
 
-const GAME_PHASES = new Set(["crown", "setup", "play", "resolving", "scoring", "finished"]);
+const GAME_PHASES = new Set(["drafting", "crown", "mustering", "setup", "play", "resolving", "scoring", "finished"]);
 
 const renderPhase = (
   phase: ClientPhase,
@@ -34,8 +36,21 @@ const renderPhase = (
       return <BrowserView phase={phase} send={send} />;
     case "lobby":
       return <LobbyView phase={phase} send={send} />;
+    case "drafting":
+      return (
+        <DraftView
+          signaturePool={phase.signaturePool}
+          mySelections={phase.mySelections}
+          selectionsNeeded={phase.selectionsNeeded}
+          allReady={phase.allReady}
+          playerNames={[...phase.playerNames]}
+          send={send}
+        />
+      );
     case "crown":
       return <CrownView phase={phase} send={send} />;
+    case "mustering":
+      return <MusteringView phase={phase} send={send} />;
     case "setup":
     case "play":
     case "resolving":

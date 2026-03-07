@@ -1,6 +1,7 @@
 import { useReducer } from "react";
 import type { PlayerId } from "@imposter-zero/types";
-import type { IKState, IKAction, IKCrownAction, IKSetupAction, IKPlayAction, IKEffectChoiceAction } from "@imposter-zero/engine";
+import type { IKState, IKAction, IKCrownAction, IKSetupAction, IKPlayAction, IKEffectChoiceAction, IKMusteringAction } from "@imposter-zero/engine";
+import { isMusteringAction as isMusteringActionEngine } from "@imposter-zero/engine";
 import type { LobbyState, RoomSummary } from "./lobby-types.js";
 import type { IKServerMessage } from "./ws-client.js";
 
@@ -30,6 +31,20 @@ export type ClientPhase =
       readonly maxPlayers: number;
       readonly hostId: string;
       readonly handHelper: boolean;
+      readonly expansion: boolean;
+    }
+  | {
+      readonly _tag: "drafting";
+      readonly me: string;
+      readonly name: string;
+      readonly myIndex: PlayerId | null;
+      readonly token: string;
+      readonly roomId: string;
+      readonly signaturePool: ReadonlyArray<string>;
+      readonly mySelections: ReadonlyArray<string>;
+      readonly selectionsNeeded: number;
+      readonly allReady: boolean;
+      readonly playerNames: readonly string[];
     }
   | {
       readonly _tag: "crown";
@@ -40,6 +55,19 @@ export type ClientPhase =
       readonly roomId: string;
       readonly gameState: IKState;
       readonly legalActions: readonly IKCrownAction[];
+      readonly activePlayer: PlayerId;
+      readonly numPlayers: number;
+      readonly playerNames: readonly string[];
+    }
+  | {
+      readonly _tag: "mustering";
+      readonly me: string;
+      readonly name: string;
+      readonly myIndex: PlayerId;
+      readonly token: string;
+      readonly roomId: string;
+      readonly gameState: IKState;
+      readonly legalActions: readonly IKMusteringAction[];
       readonly activePlayer: PlayerId;
       readonly numPlayers: number;
       readonly playerNames: readonly string[];
@@ -145,13 +173,15 @@ const findMyIndex = (lobby: LobbyState, me: string): PlayerId | null => {
 
 const myIndexOf = (phase: ClientPhase): PlayerId =>
   phase._tag === "lobby" ? (phase.myIndex ?? 0)
-  : phase._tag === "crown" || phase._tag === "setup" || phase._tag === "play" || phase._tag === "resolving" ? phase.myIndex
+  : phase._tag === "crown" || phase._tag === "mustering" || phase._tag === "setup" || phase._tag === "play" || phase._tag === "resolving" ? phase.myIndex
   : phase._tag === "scoring" || phase._tag === "finished" ? phase.myIndex
   : 0;
 
 const playerNamesOfPhase = (phase: ClientPhase, fallback: readonly string[]): readonly string[] => {
   switch (phase._tag) {
+    case "drafting":
     case "crown":
+    case "mustering":
     case "setup":
     case "play":
     case "resolving":
@@ -166,6 +196,7 @@ const playerNamesOfPhase = (phase: ClientPhase, fallback: readonly string[]): re
 const numPlayersOf = (phase: ClientPhase, fallback: number): number => {
   switch (phase._tag) {
     case "crown":
+    case "mustering":
     case "setup":
     case "play":
     case "resolving":
@@ -173,6 +204,7 @@ const numPlayersOf = (phase: ClientPhase, fallback: number): number => {
     case "finished":
       return phase.numPlayers;
     case "connecting":
+    case "drafting":
     case "browser":
     case "lobby":
       return fallback;
@@ -195,6 +227,8 @@ const handHelperOf = (phase: ClientPhase): boolean => {
 // ---------------------------------------------------------------------------
 
 const isCrownAction = (a: IKAction): a is IKCrownAction => a.kind === "crown";
+const isMusteringAction = (a: IKAction): a is IKMusteringAction =>
+  isMusteringActionEngine(a);
 const isSetupAction = (a: IKAction): a is IKSetupAction => a.kind === "commit";
 const isPlayAction = (a: IKAction): a is IKPlayAction =>
   a.kind === "play" || a.kind === "disgrace";
@@ -259,6 +293,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
         maxPlayers: 4,
         hostId: "",
         handHelper: false,
+        expansion: false,
       };
     }
 
@@ -270,6 +305,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
           maxPlayers: msg.maxPlayers,
           hostId: msg.hostId,
           handHelper: (msg as Record<string, unknown>).handHelper === true ? true : phase.handHelper,
+          expansion: msg.expansion === true,
         };
       }
       return phase;
@@ -279,8 +315,8 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
       const { me, token, name } = identity(phase);
       const rid = roomIdOf(phase);
       const lobbySettings = phase._tag === "lobby"
-        ? { targetScore: phase.targetScore, maxPlayers: phase.maxPlayers, hostId: phase.hostId, handHelper: phase.handHelper }
-        : { targetScore: 7, maxPlayers: 4, hostId: "", handHelper: false };
+        ? { targetScore: phase.targetScore, maxPlayers: phase.maxPlayers, hostId: phase.hostId, handHelper: phase.handHelper, expansion: phase.expansion }
+        : { targetScore: 7, maxPlayers: 4, hostId: "", handHelper: false, expansion: false };
       return {
         _tag: "lobby",
         me,
@@ -295,6 +331,24 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
 
     case "game_start":
       return phase;
+
+    case "draft_state": {
+      const { me, token, name } = identity(phase);
+      const rid = roomIdOf(phase);
+      return {
+        _tag: "drafting",
+        me,
+        name: name ?? "",
+        myIndex: phase._tag === "lobby" ? phase.myIndex : (phase._tag === "drafting" ? phase.myIndex : null),
+        token,
+        roomId: rid,
+        signaturePool: msg.signaturePool,
+        mySelections: msg.mySelections,
+        selectionsNeeded: msg.selectionsNeeded,
+        allReady: msg.allReady,
+        playerNames: msg.playerNames,
+      };
+    }
 
     case "state": {
       const { me, token, name } = identity(phase);
@@ -314,6 +368,22 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
           roomId: rid,
           gameState: msg.state,
           legalActions: msg.legalActions.filter(isCrownAction),
+          activePlayer: msg.activePlayer,
+          numPlayers,
+          playerNames,
+        };
+      }
+
+      if (msg.state.phase === "mustering") {
+        return {
+          _tag: "mustering",
+          me,
+          name: name ?? "",
+          myIndex,
+          token,
+          roomId: rid,
+          gameState: msg.state,
+          legalActions: msg.legalActions.filter(isMusteringAction),
           activePlayer: msg.activePlayer,
           numPlayers,
           playerNames,

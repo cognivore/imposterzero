@@ -22,6 +22,8 @@ const matchesQuery = (
       return card.kind.props.keywords.includes(query.keyword);
     case "byBaseValue":
       return card.kind.props.value === query.value;
+    case "byMinBaseValue":
+      return card.kind.props.value >= query.minValue;
     case "allInCourt":
       return state.shared.court.some((e) => e.card.id === card.id);
     case "allInCourtExceptSelf":
@@ -52,7 +54,7 @@ const allModifiers = (state: IKState): ReadonlyArray<ActiveModifier> =>
     : [...state.modifiers, ...state.roundModifiers];
 
 export const effectiveValue = (state: IKState, card: IKCard): number => {
-  const isSteadfast = card.kind.props.keywords.includes("steadfast");
+  const isSteadfast = effectiveKeywords(state, card).includes("steadfast");
   let value = card.kind.props.value;
 
   const dummyCtx = {
@@ -94,6 +96,21 @@ export const effectiveValue = (state: IKState, card: IKCard): number => {
           value = 3;
         }
         break;
+      case "valueChangePerCount": {
+        const vpcSpec = mod.spec as Extract<typeof mod.spec, { tag: "valueChangePerCount" }>;
+        if (!matchesQuery(vpcSpec.target, card, mod.sourceCardId, state))
+          break;
+        const count = state.shared.court.filter(
+          (e) =>
+            e.face === "up" &&
+            matchesQuery(vpcSpec.countQuery, e.card, mod.sourceCardId, state),
+        ).length;
+        const totalDelta = vpcSpec.deltaPerMatch * count;
+        if (!(isSteadfast && totalDelta < 0)) {
+          value += totalDelta;
+        }
+        break;
+      }
       default:
         break;
     }
@@ -137,6 +154,20 @@ export const effectiveKeywords = (
           }
         }
         break;
+      case "conditionalRevokeKeyword": {
+        if (!matchesQuery(mod.spec.target, card, mod.sourceCardId, state))
+          break;
+        const modCtx = {
+          playedCard: card,
+          activePlayer: mod.playedBy ?? state.activePlayer,
+          numPlayers: state.numPlayers,
+          playedFrom: null as "hand" | "antechamber" | null,
+        };
+        if (evaluate(mod.spec.condition, state, modCtx)) {
+          kws.delete(mod.spec.keyword);
+        }
+        break;
+      }
       default:
         break;
     }
@@ -157,6 +188,7 @@ export const refreshModifiers = (state: IKState): IKState => {
         mods.push({
           sourceCardId: entry.card.id,
           spec: effect.modifier,
+          playedBy: entry.playedBy,
         });
       }
     }

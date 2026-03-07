@@ -79,6 +79,8 @@ const OptionButton: React.FC<{
         return <span>Skip</span>;
       case "proceed":
         return <span>Use Ability</span>;
+      case "yesNo":
+        return <span>{option.value ? "Yes" : "No"}</span>;
     }
   })();
 
@@ -131,6 +133,8 @@ export const InlineChoiceBar: React.FC<Props> = ({
       case "pass":
       case "proceed":
         return "decide";
+      case "yesNo":
+        return "answer yes or no";
     }
   };
 

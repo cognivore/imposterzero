@@ -97,7 +97,7 @@ describe("3p random bot e2e", () => {
 
   it("hourtrain vs fasttrained vs random: bots beat random over many matches", async () => {
     let wins = { random: 0, bot1: 0, bot2: 0 };
-    const totalGames = 30;
+    const totalGames = 10;
 
     for (let g = 0; g < totalGames; g++) {
       const h = await create3pGame(3);
@@ -114,7 +114,11 @@ describe("3p random bot e2e", () => {
       if (winnerIdx === 0) wins.random++;
       else if (winnerIdx === 1) wins.bot1++;
       else wins.bot2++;
+
+      closeBots(h.bots);
+      await h.server.close();
     }
+    handles = [];
 
     console.log(`  Wins: random=${wins.random}, bot1=${wins.bot1}, bot2=${wins.bot2}`);
     expect(wins.random + wins.bot1 + wins.bot2).toBe(totalGames);

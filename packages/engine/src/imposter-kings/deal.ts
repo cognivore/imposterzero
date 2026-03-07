@@ -77,6 +77,9 @@ export const dealWithDeck = (
     dungeon: null,
     antechamber: [],
     parting: [],
+    army: [],
+    exhausted: [],
+    recruitDiscard: [],
   }));
 
   return {
@@ -98,6 +101,9 @@ export const dealWithDeck = (
     modifiers: [],
     roundModifiers: [],
     publiclyTrackedKH: [],
+    armyRecruitedIds: [],
+    hasExhaustedThisMustering: false,
+    musteringPlayersDone: 0,
   };
 };
 
@@ -141,6 +147,9 @@ export const deal = (
     dungeon: null,
     antechamber: [],
     parting: [],
+    army: [],
+    exhausted: [],
+    recruitDiscard: [],
   }));
 
   return {
@@ -162,5 +171,8 @@ export const deal = (
     modifiers: [],
     roundModifiers: [],
     publiclyTrackedKH: [],
+    armyRecruitedIds: [],
+    hasExhaustedThisMustering: false,
+    musteringPlayersDone: 0,
   };
 };

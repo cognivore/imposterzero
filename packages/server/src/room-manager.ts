@@ -1,10 +1,12 @@
 import { randomBytes } from "node:crypto";
 import type { GameDef, RoomSummary } from "@imposter-zero/types";
-import type { IKState, IKAction } from "@imposter-zero/engine";
+import type { IKState, IKAction, GameConfig, PlayerArmy, CardName } from "@imposter-zero/engine";
+import { REGULATION_2P_EXPANSION, buildPlayerArmies } from "@imposter-zero/engine";
 import {
   type Room,
   type OutboundMessage,
   type RoomTransitionResult,
+  type ExpansionState,
   createRoom,
   roomTransition,
   continueAfterScoring,
@@ -56,6 +58,7 @@ export const createManagedRoom = (
   targetScore: number,
   turnDuration: number,
   now: number,
+  expansionState: ExpansionState | null = null,
 ): ManagedRoom => {
   const id = generateRoomId();
   const managed: ManagedRoom = {
@@ -65,7 +68,7 @@ export const createManagedRoom = (
     maxPlayers,
     targetScore,
     turnDuration,
-    room: createRoom(game, maxPlayers, targetScore, turnDuration),
+    room: createRoom(game, maxPlayers, targetScore, turnDuration, expansionState),
     botRegistry: emptyBotRegistry,
     botCounter: 0,
     turnTimer: null,
@@ -115,6 +118,29 @@ export const updateManagedRoomTargetScore = (managed: ManagedRoom, targetScore: 
     targetScore,
     match: { ...managed.room.match, targetScore },
   };
+};
+
+const DEFAULT_SIGNATURES: ReadonlyArray<ReadonlyArray<CardName>> = [
+  ["Aegis", "Exile", "Ancestor"],
+  ["Aegis", "Exile", "Ancestor"],
+];
+
+export const updateManagedRoomExpansion = (managed: ManagedRoom, expansion: boolean): void => {
+  if (managed.room.phase !== "lobby") return;
+  if (expansion) {
+    const numPlayers = managed.maxPlayers;
+    const sigs = DEFAULT_SIGNATURES.slice(0, numPlayers);
+    const armies = buildPlayerArmies(REGULATION_2P_EXPANSION, sigs);
+    managed.room = {
+      ...managed.room,
+      expansionState: { config: REGULATION_2P_EXPANSION, playerArmies: armies },
+    };
+  } else {
+    managed.room = {
+      ...managed.room,
+      expansionState: null,
+    };
+  }
 };
 
 export const toRoomSummary = (managed: ManagedRoom): RoomSummary => ({

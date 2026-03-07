@@ -53,6 +53,6 @@ export interface RoomSummary {
   readonly playerCount: number;
   readonly maxPlayers: number;
   readonly targetScore: number;
-  readonly phase: "lobby" | "playing" | "scoring" | "finished";
+  readonly phase: "lobby" | "drafting" | "playing" | "scoring" | "finished";
   readonly players: ReadonlyArray<{ readonly id: string; readonly ready: boolean }>;
 }

@@ -26,8 +26,34 @@ export interface IKEffectChoiceAction {
   readonly choice: number;
 }
 
+export interface IKBeginRecruitAction {
+  readonly kind: "begin_recruit";
+  readonly exhaustCardId: number;
+}
+
+export interface IKRecruitAction {
+  readonly kind: "recruit";
+  readonly discardFromHandId: number;
+  readonly takeFromArmyId: number;
+}
+
+export interface IKRecommissionAction {
+  readonly kind: "recommission";
+  readonly exhaust1Id: number;
+  readonly exhaust2Id: number;
+  readonly recoverFromExhaustId: number;
+}
+
+export interface IKEndMusteringAction {
+  readonly kind: "end_mustering";
+}
+
+export type IKMusteringAction = IKBeginRecruitAction | IKRecruitAction | IKRecommissionAction | IKEndMusteringAction;
 export type IKPlayAction = IKPlayCardAction | IKDisgraceAction;
-export type IKAction = IKCrownAction | IKSetupAction | IKPlayAction | IKEffectChoiceAction;
+export type IKAction = IKCrownAction | IKSetupAction | IKPlayAction | IKEffectChoiceAction | IKMusteringAction;
+
+export const isMusteringAction = (a: IKAction): a is IKMusteringAction =>
+  a.kind === "begin_recruit" || a.kind === "recruit" || a.kind === "recommission" || a.kind === "end_mustering";
 
 export interface ActionCodecConfig {
   readonly maxCardId: number;
@@ -100,10 +126,14 @@ export const encodeActionSafe = (
     return ok(layout.crownBase + action.firstPlayer);
   }
 
-  if (action.choice < 0 || action.choice >= layout.maxEffectChoices) {
-    return err({ kind: "effect_choice_out_of_range", choice: action.choice, max: layout.maxEffectChoices });
+  if (action.kind === "effect_choice") {
+    if (action.choice < 0 || action.choice >= layout.maxEffectChoices) {
+      return err({ kind: "effect_choice_out_of_range", choice: action.choice, max: layout.maxEffectChoices });
+    }
+    return ok(layout.choiceBase + action.choice);
   }
-  return ok(layout.choiceBase + action.choice);
+
+  return err({ kind: "effect_choice_out_of_range", choice: -1, max: 0 });
 };
 
 export const decodeAction = (

@@ -10,6 +10,8 @@ export {
   BASE_DECK,
   THREE_PLAYER_EXTRAS,
   FOUR_PLAYER_EXTRAS,
+  SIGNATURE_CARD_KINDS,
+  BASE_ARMY_KINDS,
   regulationDeck,
 } from "./card.js";
 
@@ -19,6 +21,12 @@ export {
   type IKPlayCardAction,
   type IKDisgraceAction,
   type IKEffectChoiceAction,
+  type IKBeginRecruitAction,
+  type IKRecruitAction,
+  type IKRecommissionAction,
+  type IKEndMusteringAction,
+  type IKMusteringAction,
+  isMusteringAction,
   type IKPlayAction,
   type IKAction,
   type ActionCodecConfig,
@@ -99,9 +107,39 @@ export {
 export {
   IMPOSTER_KINGS_GAME_TYPE,
   createImposterKingsGame,
+  createExpansionGame,
   ImposterKingsGame,
   ImposterKingsObserver,
 } from "./game.js";
+
+export {
+  type GameConfig,
+  SIGNATURE_CARD_NAMES,
+  BASE_ARMY_NAMES,
+  REGULATION_2P_BASE,
+  REGULATION_2P_EXPANSION,
+} from "./config.js";
+
+export {
+  type PlayerArmy,
+  type DraftPhase,
+  type DraftState,
+  type ExpandedMatchState,
+  type ExpandedMatchResult,
+  createDraftState,
+  selectSignature,
+  revealSelections,
+  startTournamentDraft,
+  chooseDraftOrder,
+  draftPick,
+  completeStandardSelection,
+  buildPlayerArmies,
+  createExpansionRound,
+  exhaustArmyCardsPostRound,
+  createExpandedMatch,
+  isExpandedMatchOver,
+  playExpandedMatch,
+} from "./expansion-match.js";
 
 export {
   type IKPlayerZoneSlot,

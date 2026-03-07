@@ -50,6 +50,7 @@ export type CardQuery =
   | { readonly tag: "byName"; readonly name: CardName }
   | { readonly tag: "byKeyword"; readonly keyword: CardKeyword }
   | { readonly tag: "byBaseValue"; readonly value: number }
+  | { readonly tag: "byMinBaseValue"; readonly minValue: number }
   | { readonly tag: "allInCourt" }
   | { readonly tag: "allInCourtExceptSelf" }
   | { readonly tag: "and"; readonly left: CardQuery; readonly right: CardQuery }
@@ -61,7 +62,9 @@ export type ModifierSpec =
   | { readonly tag: "grantKeyword"; readonly keyword: CardKeyword; readonly target: CardQuery }
   | { readonly tag: "revokeKeyword"; readonly keyword: CardKeyword; readonly target: CardQuery }
   | { readonly tag: "mute"; readonly target: CardQuery }
-  | { readonly tag: "selfCourtValue"; readonly value: number };
+  | { readonly tag: "selfCourtValue"; readonly value: number }
+  | { readonly tag: "valueChangePerCount"; readonly deltaPerMatch: number; readonly target: CardQuery; readonly countQuery: CardQuery }
+  | { readonly tag: "conditionalRevokeKeyword"; readonly keyword: CardKeyword; readonly target: CardQuery; readonly condition: StatePredicate };
 
 // ---------------------------------------------------------------------------
 // Play condition overrides (Elder, Zealot, Oathbound)
@@ -70,7 +73,8 @@ export type ModifierSpec =
 export type PlayCondition =
   | { readonly tag: "onAnyRoyalty" }
   | { readonly tag: "onAnyNonRoyaltyWhen"; readonly predicate: StatePredicate }
-  | { readonly tag: "onHigherValue" };
+  | { readonly tag: "onHigherValue" }
+  | { readonly tag: "onAnyCard" };
 
 // ---------------------------------------------------------------------------
 // Effect program ADT — continuation-passing style
@@ -107,7 +111,18 @@ export type EffectProgram =
   // Ability prevention (reaction body for King's Hand)
   | { readonly tag: "preventEffect" }
   // King's Hand reaction window — prompts all opponents in play order
-  | { readonly tag: "khReactionWindow"; readonly continuation: EffectProgram };
+  | { readonly tag: "khReactionWindow"; readonly continuation: EffectProgram }
+  // Army interaction — Rally (army → hand with tracking) and Recall (exhausted → army)
+  | { readonly tag: "rally"; readonly then: EffectProgram }
+  | { readonly tag: "recall"; readonly then: EffectProgram }
+  // Binary choice — yields yes/no to a specified player
+  | { readonly tag: "binaryChoice"; readonly player: PlayerRef; readonly andThen: (chose: boolean) => EffectProgram }
+  // Reveal zone contents (informational, logged)
+  | { readonly tag: "revealZone"; readonly zone: ZoneRef; readonly then: EffectProgram }
+  // Check if dungeon contains a named card
+  | { readonly tag: "checkDungeon"; readonly player: PlayerRef; readonly andThen: (correct: boolean) => EffectProgram }
+  // Remove a card from the round entirely
+  | { readonly tag: "removeFromRound"; readonly card: CardRef; readonly then: EffectProgram };
 
 // ---------------------------------------------------------------------------
 // Card effect — attached to card definitions
@@ -129,7 +144,8 @@ export type ChoiceOption =
   | { readonly kind: "cardName"; readonly name: CardName }
   | { readonly kind: "value"; readonly value: number }
   | { readonly kind: "pass" }
-  | { readonly kind: "proceed" };
+  | { readonly kind: "proceed" }
+  | { readonly kind: "yesNo"; readonly value: boolean };
 
 export type Resolution =
   | { readonly tag: "done"; readonly state: import("../state.js").IKState }
@@ -327,3 +343,36 @@ export const preventEffect: EffectProgram = { tag: "preventEffect" };
 export const khWindow = (
   continuation: EffectProgram,
 ): EffectProgram => ({ tag: "khReactionWindow", continuation });
+
+export const rally = (then: EffectProgram = done): EffectProgram => ({
+  tag: "rally",
+  then,
+});
+
+export const recall = (then: EffectProgram = done): EffectProgram => ({
+  tag: "recall",
+  then,
+});
+
+export const binaryChoice = (
+  player: PlayerRef,
+  andThen: (chose: boolean) => EffectProgram,
+): EffectProgram => ({ tag: "binaryChoice", player, andThen });
+
+export const revealZone = (
+  zone: ZoneRef,
+  then: EffectProgram = done,
+): EffectProgram => ({ tag: "revealZone", zone, then });
+
+export const checkDungeon = (
+  player: PlayerRef,
+  andThen: (correct: boolean) => EffectProgram,
+): EffectProgram => ({ tag: "checkDungeon", player, andThen });
+
+export const removeFromRound = (
+  card: CardRef,
+  then: EffectProgram = done,
+): EffectProgram => ({ tag: "removeFromRound", card, then });
+
+export const activeArmy: ZoneRef = playerZone(active, "army");
+export const activeExhausted: ZoneRef = playerZone(active, "exhausted");

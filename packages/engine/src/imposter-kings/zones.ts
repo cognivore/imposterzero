@@ -27,6 +27,9 @@ export interface IKPlayerZones {
   readonly dungeon: HiddenCard | null;
   readonly antechamber: ReadonlyArray<IKCard>;
   readonly parting: ReadonlyArray<IKCard>;
+  readonly army: ReadonlyArray<IKCard>;
+  readonly exhausted: ReadonlyArray<IKCard>;
+  readonly recruitDiscard: ReadonlyArray<IKCard>;
 }
 
 export interface CondemnedEntry {

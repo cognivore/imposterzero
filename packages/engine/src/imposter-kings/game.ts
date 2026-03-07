@@ -2,7 +2,9 @@ import type { GameDef, GameType, Observer, PlayerId } from "@imposter-zero/types
 
 import type { IKAction } from "./actions.js";
 import { regulationDeck } from "./card.js";
+import type { GameConfig } from "./config.js";
 import { deal, type RandomSource } from "./deal.js";
+import { createExpansionRound, type PlayerArmy } from "./expansion-match.js";
 import { apply, currentPlayer, isTerminal, legalActions, returns } from "./rules.js";
 import { playerZones, throne, type IKState } from "./state.js";
 import { throneValue } from "./selectors.js";
@@ -29,6 +31,22 @@ export const createImposterKingsGame = (
 });
 
 export const ImposterKingsGame: GameDef<IKState, IKAction> = createImposterKingsGame();
+
+export const createExpansionGame = (
+  config: GameConfig,
+  playerArmies: ReadonlyArray<PlayerArmy>,
+  trueKing?: PlayerId,
+  randomSource?: RandomSource,
+): GameDef<IKState, IKAction> => ({
+  gameType: IMPOSTER_KINGS_GAME_TYPE,
+  create: (_numPlayers) =>
+    createExpansionRound(config, playerArmies, trueKing ?? 0, randomSource ?? Math.random),
+  currentPlayer,
+  legalActions,
+  apply,
+  isTerminal,
+  returns,
+});
 
 export const ImposterKingsObserver: Observer<IKState> = {
   observationTensor: (state, player) => {

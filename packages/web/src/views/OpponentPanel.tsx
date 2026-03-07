@@ -83,6 +83,13 @@ export const OpponentPanel: React.FC<Props> = ({
         <HandHelperInline count={zones.hand.length} possibleCards={handHelperCards} />
       )}
     </div>
+
+    {(zones.army.length > 0 || zones.exhausted.length > 0) && (
+      <div className="opponent-panel__army">
+        <span className="army-count-badge">Army: {zones.army.length}</span>
+        <span className="army-count-badge">Exh: {zones.exhausted.length}</span>
+      </div>
+    )}
   </div>
 );
 

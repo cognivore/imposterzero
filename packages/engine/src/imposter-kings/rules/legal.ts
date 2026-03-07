@@ -6,6 +6,7 @@ import type { IKAction } from "../actions.js";
 import { playerZones, throne, type IKState } from "../state.js";
 import { throneValue, isKingFaceUp } from "../selectors.js";
 import { commitActionsForHand } from "./setup.js";
+import { legalMusteringActions } from "./mustering.js";
 import type { PlayCondition } from "../effects/program.js";
 import { evaluate } from "../effects/predicates.js";
 import type { EffectContext } from "../effects/program.js";
@@ -58,6 +59,8 @@ export const canPlayCard = (
           hand.length >= 2
         );
       }
+      case "onAnyCard":
+        return throne(state) !== null;
     }
   });
 };
@@ -104,6 +107,10 @@ export const legalActions = (state: IKState): ReadonlyArray<IKAction> => {
       { length: state.numPlayers },
       (_, i) => ({ kind: "crown" as const, firstPlayer: i as PlayerId }),
     );
+  }
+
+  if (state.phase === "mustering") {
+    return legalMusteringActions(state);
   }
 
   const active = playerZones(state, state.activePlayer);

@@ -3,7 +3,7 @@ import type { PlayerId } from "@imposter-zero/types";
 import type { IKSharedZones, IKPlayerZones, CourtEntry } from "./zones.js";
 import type { ChoiceOption, ModifierSpec } from "./effects/program.js";
 
-export type IKPhase = "crown" | "setup" | "play" | "resolving" | "end_of_turn";
+export type IKPhase = "crown" | "mustering" | "setup" | "play" | "resolving" | "end_of_turn";
 
 export type PendingEffectSource =
   | { readonly kind: "cardPlay"; readonly cardId: number }
@@ -23,6 +23,7 @@ export interface PendingResolution {
 export interface ActiveModifier {
   readonly sourceCardId: number;
   readonly spec: ModifierSpec;
+  readonly playedBy?: PlayerId;
 }
 
 export interface IKState {
@@ -39,6 +40,9 @@ export interface IKState {
   readonly roundModifiers: ReadonlyArray<ActiveModifier>;
   readonly khPrevented?: boolean;
   readonly publiclyTrackedKH: ReadonlyArray<number>;
+  readonly armyRecruitedIds: ReadonlyArray<number>;
+  readonly hasExhaustedThisMustering: boolean;
+  readonly musteringPlayersDone: number;
 }
 
 export const throne = (state: IKState): CourtEntry | null =>

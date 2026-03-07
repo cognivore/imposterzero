@@ -30,6 +30,7 @@ import {
   listRoomSummaries,
   pruneEmptyRooms,
   updateManagedRoomTargetScore,
+  updateManagedRoomExpansion,
 } from "./room-manager.js";
 
 export interface ServerOptions {
@@ -138,8 +139,47 @@ export const startServer = (
     }
   };
 
+  const scheduleBotDraft = (m: ManagedRoom): void => {
+    if (m.room.phase !== "drafting") return;
+    const drafting = m.room as import("./room.js").DraftingRoom;
+    const defaultPicks = ["Aegis", "Exile", "Ancestor"];
+
+    for (const player of drafting.lobby.players) {
+      if (!isBot(m.botRegistry, player.id)) continue;
+      const playerIdx = drafting.lobby.players.findIndex((p) => p.id === player.id);
+      if (playerIdx < 0) continue;
+      if ((drafting.playerSelections[playerIdx]?.length ?? 0) >= drafting.selectionsNeeded) continue;
+
+      const now = Date.now();
+      const result = roomTransition(m.room, {
+        kind: "draft_select",
+        playerId: player.id,
+        cards: defaultPicks.slice(0, drafting.selectionsNeeded),
+        now,
+      }, now);
+      if (result.ok) {
+        m.room = result.value.room;
+        broadcastToRoom(m, result.value.messages);
+      }
+    }
+
+    if (m.room.phase === "playing") {
+      const playing = m.room as PlayingRoom;
+      (m.room as { session: typeof playing.session }).session = {
+        ...playing.session,
+        turnDeadline: Date.now() + playing.session.turnDuration,
+      };
+      scheduleTurnTimer(m);
+      scheduleBotTurn(m);
+    }
+  };
+
   const scheduleBotTurn = (m: ManagedRoom): void => {
     clearRoomBotTimer(m);
+    if (m.room.phase === "drafting") {
+      scheduleBotDraft(m);
+      return;
+    }
     if (m.room.phase !== "playing") return;
 
     const playing = m.room as PlayingRoom;
@@ -252,7 +292,7 @@ export const startServer = (
     const managed = findRoomOfPlayer(store, entry.playerId);
     if (managed) {
       sendJson(ws, { type: "room_joined", roomId: managed.id });
-      sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy });
+      sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy, expansion: managed.room.expansionState !== null });
       sendStateSnapshot(ws, managed);
     } else {
       sendRoomListTo(ws);
@@ -333,7 +373,7 @@ export const startServer = (
         addPlayerToRoom(store, playerId, managed.id);
 
         sendJson(ws, { type: "room_created", roomId: managed.id });
-        sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy });
+        sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy, expansion: managed.room.expansionState !== null });
         sendJson(ws, { type: "lobby_state", lobby: managed.room.lobby });
         broadcastRoomListToBrowsers();
         return;
@@ -366,7 +406,7 @@ export const startServer = (
         addPlayerToRoom(store, playerId, managed.id);
 
         sendJson(ws, { type: "room_joined", roomId: managed.id });
-        sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy });
+        sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy, expansion: managed.room.expansionState !== null });
         broadcastToRoom(managed, result.value.messages);
         broadcastRoomListToBrowsers();
         return;
@@ -415,9 +455,15 @@ export const startServer = (
           sendJson(ws, { type: "error", message: "game_in_progress" });
           return;
         }
-        const newTarget = Math.min(99, Math.max(1, Number(msg.targetScore) || 7));
-        updateManagedRoomTargetScore(managed, newTarget);
-        const settingsMsg = { type: "room_settings" as const, targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy };
+        if (msg.targetScore !== undefined) {
+          const newTarget = Math.min(99, Math.max(1, Number(msg.targetScore) || 7));
+          updateManagedRoomTargetScore(managed, newTarget);
+        }
+        if (msg.expansion !== undefined) {
+          updateManagedRoomExpansion(managed, Boolean(msg.expansion));
+        }
+        const isExpansion = managed.room.phase === "lobby" && managed.room.expansionState !== null;
+        const settingsMsg = { type: "room_settings" as const, targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy, expansion: isExpansion };
         const pids = playersInRoom(store, managed.id);
         for (const pid of pids) {
           const w = wsForPlayer(pid);
@@ -467,6 +513,24 @@ export const startServer = (
         scheduleTurnTimer(managed);
         scheduleBotTurn(managed);
         broadcastRoomListToBrowsers();
+        return;
+      }
+
+      if (msg.type === "draft_select") {
+        if (managed.room.phase !== "drafting") {
+          sendJson(ws, { type: "error", message: "not_in_draft" });
+          return;
+        }
+        const cards = msg.cards as ReadonlyArray<string>;
+        const result = roomTransition(managed.room, { kind: "draft_select", playerId: name, cards, now: msgNow }, msgNow);
+        if (!result.ok) {
+          sendJson(ws, { type: "error", message: result.error.kind });
+          return;
+        }
+        managed.room = result.value.room;
+        broadcastToRoom(managed, result.value.messages);
+        scheduleTurnTimer(managed);
+        scheduleBotTurn(managed);
         return;
       }
 

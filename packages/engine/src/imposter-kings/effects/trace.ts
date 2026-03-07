@@ -47,6 +47,15 @@ export const findCardName = (state: IKState, cardId: number): string => {
     for (const c of p.parting) {
       if (c.id === cardId) return c.kind.name;
     }
+    for (const c of p.army) {
+      if (c.id === cardId) return c.kind.name;
+    }
+    for (const c of p.exhausted) {
+      if (c.id === cardId) return c.kind.name;
+    }
+    for (const c of p.recruitDiscard) {
+      if (c.id === cardId) return c.kind.name;
+    }
   }
   if (state.shared.accused?.id === cardId) return state.shared.accused.kind.name;
   if (state.shared.forgotten?.card.id === cardId)
@@ -136,6 +145,8 @@ const describeQuery = (query: CardQuery): string => {
       return `cards with base value ${query.value}`;
     case "allInCourt":
       return "all cards in court";
+    case "byMinBaseValue":
+      return `cards with base value \u2265 ${query.minValue}`;
     case "allInCourtExceptSelf":
       return "all other cards in court";
     case "and":
@@ -159,6 +170,10 @@ const describeModifier = (spec: ModifierSpec): string => {
       return `mute ${describeQuery(spec.target)}`;
     case "selfCourtValue":
       return `set court value to ${spec.value}`;
+    case "valueChangePerCount":
+      return `${spec.deltaPerMatch > 0 ? "+" : ""}${spec.deltaPerMatch} per matching ${describeQuery(spec.countQuery)} to ${describeQuery(spec.target)}`;
+    case "conditionalRevokeKeyword":
+      return `conditionally revoke "${spec.keyword}" from ${describeQuery(spec.target)}`;
   }
 };
 
@@ -191,6 +206,14 @@ export const describePredicate = (
       return "throne card is not Royalty";
     case "playedOnHigherValue":
       return "played on a higher-value card";
+    case "cardIsOnThrone":
+      return "card is on the throne";
+    case "playerArmyHasCards":
+      return `${describePlayerRef(pred.player, ctx)}'s army has cards`;
+    case "playerHasExhausted":
+      return `${describePlayerRef(pred.player, ctx)} has exhausted cards`;
+    case "playedOnRoyalty":
+      return "played on a Royalty card";
   }
 };
 
@@ -213,6 +236,8 @@ export const describeChoice = (
       return `${who} passed.`;
     case "proceed":
       return `${who} proceeded.`;
+    case "yesNo":
+      return `${who} chose ${option.value ? "Yes" : "No"}.`;
   }
 };
 
@@ -296,6 +321,24 @@ export const describeStep: DescribeStep = {
 
   khReactionWindow: (_node, ctx) =>
     `King's Hand reaction window for ${ctx.playedCard.kind.name}.`,
+
+  rally: (_node, ctx) =>
+    `Player ${ctx.activePlayer} rallies a card from their army.`,
+
+  recall: (_node, ctx) =>
+    `Player ${ctx.activePlayer} recalls an exhausted card to their army.`,
+
+  binaryChoice: (node, ctx) =>
+    `${describePlayerRef(node.player, ctx)} makes a yes/no choice.`,
+
+  revealZone: (node, ctx) =>
+    `Reveal ${describeZoneRef(node.zone, ctx)}.`,
+
+  checkDungeon: (node, ctx) =>
+    `Check ${describePlayerRef(node.player, ctx)}'s dungeon.`,
+
+  removeFromRound: (node, ctx, state) =>
+    `Remove ${describeCardRef(node.card, ctx, state)} from the round.`,
 };
 
 // ---------------------------------------------------------------------------

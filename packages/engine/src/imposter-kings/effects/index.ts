@@ -50,6 +50,14 @@ export {
   seq,
   preventEffect,
   khWindow,
+  rally,
+  recall,
+  binaryChoice,
+  revealZone,
+  checkDungeon,
+  removeFromRound,
+  activeArmy,
+  activeExhausted,
 } from "./program.js";
 
 export {
@@ -67,6 +75,10 @@ export {
   throneIsRoyalty,
   throneIsNotRoyalty,
   playedOnHigherValue,
+  cardIsOnThrone,
+  playerArmyHasCards,
+  playerHasExhausted,
+  playedOnRoyalty,
 } from "./predicates.js";
 
 export { resolve, replay } from "./interpreter.js";

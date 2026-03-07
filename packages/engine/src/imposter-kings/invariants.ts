@@ -9,6 +9,9 @@ const collectAllCardIds = (state: IKState): number[] => {
     if (p.dungeon) ids.push(p.dungeon.card.id);
     ids.push(...p.antechamber.map((c) => c.id));
     ids.push(...p.parting.map((c) => c.id));
+    ids.push(...p.army.map((c) => c.id));
+    ids.push(...p.exhausted.map((c) => c.id));
+    ids.push(...p.recruitDiscard.map((c) => c.id));
   }
   for (const e of state.shared.court) ids.push(e.card.id);
   if (state.shared.accused) ids.push(state.shared.accused.id);

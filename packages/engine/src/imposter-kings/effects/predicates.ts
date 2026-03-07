@@ -20,7 +20,11 @@ export type StatePredicate =
   | { readonly tag: "courtHasRoyalty" }
   | { readonly tag: "throneIsRoyalty" }
   | { readonly tag: "throneIsNotRoyalty" }
-  | { readonly tag: "playedOnHigherValue" };
+  | { readonly tag: "playedOnHigherValue" }
+  | { readonly tag: "cardIsOnThrone" }
+  | { readonly tag: "playerArmyHasCards"; readonly player: PlayerRef }
+  | { readonly tag: "playerHasExhausted"; readonly player: PlayerRef }
+  | { readonly tag: "playedOnRoyalty" };
 
 // ---------------------------------------------------------------------------
 // Resolver
@@ -70,6 +74,21 @@ export const evaluate = (
       const below = court[idx - 1]!;
       return below.face === "up" && below.card.kind.props.value > ctx.playedCard.kind.props.value;
     }
+    case "cardIsOnThrone": {
+      const top = throne(state);
+      return top !== null && top.card.id === ctx.playedCard.id;
+    }
+    case "playerArmyHasCards":
+      return playerZones(state, resolvePlayer(pred.player, ctx)).army.length > 0;
+    case "playerHasExhausted":
+      return playerZones(state, resolvePlayer(pred.player, ctx)).exhausted.length > 0;
+    case "playedOnRoyalty": {
+      const court = state.shared.court;
+      const idx = court.findIndex((e) => e.card.id === ctx.playedCard.id);
+      if (idx <= 0) return false;
+      const below = court[idx - 1]!;
+      return below.face === "up" && below.card.kind.props.keywords.includes("royalty");
+    }
   }
 };
 
@@ -111,3 +130,13 @@ export const courtHasRoyalty: StatePredicate = { tag: "courtHasRoyalty" };
 export const throneIsRoyalty: StatePredicate = { tag: "throneIsRoyalty" };
 export const throneIsNotRoyalty: StatePredicate = { tag: "throneIsNotRoyalty" };
 export const playedOnHigherValue: StatePredicate = { tag: "playedOnHigherValue" };
+export const cardIsOnThrone: StatePredicate = { tag: "cardIsOnThrone" };
+export const playerArmyHasCards = (player: PlayerRef): StatePredicate => ({
+  tag: "playerArmyHasCards",
+  player,
+});
+export const playerHasExhausted = (player: PlayerRef): StatePredicate => ({
+  tag: "playerHasExhausted",
+  player,
+});
+export const playedOnRoyalty: StatePredicate = { tag: "playedOnRoyalty" };

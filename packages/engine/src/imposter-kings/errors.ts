@@ -10,7 +10,12 @@ export type TransitionError =
   | { readonly kind: "king_already_down" }
   | { readonly kind: "invalid_first_player"; readonly player: number }
   | { readonly kind: "invalid_effect_choice"; readonly choice: number }
-  | { readonly kind: "no_pending_resolution" };
+  | { readonly kind: "no_pending_resolution" }
+  | { readonly kind: "card_not_in_army"; readonly cardId: number }
+  | { readonly kind: "card_not_exhausted"; readonly cardId: number }
+  | { readonly kind: "not_enough_exhausted_for_recommission" }
+  | { readonly kind: "no_army_cards_available" }
+  | { readonly kind: "must_exhaust_for_first_recruit" };
 
 export const transitionErrorMessage = (e: TransitionError): string => {
   switch (e.kind) {
@@ -34,5 +39,15 @@ export const transitionErrorMessage = (e: TransitionError): string => {
       return `Effect choice ${e.choice} is out of range`;
     case "no_pending_resolution":
       return "No pending effect resolution to apply choice to";
+    case "card_not_in_army":
+      return `Card ${e.cardId} is not in the player's army`;
+    case "card_not_exhausted":
+      return `Card ${e.cardId} is not in the player's exhausted zone`;
+    case "not_enough_exhausted_for_recommission":
+      return "Need at least 2 exhausted cards and 1 exhausted card to recover for recommission";
+    case "no_army_cards_available":
+      return "No cards available in army to recruit";
+    case "must_exhaust_for_first_recruit":
+      return "Must exhaust a card from army as cost for first recruit this mustering phase";
   }
 };

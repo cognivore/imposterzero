@@ -34,9 +34,23 @@ import {
   playerZone,
   playerId,
   khWindow,
+  rally,
+  recall,
+  binaryChoice,
+  revealZone,
+  checkDungeon,
+  removeFromRound,
 } from "./effects/program.js";
 import type { CardRef, ModifierSpec } from "./effects/program.js";
-import { kingIsFlipped, courtHasRoyalty, courtHasDisgraced, courtHasFaceUpAtLeast, playedOnHigherValue } from "./effects/predicates.js";
+import {
+  kingIsFlipped,
+  courtHasRoyalty,
+  courtHasDisgraced,
+  courtHasFaceUpAtLeast,
+  playedOnHigherValue,
+  cardIsOnThrone,
+  playedOnRoyalty,
+} from "./effects/predicates.js";
 
 export interface CardOps<C> {
   readonly value: (card: C) => number;
@@ -258,9 +272,10 @@ const EXECUTIONER: CardContent = {
 
 const BARD: CardContent = {
   keywords: [],
-  shortText: "Inspire with words and melody.",
-  fullText: "The Bard\u2019s ability text has not yet been confirmed.",
-  flavorTexts: [""],
+  shortText: "Replenish Army on value 3 or 4.",
+  fullText:
+    "When played on a card with base value 3 or 4, Recall an Exhausted card back into your Army.",
+  flavorTexts: ["Songs echo longer than swords"],
 };
 
 const disgraceUpTo3 = optional(
@@ -342,9 +357,234 @@ const JUDGE: CardContent = {
 
 const ARBITER: CardContent = {
   keywords: [],
-  shortText: "Arbitrate disputes in Court.",
-  fullText: "The Arbiter\u2019s ability text has not yet been confirmed.",
-  flavorTexts: [""],
+  shortText: "Exchange card; guess opponent\u2019s hand.",
+  fullText:
+    "You must exchange a card from your hand with a card from your opponent\u2019s hand. Guess whether the card you receive has a higher or lower value. If correct, the exchanged card gains +2 value in Court.",
+  flavorTexts: ["Justice is a negotiation, not a verdict"],
+};
+
+// ---------------------------------------------------------------------------
+// Signature cards — Fragments of Nersetti expansion
+// ---------------------------------------------------------------------------
+
+const flagbearerEffect = ifCond(
+  courtHasDisgraced,
+  optional(
+    seq(
+      disgrace(played),
+      recall(),
+      rally(rally()),
+    ),
+  ),
+);
+
+const FLAGBEARER: CardContent = {
+  keywords: [],
+  shortText: "Disgrace self to Recall and Rally.",
+  fullText:
+    "If there is a Disgraced card in Court, you may Disgrace this card to Recall once, then Rally twice. Reveal Rallied cards, then return one secretly to the Army.",
+  flavorTexts: ["Every flag a command, every flutter a call to action"],
+  effects: [onPlay(flagbearerEffect)],
+};
+
+const strangerEffect = optional(
+  chooseCard(active, courtZone, { tag: "notDisgraced" }, (cardId) =>
+    removeFromRound({ kind: "id", cardId } as CardRef),
+  ),
+);
+
+const STRANGER: CardContent = {
+  keywords: ["immune_to_kings_hand"],
+  shortText: "Copy Reaction in hand; copy card on play.",
+  fullText:
+    "While in your hand, the Stranger may copy any Reaction card in Court that is not on the Throne. When played, it may copy the ability text and name of any card in Court. Remove copied card from the round.",
+  flavorTexts: ["\u2026Who are you? Incomplete and yearning, curious\u2026"],
+  effects: [onPlay(strangerEffect)],
+};
+
+const aegisEffect = optional(
+  chooseCard(active, courtZone, { tag: "notDisgraced" }, (cardId) =>
+    khWindow(disgrace({ kind: "id", cardId } as CardRef)),
+  ),
+);
+
+const AEGIS: CardContent = {
+  keywords: ["immune_to_kings_hand", "steadfast"],
+  shortText: "Play on any card; Disgrace in Court.",
+  fullText:
+    "You may play this on any card then may Disgrace any card in Court. When your King is flipped, this card loses Steadfast.",
+  flavorTexts: ["Experience trumps youth in a duel"],
+  effects: [
+    playOverride({ tag: "onAnyCard" }),
+    onPlay(aegisEffect),
+    continuous({ tag: "conditionalRevokeKeyword", keyword: "steadfast", target: { tag: "self" }, condition: { tag: "kingIsFlipped", player: active } }),
+  ],
+};
+
+const ancestorOnPlay = ifCond(
+  playedOnRoyalty,
+  seq(
+    recall(),
+    optional(
+      chooseCard(active, activeHand, null, (cardId) =>
+        seq(
+          move({ kind: "id", cardId } as CardRef, activeHand, playerZone(active, "recruitDiscard")),
+          rally(),
+        ),
+      ),
+    ),
+  ),
+);
+
+const ANCESTOR: CardContent = {
+  keywords: ["immune_to_kings_hand"],
+  shortText: "Play on Royalty; Recall and Rally.",
+  fullText:
+    "You may play this card on any Royalty. If you do, Recall. Then, you may reveal and remove a card from your hand to Rally. While this card is in Court, Elders gain Steadfast and +3 value.",
+  flavorTexts: ["A reminder of the importance of the Gerontocracy"],
+  effects: [
+    playOverride({ tag: "onAnyRoyalty" }),
+    onPlay(ancestorOnPlay),
+    continuous({ tag: "grantKeyword", keyword: "steadfast", target: { tag: "byName", name: "Elder" } }),
+    continuous({ tag: "valueChange", delta: 3, target: { tag: "byName", name: "Elder" } }),
+  ],
+};
+
+const informantEffect = nameCard((name) =>
+  khWindow(
+    forEachOpponent((opp) => {
+      const dungeonZone = playerZone(playerId(opp), "dungeon");
+      return checkZone(
+        dungeonZone,
+        { tag: "hasName", name },
+        seq(
+          revealZone(dungeonZone),
+          optional(
+            withFirstCardIn(dungeonZone, (cardId) =>
+              move({ kind: "id", cardId } as CardRef, dungeonZone, activeHand),
+            ),
+            rally(),
+          ),
+        ),
+      );
+    }),
+  ),
+);
+
+const INFORMANT: CardContent = {
+  keywords: ["immune_to_kings_hand"],
+  shortText: "Guess Dungeon card; take it or Rally.",
+  fullText:
+    "Guess the card name in an opponent\u2019s Dungeon. If correct, they must reveal it, then you may either add that card into your hand or Rally.",
+  flavorTexts: ["Knowledge is the sharpest weapon in a world full of lies"],
+  effects: [onPlay(informantEffect, false)],
+};
+
+const nakturnWrongGuess = (opp: import("@imposter-zero/types").PlayerId) => {
+  const oppHand = playerZone(playerId(opp), "hand");
+  return seq(
+    revealZone(oppHand),
+    chooseCard(active, oppHand, null, (cardId) =>
+      condemn({ kind: "id", cardId } as CardRef, oppHand),
+    ),
+  );
+};
+
+const nakturnEffect = ifCond(
+  courtHasDisgraced,
+  optional(
+    nameCard((name) =>
+      choosePlayer((opp) =>
+        khWindow(
+          binaryChoice(playerId(opp), (guessedYes) =>
+            guessedYes
+              ? checkZone(activeHand, { tag: "hasName", name }, done, nakturnWrongGuess(opp))
+              : checkZone(activeHand, { tag: "hasName", name }, nakturnWrongGuess(opp), done),
+          ),
+        ),
+      ),
+    ),
+  ),
+);
+
+const NAKTURN: CardContent = {
+  keywords: [],
+  shortText: "Bluff; opponent guesses, Condemn if wrong.",
+  fullText:
+    "If there are any Disgraced cards in Court, you may say a card name. Choose an opponent to guess whether you have that card in your hand. If they are wrong, look at their hand and Condemn a card. This card\u2019s value is 2 while in Court.",
+  flavorTexts: ["Some people never make it to Court"],
+  effects: [
+    onPlay(nakturnEffect),
+    continuous({ tag: "selfCourtValue", value: 2 }),
+  ],
+};
+
+const lockshiftEffect = optional(
+  khWindow(
+    forEachOpponent(
+      (opp) => revealZone(playerZone(playerId(opp), "dungeon")),
+      seq(
+        ...Array.from({ length: 4 }, (_, i) => {
+          const p = playerId(i as import("@imposter-zero/types").PlayerId);
+          return checkZone(
+            playerZone(p, "dungeon"),
+            null,
+            withFirstCardIn(playerZone(p, "dungeon"), (cardId) =>
+              move({ kind: "id", cardId } as CardRef, playerZone(p, "dungeon"), playerZone(p, "hand")),
+            ),
+          );
+        }),
+      ),
+    ),
+  ),
+);
+
+const LOCKSHIFT: CardContent = {
+  keywords: [],
+  shortText: "Reveal and reclaim all Dungeons.",
+  fullText:
+    "You may make all other players reveal their Dungeon card. If you do, all players then put their Dungeon card in their hand.",
+  flavorTexts: ["There\u2019s always a crack if you know where to look"],
+  effects: [onPlay(lockshiftEffect)],
+};
+
+const conspiracistEffect = seq(
+  addRoundModifier(played, { tag: "grantKeyword", keyword: "steadfast", target: { tag: "allInCourt" } }),
+  addRoundModifier(played, { tag: "valueChange", delta: 1, target: { tag: "allInCourt" } }),
+);
+
+const CONSPIRACIST: CardContent = {
+  keywords: ["steadfast"],
+  shortText: "Grant Steadfast +1 to next plays.",
+  fullText:
+    "Until the end of your next turn, any card in your hand or Antechamber has Steadfast and +1 value. Cards played during this time keep this effect while they are in Court. This card loses 1 value while on the Throne.",
+  flavorTexts: ["They always laughed at them for believing in Magic\u2026"],
+  effects: [
+    onPlay(conspiracistEffect, false),
+    continuous({ tag: "conditionalValueChange", delta: -1, target: { tag: "self" }, condition: cardIsOnThrone }),
+  ],
+};
+
+const exileOnPlay = addRoundModifier(
+  played,
+  { tag: "mute", target: { tag: "allInCourtExceptSelf" } },
+);
+
+const EXILE: CardContent = {
+  keywords: ["steadfast"],
+  shortText: "Mute all; weaker vs high-value Court.",
+  fullText:
+    "This card loses 1 value on Throne for each card in Court with a base value 7 or higher. When played, all cards are Muted until the start of your next turn.",
+  flavorTexts: ["Their protection is certain, yet dread hangs in the air"],
+  effects: [
+    onPlay(exileOnPlay, false),
+    continuous({
+      tag: "valueChangePerCount",
+      deltaPerMatch: -1,
+      target: { tag: "self" },
+      countQuery: { tag: "byMinBaseValue", minValue: 7 },
+    }),
+  ],
 };
 
 const oathboundEffect = ifCond(
@@ -682,6 +922,26 @@ const fourPlayerExtras: ReadonlyArray<IKCardKind> = [
 export const BASE_DECK: ReadonlyArray<IKCardKind> = baseDefinitions;
 export const THREE_PLAYER_EXTRAS: ReadonlyArray<IKCardKind> = threePlayerExtras;
 export const FOUR_PLAYER_EXTRAS: ReadonlyArray<IKCardKind> = fourPlayerExtras;
+
+export const SIGNATURE_CARD_KINDS: ReadonlyArray<IKCardKind> = [
+  ...copies("Flagbearer", 1, 1, FLAGBEARER),
+  ...copies("Stranger", 2, 1, STRANGER),
+  ...copies("Aegis", 3, 1, AEGIS),
+  ...copies("Ancestor", 4, 1, ANCESTOR),
+  ...copies("Informant", 4, 1, INFORMANT),
+  ...copies("Nakturn", 4, 1, NAKTURN),
+  ...copies("Lockshift", 5, 1, LOCKSHIFT),
+  ...copies("Conspiracist", 6, 1, CONSPIRACIST),
+  ...copies("Exile", 8, 1, EXILE),
+];
+
+export const BASE_ARMY_KINDS: ReadonlyArray<IKCardKind> = [
+  ...copies("Elder", 3, 1, ELDER),
+  ...copies("Inquisitor", 4, 1, INQUISITOR),
+  ...copies("Soldier", 5, 1, SOLDIER),
+  ...copies("Judge", 5, 1, JUDGE),
+  ...copies("Oathbound", 6, 1, OATHBOUND),
+];
 
 export const regulationDeck = (numPlayers: number): ReadonlyArray<IKCardKind> => {
   if (numPlayers < 2 || numPlayers > 4) {

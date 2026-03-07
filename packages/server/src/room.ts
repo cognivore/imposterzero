@@ -4,13 +4,22 @@ import {
   type IKState,
   type IKAction,
   type MatchState,
+  type GameConfig,
+  type PlayerArmy,
+  type CardName,
   createMatch,
+  createExpansionGame,
+  createExpansionRound,
+  exhaustArmyCardsPostRound,
+  buildPlayerArmies,
   applyRoundResult,
   isMatchOver,
   matchWinners,
   roundScore,
   regulationDeck,
   deal,
+  SIGNATURE_CARD_NAMES,
+  REGULATION_2P_EXPANSION,
 } from "@imposter-zero/engine";
 import type { PlayerId as EnginePlayerId } from "@imposter-zero/types";
 
@@ -28,7 +37,12 @@ import {
   type TimeoutPolicy,
 } from "./session.js";
 
-export type RoomPhase = "lobby" | "playing" | "scoring" | "finished";
+export type RoomPhase = "lobby" | "drafting" | "playing" | "scoring" | "finished";
+
+export interface ExpansionState {
+  readonly config: GameConfig;
+  readonly playerArmies: ReadonlyArray<PlayerArmy>;
+}
 
 export interface LobbyRoom {
   readonly phase: "lobby";
@@ -37,6 +51,7 @@ export interface LobbyRoom {
   readonly game: GameDef<IKState, IKAction>;
   readonly turnDuration: number;
   readonly targetScore: number;
+  readonly expansionState: ExpansionState | null;
 }
 
 export interface PlayingRoom {
@@ -47,6 +62,7 @@ export interface PlayingRoom {
   readonly game: GameDef<IKState, IKAction>;
   readonly turnDuration: number;
   readonly targetScore: number;
+  readonly expansionState: ExpansionState | null;
 }
 
 export interface ScoringRoom {
@@ -59,6 +75,20 @@ export interface ScoringRoom {
   readonly game: GameDef<IKState, IKAction>;
   readonly turnDuration: number;
   readonly targetScore: number;
+  readonly expansionState: ExpansionState | null;
+}
+
+export interface DraftingRoom {
+  readonly phase: "drafting";
+  readonly lobby: LobbyState;
+  readonly match: MatchState;
+  readonly game: GameDef<IKState, IKAction>;
+  readonly turnDuration: number;
+  readonly targetScore: number;
+  readonly expansionState: ExpansionState;
+  readonly signaturePool: ReadonlyArray<string>;
+  readonly playerSelections: ReadonlyArray<ReadonlyArray<string>>;
+  readonly selectionsNeeded: number;
 }
 
 export interface FinishedRoom {
@@ -69,16 +99,18 @@ export interface FinishedRoom {
   readonly game: GameDef<IKState, IKAction>;
   readonly turnDuration: number;
   readonly targetScore: number;
+  readonly expansionState: ExpansionState | null;
 }
 
-export type Room = LobbyRoom | PlayingRoom | ScoringRoom | FinishedRoom;
+export type Room = LobbyRoom | DraftingRoom | PlayingRoom | ScoringRoom | FinishedRoom;
 
 export type RoomAction =
   | { readonly kind: "join"; readonly playerId: string }
   | { readonly kind: "leave"; readonly playerId: string }
   | { readonly kind: "ready"; readonly playerId: string; readonly now: number }
   | { readonly kind: "action"; readonly playerId: string; readonly action: IKAction; readonly now: number }
-  | { readonly kind: "timeout"; readonly now: number };
+  | { readonly kind: "timeout"; readonly now: number }
+  | { readonly kind: "draft_select"; readonly playerId: string; readonly cards: ReadonlyArray<string>; readonly now: number };
 
 export type OutboundMessage = ServerMessage<IKState, IKAction, LobbyState>;
 
@@ -98,6 +130,7 @@ export const createRoom = (
   maxPlayers?: number,
   targetScore: number = 7,
   turnDuration: number = 30_000,
+  expansionState: ExpansionState | null = null,
 ): LobbyRoom => {
   const max = maxPlayers ?? game.gameType.maxPlayers;
   return {
@@ -107,6 +140,7 @@ export const createRoom = (
     game,
     turnDuration,
     targetScore,
+    expansionState,
   };
 };
 
@@ -123,12 +157,29 @@ const startNewRound = (
   const numPlayers = room.lobby.players.length;
   const playerMapping = buildPlayerMapping(room.lobby);
   const trueKing = room.phase === "scoring" ? room.loser as EnginePlayerId : undefined;
-  const initialState = trueKing !== undefined
-    ? deal(regulationDeck(numPlayers), numPlayers, undefined, trueKing)
-    : undefined;
-  const session = startSession(room.game, numPlayers, playerMapping, room.turnDuration, now, initialState);
-  const legalActions = room.game.legalActions(session.state);
-  const activePlayer = room.game.currentPlayer(session.state) as PlayerId;
+
+  let activeGame = room.game;
+  let initialState: IKState | undefined;
+
+  if (room.expansionState) {
+    const tk: PlayerId = trueKing ?? (0 as PlayerId);
+    activeGame = createExpansionGame(
+      room.expansionState.config,
+      room.expansionState.playerArmies,
+      tk,
+    );
+    initialState = createExpansionRound(
+      room.expansionState.config,
+      room.expansionState.playerArmies,
+      tk,
+    );
+  } else if (trueKing !== undefined) {
+    initialState = deal(regulationDeck(numPlayers), numPlayers, undefined, trueKing);
+  }
+
+  const session = startSession(activeGame, numPlayers, playerMapping, room.turnDuration, now, initialState);
+  const legalActions = activeGame.legalActions(session.state);
+  const activePlayer = activeGame.currentPlayer(session.state) as PlayerId;
 
   const lobbyResult = lobbyTransitionSafe(room.lobby, {
     kind: "start",
@@ -143,9 +194,10 @@ const startNewRound = (
     lobby,
     match: room.match,
     session,
-    game: room.game,
+    game: activeGame,
     turnDuration: room.turnDuration,
     targetScore: room.targetScore,
+    expansionState: room.expansionState,
   };
 
   const playerNames = playerNamesOf(room);
@@ -184,6 +236,13 @@ const handleGameAction = (
 
     const terminalState = newSession.state;
 
+    const updatedExpansion = room.expansionState
+      ? {
+          ...room.expansionState,
+          playerArmies: exhaustArmyCardsPostRound(terminalState, room.expansionState.playerArmies),
+        }
+      : null;
+
     if (isMatchOver(newMatch)) {
       const winners = matchWinners(newMatch);
       const finishedRoom: FinishedRoom = {
@@ -194,6 +253,7 @@ const handleGameAction = (
         game: room.game,
         turnDuration: room.turnDuration,
         targetScore: room.targetScore,
+        expansionState: updatedExpansion,
       };
       return ok({
         room: finishedRoom,
@@ -214,6 +274,7 @@ const handleGameAction = (
       game: room.game,
       turnDuration: room.turnDuration,
       targetScore: room.targetScore,
+      expansionState: updatedExpansion,
     };
     return ok({
       room: scoringRoom,
@@ -252,6 +313,13 @@ const handleTimeout = (
     const scores = roundScore(terminalState);
     const newMatch = applyRoundResult(room.match, scores);
 
+    const updatedExpansion = room.expansionState
+      ? {
+          ...room.expansionState,
+          playerArmies: exhaustArmyCardsPostRound(terminalState, room.expansionState.playerArmies),
+        }
+      : null;
+
     if (isMatchOver(newMatch)) {
       const winners = matchWinners(newMatch);
       return {
@@ -263,6 +331,7 @@ const handleTimeout = (
           game: room.game,
           turnDuration: room.turnDuration,
           targetScore: room.targetScore,
+          expansionState: updatedExpansion,
         },
         messages: [
           { type: "round_over", state: terminalState, scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed, playerNames },
@@ -282,6 +351,7 @@ const handleTimeout = (
         game: room.game,
         turnDuration: room.turnDuration,
         targetScore: room.targetScore,
+        expansionState: updatedExpansion,
       },
       messages: [
         { type: "round_over", state: terminalState, scores, matchScores: [...newMatch.scores], roundsPlayed: newMatch.roundsPlayed, playerNames },
@@ -300,6 +370,130 @@ const handleTimeout = (
   };
 };
 
+const startDraftPhase = (
+  room: LobbyRoom,
+  now: number,
+): RoomTransitionResult => {
+  const numPlayers = room.lobby.players.length;
+  const newMatch = createMatch(numPlayers, room.targetScore);
+  const expansion = room.expansionState!;
+  const pool = SIGNATURE_CARD_NAMES as ReadonlyArray<string>;
+
+  const draftingRoom: DraftingRoom = {
+    phase: "drafting",
+    lobby: room.lobby,
+    match: newMatch,
+    game: room.game,
+    turnDuration: room.turnDuration,
+    targetScore: room.targetScore,
+    expansionState: expansion,
+    signaturePool: pool,
+    playerSelections: Array.from({ length: numPlayers }, () => []),
+    selectionsNeeded: expansion.config.signaturesPerPlayer,
+  };
+
+  const playerNames = playerNamesOf(room);
+  const msgs: OutboundMessage[] = pool.map((_, i) => ({
+    type: "draft_state" as const,
+    signaturePool: pool,
+    mySelections: [],
+    selectionsNeeded: expansion.config.signaturesPerPlayer,
+    allReady: false,
+    playerNames,
+  }));
+
+  return {
+    room: draftingRoom,
+    messages: [{ type: "lobby_state", lobby: room.lobby }, ...msgs],
+  };
+};
+
+const handleDraftSelect = (
+  room: DraftingRoom,
+  playerId: string,
+  cards: ReadonlyArray<string>,
+  now: number,
+): Result<RoomError, RoomTransitionResult> => {
+  const playerMapping = buildPlayerMapping(room.lobby);
+  const playerIdx = playerMapping.get(playerId);
+  if (playerIdx === undefined) {
+    return err({ kind: "unknown_player", playerId });
+  }
+
+  if (cards.length !== room.selectionsNeeded) {
+    return err({ kind: "action_error", message: `Must select exactly ${room.selectionsNeeded} cards` });
+  }
+
+  const validNames = new Set(room.signaturePool);
+  for (const card of cards) {
+    if (!validNames.has(card)) {
+      return err({ kind: "action_error", message: `Invalid signature card: ${card}` });
+    }
+  }
+
+  const newSelections = room.playerSelections.map((sel, i) =>
+    i === playerIdx ? [...cards] : [...sel],
+  );
+
+  const allReady = newSelections.every((sel) => sel.length === room.selectionsNeeded);
+  const playerNames = playerNamesOf(room);
+
+  if (allReady) {
+    const armies = buildPlayerArmies(
+      room.expansionState.config,
+      newSelections as ReadonlyArray<ReadonlyArray<CardName>>,
+    );
+    const updatedExpansion: ExpansionState = {
+      ...room.expansionState,
+      playerArmies: armies,
+    };
+
+    const lobbyRoom: LobbyRoom = {
+      phase: "lobby",
+      lobby: room.lobby,
+      match: room.match,
+      game: room.game,
+      turnDuration: room.turnDuration,
+      targetScore: room.targetScore,
+      expansionState: updatedExpansion,
+    };
+
+    const roundResult = startNewRound(lobbyRoom, now);
+
+    return ok({
+      room: roundResult.room,
+      messages: [
+        {
+          type: "draft_state",
+          signaturePool: room.signaturePool,
+          mySelections: [],
+          selectionsNeeded: 0,
+          allReady: true,
+          playerNames,
+        },
+        ...roundResult.messages,
+      ],
+    });
+  }
+
+  const updatedRoom: DraftingRoom = {
+    ...room,
+    playerSelections: newSelections,
+  };
+
+  return ok({
+    room: updatedRoom,
+    messages: [{
+      type: "draft_state",
+      signaturePool: room.signaturePool,
+      mySelections: [],
+      selectionsNeeded: room.selectionsNeeded,
+      allReady: false,
+      playerNames,
+    }],
+  });
+};
+
 export const roomTransition = (
   room: Room,
   action: RoomAction,
@@ -312,6 +506,13 @@ export const roomTransition = (
     return ok(handleTimeout(room, now));
   }
 
+  if (action.kind === "draft_select") {
+    if (room.phase !== "drafting") {
+      return err({ kind: "not_in_game" });
+    }
+    return handleDraftSelect(room, action.playerId, action.cards, now);
+  }
+
   if (action.kind === "action") {
     if (room.phase !== "playing") {
       return err({ kind: "not_in_game" });
@@ -321,6 +522,10 @@ export const roomTransition = (
 
   if (room.phase === "scoring") {
     return ok(startNewRound(room, now));
+  }
+
+  if (room.phase === "drafting") {
+    return ok({ room, messages: [] });
   }
 
   if (room.phase !== "lobby") {
@@ -348,14 +553,27 @@ export const roomTransition = (
   const newLobby = lobbyResult.value;
 
   if (newLobby.kind === "starting") {
+    const lobbyRoom: LobbyRoom = {
+      ...(room as LobbyRoom),
+      lobby: newLobby,
+      expansionState: (room as LobbyRoom).expansionState,
+    };
+
+    if (lobbyRoom.expansionState) {
+      const draftResult = startDraftPhase(lobbyRoom, now);
+      return ok({
+        room: draftResult.room,
+        messages: [{ type: "lobby_state", lobby: newLobby }, ...draftResult.messages],
+      });
+    }
+
     const numPlayers = newLobby.players.length;
     const newMatch = createMatch(numPlayers, room.targetScore);
-    const lobbyRoom: LobbyRoom = {
-      ...room as LobbyRoom,
-      lobby: newLobby,
+    const matchLobbyRoom: LobbyRoom = {
+      ...lobbyRoom,
       match: newMatch,
     };
-    const result = startNewRound(lobbyRoom, now);
+    const result = startNewRound(matchLobbyRoom, now);
     return ok({
       room: result.room,
       messages: [{ type: "lobby_state", lobby: newLobby }, ...result.messages],

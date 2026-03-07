@@ -142,6 +142,10 @@ const abstractAction = (
   }
 
   if (action.kind === "effect_choice") return `E${action.choice}`;
+  if (action.kind === "begin_recruit") return "BR";
+  if (action.kind === "recruit") return "RCR";
+  if (action.kind === "recommission") return "RCM";
+  if (action.kind === "end_mustering") return "EM";
 
   const succ = state.players[player]!.hand.find((c) => c.id === action.successorId);
   const dung = state.players[player]!.hand.find((c) => c.id === action.dungeonId);
