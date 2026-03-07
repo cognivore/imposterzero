@@ -32,7 +32,7 @@ export type TraceSink = (entry: TraceEntry) => void;
 
 export const findCardName = (state: IKState, cardId: number): string => {
   for (const e of state.shared.court) {
-    if (e.card.id === cardId) return e.card.kind.name;
+    if (e.card.id === cardId) return e.copiedName ?? e.card.kind.name;
   }
   for (const p of state.players) {
     for (const c of p.hand) {
@@ -149,6 +149,10 @@ const describeQuery = (query: CardQuery): string => {
       return `cards with base value \u2265 ${query.minValue}`;
     case "allInCourtExceptSelf":
       return "all other cards in court";
+    case "byId":
+      return `card #${query.cardId}`;
+    case "ownedBySourceOwner":
+      return "cards owned by source's player";
     case "and":
       return `(${describeQuery(query.left)} AND ${describeQuery(query.right)})`;
     case "or":
@@ -312,6 +316,9 @@ export const describeStep: DescribeStep = {
   forEachOpponent: (_node, ctx) =>
     `For each opponent of Player ${ctx.activePlayer}:`,
 
+  forEachPlayer: (_node, ctx) =>
+    `For each player:`,
+
   optional: (_node, ctx) => `Player ${ctx.activePlayer} may use or pass.`,
 
   triggerReaction: (node) => `Check for ${node.trigger} reactions.`,
@@ -339,6 +346,12 @@ export const describeStep: DescribeStep = {
 
   removeFromRound: (node, ctx, state) =>
     `Remove ${describeCardRef(node.card, ctx, state)} from the round.`,
+
+  returnOneRallied: (_node, ctx) =>
+    `Player ${ctx.activePlayer} reveals rallied cards and returns one to army.`,
+
+  copyCardEffects: (node, ctx) =>
+    `Player ${ctx.activePlayer} copies a card's effects from ${describeZoneRef(node.zone, ctx)}.`,
 };
 
 // ---------------------------------------------------------------------------

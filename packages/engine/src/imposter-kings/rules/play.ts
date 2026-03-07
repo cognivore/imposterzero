@@ -20,7 +20,7 @@ import {
   disgraceInCourt,
 } from "../zone-addr.js";
 import type { EffectContext, EffectProgram, Resolution } from "../effects/program.js";
-import { refreshModifiers } from "../effects/modifiers.js";
+import { refreshModifiers, crystallizeStickyModifiers } from "../effects/modifiers.js";
 import {
   done,
   active,
@@ -31,7 +31,7 @@ import {
 } from "../effects/program.js";
 import { resolve, replay } from "../effects/interpreter.js";
 import { type TraceEntry } from "../effects/trace.js";
-import { regulationDeck, type CardName } from "../card.js";
+import { regulationDeck, SIGNATURE_CARD_KINDS, type CardName } from "../card.js";
 import { canPlayCard } from "./legal.js";
 
 // ---------------------------------------------------------------------------
@@ -42,7 +42,7 @@ import { canPlayCard } from "./legal.js";
 
 const effectByCardName: ReadonlyMap<CardName, EffectProgram> = (() => {
   const map = new Map<CardName, EffectProgram>();
-  for (const kind of regulationDeck(4)) {
+  for (const kind of [...regulationDeck(4), ...SIGNATURE_CARD_KINDS]) {
     if (map.has(kind.name)) continue;
     const onPlay = kind.props.effects.find(
       (e): e is { readonly tag: "onPlay"; readonly effect: EffectProgram; readonly isOptional: boolean } =>
@@ -130,7 +130,7 @@ const applyAntechamberPlayDirect = (
   }).find((c) => c.id === cardId);
   if (!card) return finalAdvance(state, originalState);
 
-  const moved = moveCard(
+  let moved = moveCard(
     state,
     cardId,
     { scope: "player", player: activePlayer, slot: "antechamber" },
@@ -138,6 +138,7 @@ const applyAntechamberPlayDirect = (
     { face: "up", playedBy: activePlayer },
   );
   if (!moved.ok) return finalAdvance(state, originalState);
+  moved = { ok: true, value: crystallizeStickyModifiers(moved.value, cardId, activePlayer) };
 
   const onPlayEffect = card.kind.props.effects.find(
     (e) => e.tag === "onPlay",
@@ -263,6 +264,8 @@ export const applyPlaySafe = (
     { face: "up", playedBy: activePlayer },
   );
   if (!moved.ok) return err({ kind: "card_not_in_hand", cardId });
+
+  moved = { ok: true, value: crystallizeStickyModifiers(moved.value, cardId, activePlayer) };
 
   if (card.kind.name === "King's Hand" && !moved.value.publiclyTrackedKH.includes(cardId)) {
     moved = { ok: true, value: { ...moved.value, publiclyTrackedKH: [...moved.value.publiclyTrackedKH, cardId] } };

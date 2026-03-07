@@ -31,6 +31,7 @@ import {
   ifCond,
   seq,
   forEachOpponent,
+  forEachPlayer,
   playerZone,
   playerId,
   khWindow,
@@ -40,6 +41,8 @@ import {
   revealZone,
   checkDungeon,
   removeFromRound,
+  returnOneRallied,
+  copyCardEffects,
 } from "./effects/program.js";
 import type { CardRef, ModifierSpec } from "./effects/program.js";
 import {
@@ -373,7 +376,7 @@ const flagbearerEffect = ifCond(
     seq(
       disgrace(played),
       recall(),
-      rally(rally()),
+      rally(rally(returnOneRallied())),
     ),
   ),
 );
@@ -388,7 +391,7 @@ const FLAGBEARER: CardContent = {
 };
 
 const strangerEffect = optional(
-  chooseCard(active, courtZone, { tag: "notDisgraced" }, (cardId) =>
+  copyCardEffects(active, courtZone, { tag: "notDisgraced" }, (cardId) =>
     removeFromRound({ kind: "id", cardId } as CardRef),
   ),
 );
@@ -523,17 +526,14 @@ const lockshiftEffect = optional(
   khWindow(
     forEachOpponent(
       (opp) => revealZone(playerZone(playerId(opp), "dungeon")),
-      seq(
-        ...Array.from({ length: 4 }, (_, i) => {
-          const p = playerId(i as import("@imposter-zero/types").PlayerId);
-          return checkZone(
-            playerZone(p, "dungeon"),
-            null,
-            withFirstCardIn(playerZone(p, "dungeon"), (cardId) =>
-              move({ kind: "id", cardId } as CardRef, playerZone(p, "dungeon"), playerZone(p, "hand")),
-            ),
-          );
-        }),
+      forEachPlayer((p) =>
+        checkZone(
+          playerZone(playerId(p), "dungeon"),
+          null,
+          withFirstCardIn(playerZone(playerId(p), "dungeon"), (cardId) =>
+            move({ kind: "id", cardId } as CardRef, playerZone(playerId(p), "dungeon"), playerZone(playerId(p), "hand")),
+          ),
+        ),
       ),
     ),
   ),
@@ -549,8 +549,8 @@ const LOCKSHIFT: CardContent = {
 };
 
 const conspiracistEffect = seq(
-  addRoundModifier(played, { tag: "grantKeyword", keyword: "steadfast", target: { tag: "allInCourt" } }),
-  addRoundModifier(played, { tag: "valueChange", delta: 1, target: { tag: "allInCourt" } }),
+  addRoundModifier(played, { tag: "grantKeyword", keyword: "steadfast", target: { tag: "ownedBySourceOwner" } }, done, true),
+  addRoundModifier(played, { tag: "valueChange", delta: 1, target: { tag: "ownedBySourceOwner" } }, done, true),
 );
 
 const CONSPIRACIST: CardContent = {
@@ -695,6 +695,12 @@ const WARLORD: CardContent = {
   ],
 };
 
+const mysticMuteTarget = (value: number) => ({
+  tag: "and" as const,
+  left: { tag: "allInCourt" as const },
+  right: { tag: "byBaseValue" as const, value },
+});
+
 const mysticEffect = ifCond(
   courtHasDisgraced,
   optional(
@@ -702,14 +708,17 @@ const mysticEffect = ifCond(
       disgrace(played),
       nameValue(1, 8, (value) =>
         khWindow(
-          addRoundModifier(played, {
-            tag: "mute",
-            target: {
-              tag: "and",
-              left: { tag: "allInCourt" },
-              right: { tag: "byBaseValue", value },
-            },
-          }),
+          seq(
+            addRoundModifier(played, {
+              tag: "mute",
+              target: mysticMuteTarget(value),
+            }),
+            addRoundModifier(played, {
+              tag: "valueChange",
+              delta: 3 - value,
+              target: mysticMuteTarget(value),
+            }),
+          ),
         ),
       ),
     ),

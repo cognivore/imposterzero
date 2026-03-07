@@ -1,3 +1,5 @@
+import type { PlayerId } from "@imposter-zero/types";
+
 import type { IKCard, CardKeyword } from "../card.js";
 import type { IKState, ActiveModifier } from "../state.js";
 import type { CardQuery, ModifierSpec } from "./program.js";
@@ -12,12 +14,16 @@ const matchesQuery = (
   card: IKCard,
   sourceCardId: number,
   state: IKState,
+  playedBy?: PlayerId,
 ): boolean => {
   switch (query.tag) {
     case "self":
       return card.id === sourceCardId;
-    case "byName":
-      return card.kind.name === query.name;
+    case "byName": {
+      const courtEntry = state.shared.court.find((e) => e.card.id === card.id);
+      const name = courtEntry?.copiedName ?? card.kind.name;
+      return name === query.name;
+    }
     case "byKeyword":
       return card.kind.props.keywords.includes(query.keyword);
     case "byBaseValue":
@@ -31,15 +37,29 @@ const matchesQuery = (
         card.id !== sourceCardId &&
         state.shared.court.some((e) => e.card.id === card.id)
       );
+    case "byId":
+      return card.id === query.cardId;
+    case "ownedBySourceOwner": {
+      if (playedBy === undefined) return false;
+      const pz = state.players[playedBy];
+      if (!pz) return false;
+      return (
+        pz.hand.some((c) => c.id === card.id) ||
+        pz.antechamber.some((c) => c.id === card.id) ||
+        state.shared.court.some(
+          (e) => e.card.id === card.id && e.playedBy === playedBy,
+        )
+      );
+    }
     case "and":
       return (
-        matchesQuery(query.left, card, sourceCardId, state) &&
-        matchesQuery(query.right, card, sourceCardId, state)
+        matchesQuery(query.left, card, sourceCardId, state, playedBy) &&
+        matchesQuery(query.right, card, sourceCardId, state, playedBy)
       );
     case "or":
       return (
-        matchesQuery(query.left, card, sourceCardId, state) ||
-        matchesQuery(query.right, card, sourceCardId, state)
+        matchesQuery(query.left, card, sourceCardId, state, playedBy) ||
+        matchesQuery(query.right, card, sourceCardId, state, playedBy)
       );
   }
 };
@@ -48,10 +68,14 @@ const matchesQuery = (
 // Effective value — applies modifier stack to a card's base value
 // ---------------------------------------------------------------------------
 
-const allModifiers = (state: IKState): ReadonlyArray<ActiveModifier> =>
-  state.roundModifiers.length === 0
-    ? state.modifiers
-    : [...state.modifiers, ...state.roundModifiers];
+const allModifiers = (state: IKState): ReadonlyArray<ActiveModifier> => {
+  let result: ReadonlyArray<ActiveModifier> = state.modifiers;
+  if (state.roundModifiers.length > 0)
+    result = [...result, ...state.roundModifiers];
+  if (state.crystallizedModifiers.length > 0)
+    result = [...result, ...state.crystallizedModifiers];
+  return result;
+};
 
 export const effectiveValue = (state: IKState, card: IKCard): number => {
   const isSteadfast = effectiveKeywords(state, card).includes("steadfast");
@@ -73,7 +97,7 @@ export const effectiveValue = (state: IKState, card: IKCard): number => {
         break;
       case "valueChange":
         if (
-          matchesQuery(mod.spec.target, card, mod.sourceCardId, state) &&
+          matchesQuery(mod.spec.target, card, mod.sourceCardId, state, mod.playedBy) &&
           !(isSteadfast && mod.spec.delta < 0)
         ) {
           value += mod.spec.delta;
@@ -81,7 +105,7 @@ export const effectiveValue = (state: IKState, card: IKCard): number => {
         break;
       case "conditionalValueChange":
         if (
-          matchesQuery(mod.spec.target, card, mod.sourceCardId, state) &&
+          matchesQuery(mod.spec.target, card, mod.sourceCardId, state, mod.playedBy) &&
           !(isSteadfast && mod.spec.delta < 0) &&
           evaluate(mod.spec.condition, state, dummyCtx)
         ) {
@@ -89,21 +113,15 @@ export const effectiveValue = (state: IKState, card: IKCard): number => {
         }
         break;
       case "mute":
-        if (
-          !isSteadfast &&
-          matchesQuery(mod.spec.target, card, mod.sourceCardId, state)
-        ) {
-          value = 3;
-        }
         break;
       case "valueChangePerCount": {
         const vpcSpec = mod.spec as Extract<typeof mod.spec, { tag: "valueChangePerCount" }>;
-        if (!matchesQuery(vpcSpec.target, card, mod.sourceCardId, state))
+        if (!matchesQuery(vpcSpec.target, card, mod.sourceCardId, state, mod.playedBy))
           break;
         const count = state.shared.court.filter(
           (e) =>
             e.face === "up" &&
-            matchesQuery(vpcSpec.countQuery, e.card, mod.sourceCardId, state),
+            matchesQuery(vpcSpec.countQuery, e.card, mod.sourceCardId, state, mod.playedBy),
         ).length;
         const totalDelta = vpcSpec.deltaPerMatch * count;
         if (!(isSteadfast && totalDelta < 0)) {
@@ -132,14 +150,14 @@ export const effectiveKeywords = (
   for (const mod of allModifiers(state)) {
     switch (mod.spec.tag) {
       case "grantKeyword":
-        if (matchesQuery(mod.spec.target, card, mod.sourceCardId, state)) {
+        if (matchesQuery(mod.spec.target, card, mod.sourceCardId, state, mod.playedBy)) {
           kws.add(mod.spec.keyword);
         }
         break;
       case "revokeKeyword":
         if (
           !isSteadfast &&
-          matchesQuery(mod.spec.target, card, mod.sourceCardId, state)
+          matchesQuery(mod.spec.target, card, mod.sourceCardId, state, mod.playedBy)
         ) {
           kws.delete(mod.spec.keyword);
         }
@@ -147,7 +165,7 @@ export const effectiveKeywords = (
       case "mute":
         if (
           !isSteadfast &&
-          matchesQuery(mod.spec.target, card, mod.sourceCardId, state)
+          matchesQuery(mod.spec.target, card, mod.sourceCardId, state, mod.playedBy)
         ) {
           for (const k of [...kws]) {
             if (k !== "steadfast") kws.delete(k);
@@ -155,7 +173,7 @@ export const effectiveKeywords = (
         }
         break;
       case "conditionalRevokeKeyword": {
-        if (!matchesQuery(mod.spec.target, card, mod.sourceCardId, state))
+        if (!matchesQuery(mod.spec.target, card, mod.sourceCardId, state, mod.playedBy))
           break;
         const modCtx = {
           playedCard: card,
@@ -173,6 +191,41 @@ export const effectiveKeywords = (
     }
   }
   return [...kws];
+};
+
+// ---------------------------------------------------------------------------
+// Crystallize sticky round modifiers for a card that just entered court
+// ---------------------------------------------------------------------------
+
+const specHasTarget = (
+  spec: ModifierSpec,
+): spec is Exclude<ModifierSpec, { tag: "selfCourtValue" }> =>
+  "target" in spec;
+
+export const crystallizeStickyModifiers = (
+  state: IKState,
+  cardId: number,
+  cardPlayedBy: PlayerId,
+): IKState => {
+  const newCrystallized: ActiveModifier[] = [];
+  for (const mod of state.roundModifiers) {
+    if (!mod.sticky) continue;
+    if (!specHasTarget(mod.spec)) continue;
+    const card = state.shared.court.find((e) => e.card.id === cardId)?.card;
+    if (!card) continue;
+    if (matchesQuery(mod.spec.target, card, mod.sourceCardId, state, mod.playedBy)) {
+      newCrystallized.push({
+        sourceCardId: mod.sourceCardId,
+        spec: { ...mod.spec, target: { tag: "byId", cardId } },
+        playedBy: cardPlayedBy,
+      });
+    }
+  }
+  if (newCrystallized.length === 0) return state;
+  return {
+    ...state,
+    crystallizedModifiers: [...state.crystallizedModifiers, ...newCrystallized],
+  };
 };
 
 // ---------------------------------------------------------------------------

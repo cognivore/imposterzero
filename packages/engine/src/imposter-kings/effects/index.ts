@@ -40,6 +40,7 @@ export {
   nameValue,
   nameValueUpToCourtMax,
   forEachOpponent,
+  forEachPlayer,
   optional,
   onPlay,
   playOverride,
@@ -56,6 +57,8 @@ export {
   revealZone,
   checkDungeon,
   removeFromRound,
+  returnOneRallied,
+  copyCardEffects,
   activeArmy,
   activeExhausted,
 } from "./program.js";
@@ -101,4 +104,5 @@ export {
   effectiveValue,
   effectiveKeywords,
   refreshModifiers,
+  crystallizeStickyModifiers,
 } from "./modifiers.js";

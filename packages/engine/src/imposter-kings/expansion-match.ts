@@ -275,6 +275,7 @@ export const createExpansionRound = (
     forcedLoser: null,
     modifiers: [],
     roundModifiers: [],
+    crystallizedModifiers: [],
     publiclyTrackedKH: [],
     armyRecruitedIds: [],
     hasExhaustedThisMustering: false,

@@ -53,6 +53,8 @@ export type CardQuery =
   | { readonly tag: "byMinBaseValue"; readonly minValue: number }
   | { readonly tag: "allInCourt" }
   | { readonly tag: "allInCourtExceptSelf" }
+  | { readonly tag: "byId"; readonly cardId: number }
+  | { readonly tag: "ownedBySourceOwner" }
   | { readonly tag: "and"; readonly left: CardQuery; readonly right: CardQuery }
   | { readonly tag: "or"; readonly left: CardQuery; readonly right: CardQuery };
 
@@ -93,7 +95,7 @@ export type EffectProgram =
   | { readonly tag: "ifCond"; readonly predicate: StatePredicate; readonly then_: EffectProgram; readonly else_: EffectProgram }
   | { readonly tag: "checkZone"; readonly zone: ZoneRef; readonly filter: CardFilter | null; readonly then_: EffectProgram; readonly else_: EffectProgram }
   | { readonly tag: "anyOpponentHas"; readonly slot: IKPlayerZoneSlot; readonly filter: CardFilter; readonly then_: EffectProgram; readonly else_: EffectProgram }
-  | { readonly tag: "addRoundModifier"; readonly source: CardRef; readonly spec: ModifierSpec; readonly then: EffectProgram }
+  | { readonly tag: "addRoundModifier"; readonly source: CardRef; readonly spec: ModifierSpec; readonly sticky: boolean; readonly then: EffectProgram }
   | { readonly tag: "forcePlay"; readonly card: CardRef; readonly from: ZoneRef }
   | { readonly tag: "condemn"; readonly card: CardRef; readonly from: ZoneRef; readonly then: EffectProgram }
   | { readonly tag: "withFirstCardIn"; readonly zone: ZoneRef; readonly andThen: (cardId: number) => EffectProgram }
@@ -104,6 +106,7 @@ export type EffectProgram =
   | { readonly tag: "nameValue"; readonly min: number; readonly max: number; readonly andThen: (value: number) => EffectProgram }
   | { readonly tag: "nameValueUpToCourtMax"; readonly min: number; readonly andThen: (value: number) => EffectProgram }
   | { readonly tag: "forEachOpponent"; readonly effect: (opponent: PlayerId) => EffectProgram; readonly then: EffectProgram }
+  | { readonly tag: "forEachPlayer"; readonly effect: (player: PlayerId) => EffectProgram; readonly then: EffectProgram }
   | { readonly tag: "optional"; readonly effect: EffectProgram; readonly otherwise: EffectProgram }
   // Reaction checkpoint
   | { readonly tag: "triggerReaction"; readonly trigger: TriggerKind; readonly continuation: EffectProgram; readonly onReacted: EffectProgram }
@@ -122,7 +125,11 @@ export type EffectProgram =
   // Check if dungeon contains a named card
   | { readonly tag: "checkDungeon"; readonly player: PlayerRef; readonly andThen: (correct: boolean) => EffectProgram }
   // Remove a card from the round entirely
-  | { readonly tag: "removeFromRound"; readonly card: CardRef; readonly then: EffectProgram };
+  | { readonly tag: "removeFromRound"; readonly card: CardRef; readonly then: EffectProgram }
+  // Return one of the recently rallied cards back to army (Flagbearer)
+  | { readonly tag: "returnOneRallied"; readonly then: EffectProgram }
+  // Copy a Court card's onPlay effects and adopt its name (Stranger)
+  | { readonly tag: "copyCardEffects"; readonly zone: ZoneRef; readonly filter: CardFilter | null; readonly andThen: (cardId: number) => EffectProgram };
 
 // ---------------------------------------------------------------------------
 // Card effect — attached to card definitions
@@ -167,6 +174,7 @@ export interface EffectContext {
   readonly activePlayer: PlayerId;
   readonly numPlayers: number;
   readonly playedFrom: "hand" | "antechamber" | null;
+  readonly copiedName?: CardName;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,7 +250,8 @@ export const addRoundModifier = (
   source: CardRef,
   spec: ModifierSpec,
   then: EffectProgram = done,
-): EffectProgram => ({ tag: "addRoundModifier", source, spec, then });
+  sticky = false,
+): EffectProgram => ({ tag: "addRoundModifier", source, spec, sticky, then });
 
 export const forcePlay = (
   card: CardRef,
@@ -290,6 +299,11 @@ export const forEachOpponent = (
   effect: (opp: PlayerId) => EffectProgram,
   then: EffectProgram = done,
 ): EffectProgram => ({ tag: "forEachOpponent", effect, then });
+
+export const forEachPlayer = (
+  effect: (player: PlayerId) => EffectProgram,
+  then: EffectProgram = done,
+): EffectProgram => ({ tag: "forEachPlayer", effect, then });
 
 export const optional = (
   effect: EffectProgram,
@@ -373,6 +387,18 @@ export const removeFromRound = (
   card: CardRef,
   then: EffectProgram = done,
 ): EffectProgram => ({ tag: "removeFromRound", card, then });
+
+export const returnOneRallied = (then: EffectProgram = done): EffectProgram => ({
+  tag: "returnOneRallied",
+  then,
+});
+
+export const copyCardEffects = (
+  player: PlayerRef,
+  zone: ZoneRef,
+  filter: CardFilter | null,
+  andThen: (cardId: number) => EffectProgram,
+): EffectProgram => ({ tag: "copyCardEffects", zone, filter, andThen });
 
 export const activeArmy: ZoneRef = playerZone(active, "army");
 export const activeExhausted: ZoneRef = playerZone(active, "exhausted");

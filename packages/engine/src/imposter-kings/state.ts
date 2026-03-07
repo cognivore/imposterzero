@@ -24,6 +24,7 @@ export interface ActiveModifier {
   readonly sourceCardId: number;
   readonly spec: ModifierSpec;
   readonly playedBy?: PlayerId;
+  readonly sticky?: boolean;
 }
 
 export interface IKState {
@@ -38,6 +39,7 @@ export interface IKState {
   readonly forcedLoser: PlayerId | null;
   readonly modifiers: ReadonlyArray<ActiveModifier>;
   readonly roundModifiers: ReadonlyArray<ActiveModifier>;
+  readonly crystallizedModifiers: ReadonlyArray<ActiveModifier>;
   readonly khPrevented?: boolean;
   readonly publiclyTrackedKH: ReadonlyArray<number>;
   readonly armyRecruitedIds: ReadonlyArray<number>;

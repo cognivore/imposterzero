@@ -27,6 +27,7 @@ import {
   applySafe,
   playerZones,
   effectiveValue,
+  effectiveKeywords,
   type IKState,
 } from "../index.js";
 import type { CourtEntry } from "../zones.js";
@@ -138,7 +139,7 @@ describe("Mystic card effect", () => {
     const mysticEntry = state.shared.court.find((e) => e.card.id === mysticCard.id)!;
     expect(mysticEntry.face).toBe("down");
 
-    expect(state.roundModifiers).toHaveLength(1);
+    expect(state.roundModifiers).toHaveLength(2);
 
     const inqInCourt = state.shared.court.find(
       (e) => e.card.kind.name === "Inquisitor",
@@ -187,5 +188,63 @@ describe("Mystic card effect", () => {
     expect(state.roundModifiers).toHaveLength(0);
 
     console.log("  Precondition met, skip: Mystic face-up, no modifiers");
+  });
+
+  it("name 8: court 8s become value 3 and muted, hand 8s keep base value and keywords", () => {
+    let state = setupMysticGame(true);
+    const kinds = regulationDeck(2);
+    const deck = createDeck(kinds);
+
+    const sentryCard = deck.find((c) => c.kind.name === "Sentry")!;
+    const khCard = deck.find((c) => c.kind.name === "King's Hand")!;
+
+    state = {
+      ...state,
+      players: state.players.map((p, i) => {
+        if (i === 1) return { ...p, hand: [...p.hand, khCard] };
+        return p;
+      }),
+      shared: {
+        ...state.shared,
+        court: [
+          { card: sentryCard, face: "up" as const, playedBy: 1 as const },
+          ...state.shared.court,
+        ],
+      },
+    };
+
+    expect(effectiveValue(state, sentryCard)).toBe(8);
+    expect(effectiveValue(state, khCard)).toBe(8);
+
+    const mysticCard = playerZones(state, 0).hand.find((c) => c.kind.name === "Mystic")!;
+    state = apply(state, { kind: "play", cardId: mysticCard.id });
+
+    expect(state.phase).toBe("resolving");
+    let opts = state.pendingResolution!.currentOptions;
+    state = chooseEffect(state, opts.findIndex((o) => o.kind === "proceed"));
+
+    opts = state.pendingResolution!.currentOptions;
+    const val8Idx = opts.findIndex((o) => o.kind === "value" && o.value === 8);
+    expect(val8Idx).not.toBe(-1);
+    state = chooseEffect(state, val8Idx);
+
+    while (state.phase === "resolving" && state.pendingResolution?.isReactionWindow) {
+      state = chooseEffect(state, 0);
+    }
+
+    expect(state.phase).toBe("play");
+
+    const sentryInCourt = state.shared.court.find((e) => e.card.id === sentryCard.id)!;
+    expect(sentryInCourt).toBeDefined();
+    expect(effectiveValue(state, sentryInCourt.card)).toBe(3);
+    expect(effectiveKeywords(state, sentryInCourt.card)).not.toContain("immune_to_kings_hand");
+
+    const khInHand = playerZones(state, 1).hand.find((c) => c.id === khCard.id);
+    expect(khInHand).toBeDefined();
+    expect(effectiveValue(state, khInHand!)).toBe(8);
+    expect(effectiveKeywords(state, khInHand!)).toContain("reaction");
+    expect(effectiveKeywords(state, khInHand!)).toContain("immune_to_kings_hand");
+
+    console.log("  Name 8: Sentry in court → value 3 (muted); KH in hand → value 8 (unaffected)");
   });
 });

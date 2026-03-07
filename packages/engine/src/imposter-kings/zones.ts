@@ -13,6 +13,7 @@ export interface CourtEntry {
   readonly card: IKCard;
   readonly face: FaceState;
   readonly playedBy: PlayerId;
+  readonly copiedName?: import("./card.js").CardName;
 }
 
 export interface KingZone {

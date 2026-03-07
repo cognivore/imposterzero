@@ -23,6 +23,7 @@ import type {
   ChoiceOption,
 } from "./program.js";
 import { evaluate } from "./predicates.js";
+import { crystallizeStickyModifiers } from "./modifiers.js";
 import {
   describeProgram,
   describeChoice,
@@ -125,6 +126,26 @@ const emitRaw = (
   description: string,
 ): void => {
   if (trace) trace({ depth, tag, description });
+};
+
+// ---------------------------------------------------------------------------
+// Chain: run first resolution to completion, then continue with a program
+// ---------------------------------------------------------------------------
+
+const chainResolution = (
+  first: Resolution,
+  continuation: EffectProgram,
+  ctx: EffectContext,
+  trace?: TraceSink,
+  depth = 0,
+): Resolution => {
+  if (first.tag === "done") {
+    return resolve(continuation, first.state, ctx, trace, depth);
+  }
+  return {
+    ...first,
+    resume: (choice) => chainResolution(first.resume(choice), continuation, ctx, trace, depth),
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -267,7 +288,12 @@ export const resolve = (
         ...state,
         roundModifiers: [
           ...state.roundModifiers,
-          { sourceCardId: sourceId, spec: program.spec },
+          {
+            sourceCardId: sourceId,
+            spec: program.spec,
+            playedBy: ctx.activePlayer,
+            sticky: program.sticky || undefined,
+          },
         ],
       };
       return resolve(program.then, s, ctx, trace, depth);
@@ -278,12 +304,13 @@ export const resolve = (
       const from = resolveZone(program.from, ctx);
       const result = zoneMove(state, cid, from, { scope: "shared", slot: "court" });
       if (!result.ok) return { tag: "done", state };
-      const entry = result.value.shared.court.find((e) => e.card.id === cid);
-      if (!entry) return { tag: "done", state: result.value };
+      let s = crystallizeStickyModifiers(result.value, cid, ctx.activePlayer);
+      const entry = s.shared.court.find((e) => e.card.id === cid);
+      if (!entry) return { tag: "done", state: s };
       const onPlay = entry.card.kind.props.effects.find((e) => e.tag === "onPlay");
-      if (!onPlay) return { tag: "done", state: result.value };
+      if (!onPlay) return { tag: "done", state: s };
       emitRaw(trace, depth + 1, "forcePlay", `${entry.card.kind.name}'s onPlay effect resolves.`);
-      return resolve(onPlay.effect, result.value, {
+      return resolve(onPlay.effect, s, {
         playedCard: entry.card,
         activePlayer: ctx.activePlayer,
         numPlayers: ctx.numPlayers,
@@ -422,6 +449,18 @@ export const resolve = (
       }
       const steps = [
         ...opponents.map((opp) => program.effect(opp)),
+        program.then,
+      ];
+      return resolve({ tag: "sequence", steps }, state, ctx, trace, depth);
+    }
+
+    case "forEachPlayer": {
+      const players: PlayerId[] = Array.from(
+        { length: ctx.numPlayers },
+        (_, i) => i as PlayerId,
+      );
+      const steps = [
+        ...players.map((p) => program.effect(p)),
         program.then,
       ];
       return resolve({ tag: "sequence", steps }, state, ctx, trace, depth);
@@ -578,6 +617,106 @@ export const resolve = (
       }
       return resolve(program.then, state, ctx, trace, depth);
     }
+
+    case "returnOneRallied": {
+      const handZone = { scope: "player" as const, player: ctx.activePlayer, slot: "hand" as const };
+      const armyZone = { scope: "player" as const, player: ctx.activePlayer, slot: "army" as const };
+      const hand = readZone(state, handZone);
+      const ralliedInHand = state.armyRecruitedIds.filter(
+        (id) => hand.some((c) => c.id === id),
+      );
+      if (ralliedInHand.length === 0) {
+        emitRaw(trace, depth, "returnOneRallied", "No rallied cards in hand — skipping.");
+        return resolve(program.then, state, ctx, trace, depth);
+      }
+      if (ralliedInHand.length === 1) {
+        emitRaw(trace, depth, "returnOneRallied", "Only one rallied card — returning automatically.");
+        const result = zoneMove(state, ralliedInHand[0]!, handZone, armyZone);
+        return resolve(program.then, result.ok ? result.value : state, ctx, trace, depth);
+      }
+      const options = ralliedInHand.map((id) => ({ kind: "card" as const, cardId: id }));
+      emitRaw(trace, depth, "returnOneRallied", `Reveal ${ralliedInHand.length} rallied cards; return one to army.`);
+      return {
+        tag: "needChoice",
+        state,
+        player: ctx.activePlayer,
+        options,
+        resume: (choice) => {
+          emitChoice(trace, depth, choice, options, state, ctx.activePlayer);
+          const chosenId = options[choice]!.cardId;
+          const result = zoneMove(state, chosenId, handZone, armyZone);
+          return resolve(program.then, result.ok ? result.value : state, ctx, trace, depth);
+        },
+      };
+    }
+
+    case "copyCardEffects": {
+      const zone = resolveZone(program.zone, ctx);
+      const cards = readZone(state, zone);
+      const eligible = program.filter
+        ? cards.filter((c) => matchesFilter(c, program.filter!, state))
+        : cards;
+      if (eligible.length === 0) {
+        emitRaw(trace, depth, "copyCardEffects", "No eligible cards to copy.");
+        return resolve({ tag: "done" }, state, ctx, trace, depth);
+      }
+      const options = eligible.map((c) => ({ kind: "card" as const, cardId: c.id }));
+      emitRaw(trace, depth, "copyCardEffects", "Choose a card to copy.");
+      return {
+        tag: "needChoice",
+        state,
+        player: ctx.activePlayer,
+        options,
+        resume: (choice) => {
+          emitChoice(trace, depth, choice, options, state, ctx.activePlayer);
+          const chosenId = options[choice]!.cardId;
+          const chosenCard = eligible.find((c) => c.id === chosenId);
+          if (!chosenCard) return resolve({ tag: "done" }, state, ctx, trace, depth);
+
+          const copiedOnPlay = chosenCard.kind.props.effects.find(
+            (e): e is { readonly tag: "onPlay"; readonly effect: EffectProgram; readonly isOptional: boolean } =>
+              e.tag === "onPlay",
+          );
+
+          const strangerEntry = state.shared.court.find(
+            (e) => e.card.id === ctx.playedCard.id,
+          );
+          let s = state;
+          if (strangerEntry) {
+            s = {
+              ...state,
+              shared: {
+                ...state.shared,
+                court: state.shared.court.map((e) =>
+                  e.card.id === ctx.playedCard.id
+                    ? { ...e, copiedName: chosenCard.kind.name }
+                    : e,
+                ),
+              },
+            };
+          }
+
+          emitRaw(
+            trace, depth, "copyCardEffects",
+            `Stranger copies ${chosenCard.kind.name}'s ability.`,
+          );
+
+          const continuation = program.andThen(chosenId);
+
+          if (!copiedOnPlay) {
+            return resolve(continuation, s, ctx, trace, depth);
+          }
+
+          const copiedCtx: EffectContext = {
+            ...ctx,
+            copiedName: chosenCard.kind.name,
+          };
+
+          const copiedResolution = resolve(copiedOnPlay.effect, s, copiedCtx, trace, depth + 1);
+          return chainResolution(copiedResolution, continuation, copiedCtx, trace, depth);
+        },
+      };
+    }
   }
 };
 
@@ -622,7 +761,44 @@ const findCardInState = (state: IKState, cardId: number): import("../card.js").I
 // King's Hand reaction window helpers
 // ---------------------------------------------------------------------------
 
+const courtHasReactionNotOnThrone = (
+  state: IKState,
+  trigger: TriggerKind,
+): boolean => {
+  const topId = state.shared.court.length > 0
+    ? state.shared.court[state.shared.court.length - 1]!.card.id
+    : -1;
+  return state.shared.court.some(
+    (e) =>
+      e.face === "up" &&
+      e.card.id !== topId &&
+      e.card.kind.props.effects.some(
+        (ef) => ef.tag === "reaction" && ef.trigger === trigger,
+      ),
+  );
+};
+
+const courtHasKHNotOnThrone = (state: IKState): boolean => {
+  const topId = state.shared.court.length > 0
+    ? state.shared.court[state.shared.court.length - 1]!.card.id
+    : -1;
+  return state.shared.court.some(
+    (e) =>
+      e.face === "up" &&
+      e.card.id !== topId &&
+      e.card.kind.name === "King's Hand",
+  );
+};
+
 const shouldSkipKHWindow = (state: IKState, ctx: EffectContext): boolean => {
+  if (courtHasKHNotOnThrone(state)) {
+    for (let i = 1; i < ctx.numPlayers; i++) {
+      const player = ((ctx.activePlayer + i) % ctx.numPlayers) as PlayerId;
+      const hand = readZone(state, { scope: "player", player, slot: "hand" });
+      if (hand.some((c) => c.kind.name === "Stranger")) return false;
+    }
+  }
+
   const publiclyKnown = new Set<number>();
   for (const e of state.shared.court) publiclyKnown.add(e.card.id);
   if (state.shared.accused) publiclyKnown.add(state.shared.accused.id);
@@ -671,6 +847,10 @@ const resolveKHReactionChain = (
   const opp = opponents[idx]!;
   const hand = readZone(state, { scope: "player", player: opp, slot: "hand" });
   const khCard = hand.find((c) => c.kind.name === "King's Hand");
+  const strangerAsKH = !khCard && courtHasKHNotOnThrone(state)
+    ? hand.find((c) => c.kind.name === "Stranger")
+    : null;
+  const reactorCard = khCard ?? strangerAsKH;
 
   emitRaw(
     trace, depth, "khReactionWindow",
@@ -686,18 +866,22 @@ const resolveKHReactionChain = (
     isReactionWindow: true,
     resume: (choice) => {
       emitChoice(trace, depth, choice, options, state, opp);
-      if (choice === 1 && khCard) {
-        emitRaw(trace, depth, "khReactionWindow", `Player ${opp} reacts with King's Hand!`);
+      if (choice === 1 && reactorCard) {
+        emitRaw(trace, depth, "khReactionWindow",
+          strangerAsKH
+            ? `Player ${opp} reacts with Stranger (copying King's Hand)!`
+            : `Player ${opp} reacts with King's Hand!`,
+        );
         let s = state;
-        const removedKH = removeFromZone(s, { scope: "player", player: opp, slot: "hand" }, khCard.id);
-        if (removedKH.ok) {
-          const condemnedKH = insertIntoZone(
-            removedKH.value.state,
+        const removedReactor = removeFromZone(s, { scope: "player", player: opp, slot: "hand" }, reactorCard.id);
+        if (removedReactor.ok) {
+          const condemnedReactor = insertIntoZone(
+            removedReactor.value.state,
             { scope: "shared", slot: "condemned" },
-            removedKH.value.card,
+            removedReactor.value.card,
             { face: "up" },
           );
-          s = condemnedKH.ok ? condemnedKH.value : removedKH.value.state;
+          s = condemnedReactor.ok ? condemnedReactor.value : removedReactor.value.state;
         }
         const playedId = ctx.playedCard.id;
         const removedPlayed = removeFromZone(s, { scope: "shared", slot: "court" }, playedId);
@@ -730,6 +914,7 @@ const findPotentialReactors = (
   ctx: EffectContext,
   trigger: TriggerKind,
 ): ReadonlyArray<{ readonly player: PlayerId; readonly cardId: number }> => {
+  const strangerCanCopy = courtHasReactionNotOnThrone(state, trigger);
   const result: Array<{ player: PlayerId; cardId: number }> = [];
   for (let i = 1; i < ctx.numPlayers; i++) {
     const player = ((ctx.activePlayer + i) % ctx.numPlayers) as PlayerId;
@@ -743,6 +928,8 @@ const findPotentialReactors = (
         (e) => e.tag === "reaction" && e.trigger === trigger,
       );
       if (hasReaction) {
+        result.push({ player, cardId: card.id });
+      } else if (strangerCanCopy && card.kind.name === "Stranger") {
         result.push({ player, cardId: card.id });
       }
     }
@@ -828,6 +1015,10 @@ const resolveKHCounterReaction = (
   const opp = opponents[idx]!;
   const hand = readZone(state, { scope: "player", player: opp, slot: "hand" });
   const khCard = hand.find((c) => c.kind.name === "King's Hand");
+  const strangerAsKH = !khCard && courtHasKHNotOnThrone(state)
+    ? hand.find((c) => c.kind.name === "Stranger")
+    : null;
+  const reactorCard = khCard ?? strangerAsKH;
 
   emitRaw(trace, depth, "khReactionWindow", `Player ${opp} may counter-react with King's Hand.`);
 
@@ -840,18 +1031,22 @@ const resolveKHCounterReaction = (
     isReactionWindow: true,
     resume: (choice) => {
       emitChoice(trace, depth, choice, options, state, opp);
-      if (choice === 1 && khCard) {
-        emitRaw(trace, depth, "khReactionWindow", `Player ${opp} counters Assassin with King's Hand!`);
+      if (choice === 1 && reactorCard) {
+        emitRaw(trace, depth, "khReactionWindow",
+          strangerAsKH
+            ? `Player ${opp} counters Assassin with Stranger (copying King's Hand)!`
+            : `Player ${opp} counters Assassin with King's Hand!`,
+        );
         let s = state;
-        const removedKH = removeFromZone(s, { scope: "player", player: opp, slot: "hand" }, khCard.id);
-        if (removedKH.ok) {
-          const condemnedKH = insertIntoZone(
-            removedKH.value.state,
+        const removedReactor = removeFromZone(s, { scope: "player", player: opp, slot: "hand" }, reactorCard.id);
+        if (removedReactor.ok) {
+          const condemnedReactor = insertIntoZone(
+            removedReactor.value.state,
             { scope: "shared", slot: "condemned" },
-            removedKH.value.card,
+            removedReactor.value.card,
             { face: "up" },
           );
-          s = condemnedKH.ok ? condemnedKH.value : removedKH.value.state;
+          s = condemnedReactor.ok ? condemnedReactor.value : removedReactor.value.state;
         }
         return resolve(continuation, s, ctx, trace, depth);
       }
