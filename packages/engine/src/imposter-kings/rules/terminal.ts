@@ -21,7 +21,11 @@ export const returns = (state: IKState): ReadonlyArray<number> => {
   }
 
   const stuck = state.forcedLoser ?? state.activePlayer;
-  const winner = ((stuck - 1 + state.numPlayers) % state.numPlayers) as PlayerId;
+  let winner = ((stuck - 1 + state.numPlayers) % state.numPlayers) as PlayerId;
+  for (let i = 0; i < state.numPlayers; i++) {
+    if (!state.eliminatedPlayers.includes(winner)) break;
+    winner = ((winner - 1 + state.numPlayers) % state.numPlayers) as PlayerId;
+  }
   return Array.from({ length: state.numPlayers }, (_, player) => {
     if (player === winner) return 1;
     if (player === stuck) return -1;

@@ -16,7 +16,6 @@ const collectAllCardIds = (state: IKState): number[] => {
   for (const e of state.shared.court) ids.push(e.card.id);
   if (state.shared.accused) ids.push(state.shared.accused.id);
   if (state.shared.forgotten) ids.push(state.shared.forgotten.card.id);
-  ids.push(...state.shared.army.map((c) => c.id));
   ids.push(...state.shared.condemned.map((e) => e.card.id));
   return ids;
 };
@@ -37,6 +36,7 @@ export const validateState = (state: IKState): ReadonlyArray<string> => {
   }
 
   for (let p = 0; p < state.numPlayers; p++) {
+    if (state.eliminatedPlayers.includes(p as import("@imposter-zero/types").PlayerId)) continue;
     const zones = state.players[p]!;
 
     if (zones.hand.length < 0) {

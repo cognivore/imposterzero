@@ -116,8 +116,12 @@ describe("returns", () => {
   it("non-involved players get 0 in multiplayer", () => {
     const terminal = playToTerminal(3, 42);
     const r = returns(terminal);
-    const stuck = terminal.activePlayer;
-    const winner = (stuck - 1 + terminal.numPlayers) % terminal.numPlayers;
+    const stuck = terminal.forcedLoser ?? terminal.activePlayer;
+    let winner = ((stuck - 1 + terminal.numPlayers) % terminal.numPlayers) as import("@imposter-zero/types").PlayerId;
+    for (let i = 0; i < terminal.numPlayers; i++) {
+      if (!terminal.eliminatedPlayers.includes(winner)) break;
+      winner = ((winner - 1 + terminal.numPlayers) % terminal.numPlayers) as import("@imposter-zero/types").PlayerId;
+    }
     for (let p = 0; p < terminal.numPlayers; p++) {
       if (p !== stuck && p !== winner) {
         expect(r[p]).toBe(0);

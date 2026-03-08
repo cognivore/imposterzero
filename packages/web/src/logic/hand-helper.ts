@@ -108,9 +108,6 @@ export const computePossibleHand = (
     if (entry.face === "up") addCard(entry.card.kind.name);
   }
 
-  for (const card of gameState.shared.army) {
-    addCard(card.kind.name);
-  }
 
   for (const [, name] of seenCards) {
     addCard(name);

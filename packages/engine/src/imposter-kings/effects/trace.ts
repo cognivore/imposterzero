@@ -60,9 +60,6 @@ export const findCardName = (state: IKState, cardId: number): string => {
   if (state.shared.accused?.id === cardId) return state.shared.accused.kind.name;
   if (state.shared.forgotten?.card.id === cardId)
     return state.shared.forgotten.card.kind.name;
-  for (const c of state.shared.army) {
-    if (c.id === cardId) return c.kind.name;
-  }
   for (const e of state.shared.condemned) {
     if (e.card.id === cardId) return e.card.kind.name;
   }
@@ -103,8 +100,6 @@ export const describeZoneRef = (ref: ZoneRef, ctx: EffectContext): string => {
         return "the accused pile";
       case "forgotten":
         return "the forgotten pile";
-      case "army":
-        return "the army";
       case "condemned":
         return "the condemned pile";
     }
@@ -352,6 +347,9 @@ export const describeStep: DescribeStep = {
 
   copyCardEffects: (node, ctx) =>
     `Player ${ctx.activePlayer} copies a card's effects from ${describeZoneRef(node.zone, ctx)}.`,
+
+  assassinate3p: (node, ctx) =>
+    `Player ${describePlayerRef(node.assassin, ctx)} assassinates Player ${describePlayerRef(node.victim, ctx)}.`,
 };
 
 // ---------------------------------------------------------------------------

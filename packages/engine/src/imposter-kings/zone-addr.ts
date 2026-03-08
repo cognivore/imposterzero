@@ -28,7 +28,7 @@ export type IKPlayerZoneSlot =
   | "exhausted"
   | "recruitDiscard";
 
-export type IKSharedZoneSlot = "court" | "accused" | "forgotten" | "army" | "condemned";
+export type IKSharedZoneSlot = "court" | "accused" | "forgotten" | "condemned";
 
 export type IKZoneAddress = ZoneAddress<IKPlayerZoneSlot, IKSharedZoneSlot>;
 
@@ -88,8 +88,6 @@ export const readZone = (
       return state.shared.accused ? [state.shared.accused] : [];
     case "forgotten":
       return state.shared.forgotten ? [state.shared.forgotten.card] : [];
-    case "army":
-      return state.shared.army;
     case "condemned":
       return state.shared.condemned.map((e) => e.card);
   }
@@ -284,20 +282,6 @@ const removeFromSharedZone = (
         state: { ...state, shared: { ...shared, forgotten: null } },
       });
     }
-    case "army": {
-      const card = shared.army.find((c) => c.id === cardId);
-      if (!card) return err({ kind: "card_not_in_zone", cardId, addr });
-      return ok({
-        card,
-        state: {
-          ...state,
-          shared: {
-            ...shared,
-            army: shared.army.filter((c) => c.id !== cardId),
-          },
-        },
-      });
-    }
     case "condemned": {
       const entry = shared.condemned.find((e) => e.card.id === cardId);
       if (!entry) return err({ kind: "card_not_in_zone", cardId, addr });
@@ -331,6 +315,7 @@ export const removeFromZone = (
 export interface InsertOptions {
   readonly face?: FaceState;
   readonly playedBy?: PlayerId;
+  readonly knownBy?: ReadonlyArray<PlayerId>;
 }
 
 const insertIntoPlayerZone = (
@@ -456,11 +441,6 @@ const insertIntoSharedZone = (
         ...state,
         shared: { ...shared, forgotten: { card, face: "down" } },
       });
-    case "army":
-      return ok({
-        ...state,
-        shared: { ...shared, army: [...shared.army, card] },
-      });
     case "condemned":
       return ok({
         ...state,
@@ -468,7 +448,7 @@ const insertIntoSharedZone = (
           ...shared,
           condemned: [
             ...shared.condemned,
-            { card, face: (opts.face ?? "down") as FaceState },
+            { card, face: "down" as const, knownBy: opts.knownBy ?? [] },
           ],
         },
       });

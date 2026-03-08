@@ -32,7 +32,7 @@ import {
 import { resolve, replay } from "../effects/interpreter.js";
 import { type TraceEntry } from "../effects/trace.js";
 import { regulationDeck, SIGNATURE_CARD_KINDS, type CardName } from "../card.js";
-import { canPlayCard } from "./legal.js";
+import { canPlayCard, legalActions as computeLegalActions } from "./legal.js";
 
 // ---------------------------------------------------------------------------
 // Static effect lookup — card name -> onPlay EffectProgram.
@@ -57,8 +57,8 @@ const effectByCardName: ReadonlyMap<CardName, EffectProgram> = (() => {
 // End-of-turn sequence: parting flush, then antechamber forced play
 // ---------------------------------------------------------------------------
 
-const finalAdvance = (state: IKState, originalState: IKState): IKState =>
-  refreshModifiers({
+const finalAdvance = (state: IKState, originalState: IKState): IKState => {
+  let s = refreshModifiers({
     ...state,
     activePlayer: nextPlayer(originalState),
     turnCount: state.turnCount + 1,
@@ -66,36 +66,22 @@ const finalAdvance = (state: IKState, originalState: IKState): IKState =>
     pendingResolution: null,
   });
 
-const endOfTurn = (state: IKState, originalState: IKState): IKState => {
-  const activePlayer = originalState.activePlayer;
-  const zones = playerZones(state, activePlayer);
-
-  if (zones.parting.length > 0) {
-    if (zones.parting.length === 1) {
-      const card = zones.parting[0]!;
-      const removed = removeFromZone(
-        state,
-        { scope: "player", player: activePlayer, slot: "parting" },
-        card.id,
-      );
-      if (removed.ok) {
-        const inserted = insertIntoZone(
-          removed.value.state,
-          { scope: "shared", slot: "condemned" },
-          removed.value.card,
-          { face: "down" },
-        );
-        const afterParting = inserted.ok ? inserted.value : removed.value.state;
-        return endOfTurnAfterParting(afterParting, originalState);
-      }
-    }
-    return {
-      ...state,
-      phase: "end_of_turn",
-      pendingResolution: null,
-    };
+  while (
+    s.numPlayers - s.eliminatedPlayers.length > 2 &&
+    computeLegalActions(s).length === 0
+  ) {
+    s = refreshModifiers({
+      ...s,
+      eliminatedPlayers: [...s.eliminatedPlayers, s.activePlayer],
+      activePlayer: nextPlayer(s),
+      turnCount: s.turnCount + 1,
+    });
   }
 
+  return s;
+};
+
+const endOfTurn = (state: IKState, originalState: IKState): IKState => {
   return endOfTurnAfterParting(state, originalState);
 };
 
@@ -223,6 +209,32 @@ const getEffectProgram = (pending: PendingResolution): EffectProgram | null => {
 };
 
 // ---------------------------------------------------------------------------
+// Condemn a parting card (turn action)
+// ---------------------------------------------------------------------------
+
+const applyCondemnPartingSafe = (
+  state: IKState,
+  cardId: number,
+): Result<TransitionError, IKState> => {
+  const activePlayer = state.activePlayer;
+  const removed = removeFromZone(
+    state,
+    { scope: "player", player: activePlayer, slot: "parting" },
+    cardId,
+  );
+  if (!removed.ok) return err({ kind: "card_not_in_hand", cardId });
+  const allPlayers = Array.from({ length: state.numPlayers }, (_, i) => i as import("@imposter-zero/types").PlayerId);
+  const inserted = insertIntoZone(
+    removed.value.state,
+    { scope: "shared", slot: "condemned" },
+    removed.value.card,
+    { face: "down", knownBy: allPlayers },
+  );
+  const afterCondemn = inserted.ok ? inserted.value : removed.value.state;
+  return ok(finalAdvance(afterCondemn, state));
+};
+
+// ---------------------------------------------------------------------------
 // Play a card (from hand or antechamber)
 // ---------------------------------------------------------------------------
 
@@ -231,6 +243,17 @@ export const applyPlaySafe = (
   cardId: number,
 ): Result<TransitionError, IKState> => {
   const activePlayer = state.activePlayer;
+
+  const parting = readZone(state, {
+    scope: "player",
+    player: activePlayer,
+    slot: "parting",
+  });
+  const partingCard = parting.find((c) => c.id === cardId);
+  if (partingCard) {
+    return applyCondemnPartingSafe(state, cardId);
+  }
+
   const hand = readZone(state, {
     scope: "player",
     player: activePlayer,
@@ -384,25 +407,6 @@ export const applyEndOfTurnSafe = (
 ): Result<TransitionError, IKState> => {
   const activePlayer = state.activePlayer;
   const zones = playerZones(state, activePlayer);
-
-  if (zones.parting.length > 0) {
-    const card = zones.parting.find((c) => c.id === cardId);
-    if (!card) return err({ kind: "card_not_in_hand", cardId });
-    const removed = removeFromZone(
-      state,
-      { scope: "player", player: activePlayer, slot: "parting" },
-      cardId,
-    );
-    if (!removed.ok) return err({ kind: "card_not_in_hand", cardId });
-    const inserted = insertIntoZone(
-      removed.value.state,
-      { scope: "shared", slot: "condemned" },
-      removed.value.card,
-      { face: "down" },
-    );
-    const afterParting = inserted.ok ? inserted.value : removed.value.state;
-    return ok(endOfTurnAfterParting(afterParting, state));
-  }
 
   if (zones.antechamber.length > 0) {
     const card = zones.antechamber.find((c) => c.id === cardId);

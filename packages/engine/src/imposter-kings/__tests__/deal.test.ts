@@ -22,9 +22,8 @@ const totalCards = (state: IKState): number => {
   const courtCards = state.shared.court.length;
   const accusedCards = state.shared.accused !== null ? 1 : 0;
   const forgottenCards = state.shared.forgotten !== null ? 1 : 0;
-  const armyCards = state.shared.army.length;
   const condemnedCards = state.shared.condemned.length;
-  return handCards + kingCards + successorCards + dungeonCards + antechamberCards + partingCards + courtCards + accusedCards + forgottenCards + armyCards + condemnedCards;
+  return handCards + kingCards + successorCards + dungeonCards + antechamberCards + partingCards + courtCards + accusedCards + forgottenCards + condemnedCards;
 };
 
 const allCardIds = (state: IKState): number[] => {
@@ -40,7 +39,6 @@ const allCardIds = (state: IKState): number[] => {
   for (const e of state.shared.court) ids.push(e.card.id);
   if (state.shared.accused) ids.push(state.shared.accused.id);
   if (state.shared.forgotten) ids.push(state.shared.forgotten.card.id);
-  ids.push(...state.shared.army.map((c) => c.id));
   ids.push(...state.shared.condemned.map((e) => e.card.id));
   return ids;
 };

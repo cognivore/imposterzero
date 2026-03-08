@@ -108,10 +108,20 @@ describe("roundScore", () => {
   });
 
   describe("3-player scoring", () => {
+    const find3pWinner = (state: IKState): PlayerId => {
+      const stuck = state.forcedLoser ?? state.activePlayer;
+      let winner = ((stuck - 1 + 3) % 3) as PlayerId;
+      for (let i = 0; i < 3; i++) {
+        if (!state.eliminatedPlayers.includes(winner)) break;
+        winner = ((winner - 1 + 3) % 3) as PlayerId;
+      }
+      return winner;
+    };
+
     it("winner gets at least 1 point, stuck gets 0", () => {
       const terminal = playToTerminal(3, 42);
-      const stuck = terminal.activePlayer;
-      const winner = ((stuck - 1 + 3) % 3) as PlayerId;
+      const stuck = terminal.forcedLoser ?? terminal.activePlayer;
+      const winner = find3pWinner(terminal);
       const scores = roundScore(terminal);
 
       expect(scores[winner]).toBeGreaterThanOrEqual(1);
@@ -123,12 +133,16 @@ describe("roundScore", () => {
         const terminal = playToTerminal(3, seed);
         if (!isTerminal(terminal)) continue;
 
-        const stuck = terminal.activePlayer;
-        const winner = ((stuck - 1 + 3) % 3) as PlayerId;
-        const second = [0, 1, 2].find((p) => p !== winner && p !== stuck)!;
+        const stuck = terminal.forcedLoser ?? terminal.activePlayer;
+        const winner = find3pWinner(terminal);
+        const second = [0, 1, 2].find(
+          (p) => p !== winner && p !== stuck && !terminal.eliminatedPlayers.includes(p as PlayerId),
+        );
         const scores = roundScore(terminal);
 
-        expect(scores[second]).toBe(1);
+        if (second !== undefined) {
+          expect(scores[second]).toBe(1);
+        }
       }
     });
 
@@ -137,8 +151,7 @@ describe("roundScore", () => {
         const terminal = playToTerminal(3, seed);
         if (!isTerminal(terminal)) continue;
 
-        const stuck = terminal.activePlayer;
-        const winner = ((stuck - 1 + 3) % 3) as PlayerId;
+        const winner = find3pWinner(terminal);
         const scores = roundScore(terminal);
 
         let expected = 1;
@@ -158,6 +171,16 @@ describe("roundScore", () => {
   });
 
   describe("4-player scoring (2v2)", () => {
+    const findWinner = (state: IKState, n: number): PlayerId => {
+      const stuck = state.forcedLoser ?? state.activePlayer;
+      let winner = ((stuck - 1 + n) % n) as PlayerId;
+      for (let i = 0; i < n; i++) {
+        if (!state.eliminatedPlayers.includes(winner)) break;
+        winner = ((winner - 1 + n) % n) as PlayerId;
+      }
+      return winner;
+    };
+
     it("team members get equal scores", () => {
       for (const seed of [42, 55, 77, 99, 150]) {
         const terminal = playToTerminal(4, seed);
@@ -171,8 +194,7 @@ describe("roundScore", () => {
 
     it("winning team gets at least 1 point each", () => {
       const terminal = playToTerminal(4, 42);
-      const stuck = terminal.activePlayer;
-      const winner = ((stuck - 1 + 4) % 4) as PlayerId;
+      const winner = findWinner(terminal, 4);
       const scores = roundScore(terminal);
 
       expect(scores[winner]).toBeGreaterThanOrEqual(1);
@@ -183,8 +205,7 @@ describe("roundScore", () => {
         const terminal = playToTerminal(4, seed);
         if (!isTerminal(terminal)) continue;
 
-        const stuck = terminal.activePlayer;
-        const winner = ((stuck - 1 + 4) % 4) as PlayerId;
+        const winner = findWinner(terminal, 4);
         const winningTeam = winner % 2;
         const scores = roundScore(terminal);
 
@@ -203,8 +224,7 @@ describe("roundScore", () => {
         const terminal = playToTerminal(4, seed);
         if (!isTerminal(terminal)) continue;
 
-        const stuck = terminal.activePlayer;
-        const winner = ((stuck - 1 + 4) % 4) as PlayerId;
+        const winner = findWinner(terminal, 4);
         const winningTeam = winner % 2 === 0 ? 0 : 1;
         const [m1, m2]: [PlayerId, PlayerId] =
           winningTeam === 0 ? [0, 2] : [1, 3];

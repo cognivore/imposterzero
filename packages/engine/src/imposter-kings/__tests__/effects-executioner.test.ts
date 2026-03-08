@@ -155,12 +155,12 @@ describe("Executioner card effect", () => {
     expect(state.activePlayer).toBe(1);
 
     expect(state.shared.condemned.length).toBeGreaterThanOrEqual(1);
-    expect(state.shared.condemned.every((e) => e.face === "up")).toBe(true);
+    expect(state.shared.condemned.every((e) => e.face === "down")).toBe(true);
     expect(state.shared.condemned.some((e) => e.card.id === p0Elder.id)).toBe(true);
     expect(playerZones(state, 0).hand.every((c) => c.id !== p0Elder.id)).toBe(true);
 
     console.log(
-      "  Use ability: P0 condemned Elder; cards in condemned zone face-up",
+      "  Use ability: P0 condemned Elder; cards in condemned zone face-down",
     );
   });
 
@@ -205,12 +205,12 @@ describe("Executioner card effect", () => {
     expect(state.phase).toBe("play");
     expect(state.activePlayer).toBe(1);
     expect(state.shared.condemned).toHaveLength(2);
-    expect(state.shared.condemned.every((e) => e.face === "up")).toBe(true);
+    expect(state.shared.condemned.every((e) => e.face === "down")).toBe(true);
     expect(state.shared.condemned.some((e) => e.card.id === p0Elder.id)).toBe(true);
     expect(state.shared.condemned.some((e) => e.card.id === p1Zealot.id)).toBe(true);
 
     console.log(
-      "  Use ability: P0 condemned Elder, P1 condemned Zealot; both in condemned zone face-up",
+      "  Use ability: P0 condemned Elder, P1 condemned Zealot; both in condemned zone face-down",
     );
   });
 

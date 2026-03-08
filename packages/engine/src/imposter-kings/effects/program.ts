@@ -129,7 +129,9 @@ export type EffectProgram =
   // Return one of the recently rallied cards back to army (Flagbearer)
   | { readonly tag: "returnOneRallied"; readonly then: EffectProgram }
   // Copy a Court card's onPlay effects and adopt its name (Stranger)
-  | { readonly tag: "copyCardEffects"; readonly zone: ZoneRef; readonly filter: CardFilter | null; readonly andThen: (cardId: number) => EffectProgram };
+  | { readonly tag: "copyCardEffects"; readonly zone: ZoneRef; readonly filter: CardFilter | null; readonly andThen: (cardId: number) => EffectProgram }
+  // 3p Assassination: shuffle assassin into victim hand, assassinator picks a card, eliminate victim
+  | { readonly tag: "assassinate3p"; readonly victim: PlayerRef; readonly assassin: PlayerRef; readonly assassinCardId: number };
 
 // ---------------------------------------------------------------------------
 // Card effect — attached to card definitions
@@ -399,6 +401,12 @@ export const copyCardEffects = (
   filter: CardFilter | null,
   andThen: (cardId: number) => EffectProgram,
 ): EffectProgram => ({ tag: "copyCardEffects", zone, filter, andThen });
+
+export const assassinate3p = (
+  victim: PlayerRef,
+  assassin: PlayerRef,
+  assassinCardId: number,
+): EffectProgram => ({ tag: "assassinate3p", victim, assassin, assassinCardId });
 
 export const activeArmy: ZoneRef = playerZone(active, "army");
 export const activeExhausted: ZoneRef = playerZone(active, "exhausted");

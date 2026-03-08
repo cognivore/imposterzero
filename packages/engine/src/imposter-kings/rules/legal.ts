@@ -68,12 +68,6 @@ export const canPlayCard = (
 export const legalActions = (state: IKState): ReadonlyArray<IKAction> => {
   if (state.phase === "end_of_turn") {
     const active = playerZones(state, state.activePlayer);
-    if (active.parting.length > 0) {
-      return active.parting.map((card) => ({
-        kind: "play" as const,
-        cardId: card.id,
-      }));
-    }
     if (active.antechamber.length > 0) {
       return active.antechamber.map((card) => ({
         kind: "play" as const,
@@ -120,6 +114,13 @@ export const legalActions = (state: IKState): ReadonlyArray<IKAction> => {
       return [];
     }
     return commitActionsForHand(active.hand);
+  }
+
+  if (active.parting.length > 0) {
+    return active.parting.map((card) => ({
+      kind: "play" as const,
+      cardId: card.id,
+    }));
   }
 
   const threshold = throneValue(state);

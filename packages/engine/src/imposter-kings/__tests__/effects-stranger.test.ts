@@ -13,7 +13,7 @@
  *      Inquisitor removed, Inquisitor's nameCard effect triggers.
  *   2. On-play skip copy: Stranger played, pass -> no copied name, no removal.
  *   3. Stranger copies Assassin reaction: P0 disgraces, P1 reacts with Stranger
- *      (copying Assassin) -> Stranger to shared army, P0 forced to lose.
+ *      (copying Assassin) -> Stranger to P1's parting zone, P0 forced to lose.
  */
 
 import { describe, it, expect } from "vitest";
@@ -223,6 +223,6 @@ describe("Stranger card effect", () => {
     expect(state.forcedLoser).toBe(0);
 
     expect(playerZones(state, 1).hand.some((c) => c.kind.name === "Stranger")).toBe(false);
-    expect(state.shared.army.some((c) => c.kind.name === "Stranger")).toBe(true);
+    expect(playerZones(state, 1).parting.some((c) => c.kind.name === "Stranger")).toBe(true);
   });
 });

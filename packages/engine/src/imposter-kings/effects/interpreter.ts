@@ -321,7 +321,9 @@ export const resolve = (
     case "condemn": {
       const cid = resolveCard(program.card, ctx, state);
       const from = resolveZone(program.from, ctx);
-      const result = zoneMove(state, cid, from, { scope: "shared", slot: "condemned" }, { face: "up" });
+      const allPlayers = Array.from({ length: ctx.numPlayers }, (_, i) => i as PlayerId);
+      const knownBy = from.scope === "shared" ? allPlayers : [ctx.activePlayer, from.player];
+      const result = zoneMove(state, cid, from, { scope: "shared", slot: "condemned" }, { face: "down", knownBy });
       return resolve(program.then, result.ok ? result.value : state, ctx, trace, depth);
     }
 
@@ -717,6 +719,79 @@ export const resolve = (
         },
       };
     }
+
+    case "assassinate3p": {
+      const victimId = resolvePlayer(program.victim, ctx);
+      const assassinId = resolvePlayer(program.assassin, ctx);
+
+      let s = state;
+      const assassinCard = findCardInState(s, program.assassinCardId);
+      if (assassinCard) {
+        const victimHand = { scope: "player" as const, player: victimId, slot: "hand" as const };
+        s = {
+          ...s,
+          players: s.players.map((p, i) =>
+            i === victimId
+              ? { ...p, hand: [...p.hand, assassinCard] }
+              : i === assassinId
+                ? { ...p, parting: p.parting.filter((c) => c.id !== program.assassinCardId) }
+                : p,
+          ),
+        };
+      }
+
+      emitRaw(trace, depth, "assassinate3p",
+        `Player ${assassinId} assassinates Player ${victimId}. Pick a card from victim's hand + successor.`,
+      );
+
+      const victimZones = s.players[victimId]!;
+      const pickable: Array<{ kind: "card"; cardId: number }> = victimZones.hand.map(
+        (c) => ({ kind: "card" as const, cardId: c.id }),
+      );
+      if (victimZones.successor) {
+        pickable.push({ kind: "card" as const, cardId: victimZones.successor.card.id });
+      }
+
+      const options: ReadonlyArray<ChoiceOption> = pickable;
+      return {
+        tag: "needChoice",
+        state: s,
+        player: assassinId,
+        options,
+        resume: (choice) => {
+          emitChoice(trace, depth, choice, options, s, assassinId);
+          const chosenId = pickable[choice]!.cardId;
+          let afterPick = s;
+
+          const inHand = victimZones.hand.find((c) => c.id === chosenId);
+          if (inHand) {
+            afterPick = {
+              ...afterPick,
+              players: afterPick.players.map((p, i) => {
+                if (i === victimId) return { ...p, hand: p.hand.filter((c) => c.id !== chosenId) };
+                if (i === assassinId) return { ...p, hand: [...p.hand, inHand] };
+                return p;
+              }),
+            };
+          } else if (victimZones.successor?.card.id === chosenId) {
+            afterPick = {
+              ...afterPick,
+              players: afterPick.players.map((p, i) => {
+                if (i === victimId) return { ...p, successor: null };
+                if (i === assassinId) return { ...p, hand: [...p.hand, victimZones.successor!.card] };
+                return p;
+              }),
+            };
+          }
+
+          const eliminated: IKState = {
+            ...afterPick,
+            eliminatedPlayers: [...afterPick.eliminatedPlayers, victimId],
+          };
+          return { tag: "done", state: eliminated };
+        },
+      };
+    }
   }
 };
 
@@ -752,7 +827,6 @@ const findCardInState = (state: IKState, cardId: number): import("../card.js").I
   for (const e of state.shared.court) if (e.card.id === cardId) return e.card;
   if (state.shared.accused?.id === cardId) return state.shared.accused;
   if (state.shared.forgotten?.card.id === cardId) return state.shared.forgotten.card;
-  for (const c of state.shared.army) if (c.id === cardId) return c;
   for (const e of state.shared.condemned) if (e.card.id === cardId) return e.card;
   return null;
 };
@@ -802,9 +876,11 @@ const shouldSkipKHWindow = (state: IKState, ctx: EffectContext): boolean => {
   const publiclyKnown = new Set<number>();
   for (const e of state.shared.court) publiclyKnown.add(e.card.id);
   if (state.shared.accused) publiclyKnown.add(state.shared.accused.id);
-  for (const c of state.shared.army) publiclyKnown.add(c.id);
   for (const e of state.shared.condemned) publiclyKnown.add(e.card.id);
   for (const id of state.publiclyTrackedKH) publiclyKnown.add(id);
+  for (const p of state.players) {
+    for (const c of p.parting) publiclyKnown.add(c.id);
+  }
 
   const allKHIds: number[] = [];
   for (const p of state.players) {
@@ -812,10 +888,10 @@ const shouldSkipKHWindow = (state: IKState, ctx: EffectContext): boolean => {
     if (p.successor?.card.kind.name === "King's Hand") allKHIds.push(p.successor.card.id);
     if (p.dungeon?.card.kind.name === "King's Hand") allKHIds.push(p.dungeon.card.id);
     for (const c of p.antechamber) if (c.kind.name === "King's Hand") allKHIds.push(c.id);
+    for (const c of p.parting) if (c.kind.name === "King's Hand") allKHIds.push(c.id);
   }
   for (const e of state.shared.court) if (e.card.kind.name === "King's Hand") allKHIds.push(e.card.id);
   if (state.shared.accused?.kind.name === "King's Hand") allKHIds.push(state.shared.accused.id);
-  for (const c of state.shared.army) if (c.kind.name === "King's Hand") allKHIds.push(c.id);
   for (const e of state.shared.condemned) if (e.card.kind.name === "King's Hand") allKHIds.push(e.card.id);
   if (state.shared.forgotten?.card.kind.name === "King's Hand") allKHIds.push(state.shared.forgotten.card.id);
 
@@ -875,24 +951,22 @@ const resolveKHReactionChain = (
         let s = state;
         const removedReactor = removeFromZone(s, { scope: "player", player: opp, slot: "hand" }, reactorCard.id);
         if (removedReactor.ok) {
-          const condemnedReactor = insertIntoZone(
+          const toOppParting = insertIntoZone(
             removedReactor.value.state,
-            { scope: "shared", slot: "condemned" },
+            { scope: "player", player: opp, slot: "parting" },
             removedReactor.value.card,
-            { face: "up" },
           );
-          s = condemnedReactor.ok ? condemnedReactor.value : removedReactor.value.state;
+          s = toOppParting.ok ? toOppParting.value : removedReactor.value.state;
         }
         const playedId = ctx.playedCard.id;
         const removedPlayed = removeFromZone(s, { scope: "shared", slot: "court" }, playedId);
         if (removedPlayed.ok) {
-          const condemnedPlayed = insertIntoZone(
+          const toActiveParting = insertIntoZone(
             removedPlayed.value.state,
-            { scope: "shared", slot: "condemned" },
+            { scope: "player", player: ctx.activePlayer, slot: "parting" },
             removedPlayed.value.card,
-            { face: "up" },
           );
-          s = condemnedPlayed.ok ? condemnedPlayed.value : removedPlayed.value.state;
+          s = toActiveParting.ok ? toActiveParting.value : removedPlayed.value.state;
         }
         return { tag: "done", state: { ...s, khPrevented: true } };
       }
@@ -971,21 +1045,25 @@ const resolveReactionChain = (
         );
         let s = removed.ok ? removed.value.state : state;
         if (removed.ok) {
-          const condemned = insertIntoZone(
+          const toParting = insertIntoZone(
             s,
-            { scope: "shared", slot: "army" },
+            { scope: "player", player: reactor.player, slot: "parting" },
             removed.value.card,
           );
-          if (condemned.ok) s = condemned.value;
+          if (toParting.ok) s = toParting.value;
         }
 
+        const effectiveOnReacted = ctx.numPlayers > 2
+          ? { tag: "assassinate3p" as const, victim: { kind: "active" as const }, assassin: { kind: "id" as const, player: reactor.player }, assassinCardId: reactor.cardId }
+          : onReacted;
+
         if (shouldSkipKHWindow(s, ctx)) {
-          return resolve(onReacted, s, ctx, trace, depth + 1);
+          return resolve(effectiveOnReacted, s, ctx, trace, depth + 1);
         }
         const khOpponents = opponentsInPlayOrder(s, ctx);
         return resolveKHCounterReaction(
           khOpponents, 0, s, ctx,
-          reactor, onReacted, continuation,
+          reactor, effectiveOnReacted, continuation,
           trace, depth + 1,
         );
       }
@@ -1040,13 +1118,12 @@ const resolveKHCounterReaction = (
         let s = state;
         const removedReactor = removeFromZone(s, { scope: "player", player: opp, slot: "hand" }, reactorCard.id);
         if (removedReactor.ok) {
-          const condemnedReactor = insertIntoZone(
+          const toOppParting = insertIntoZone(
             removedReactor.value.state,
-            { scope: "shared", slot: "condemned" },
+            { scope: "player", player: opp, slot: "parting" },
             removedReactor.value.card,
-            { face: "up" },
           );
-          s = condemnedReactor.ok ? condemnedReactor.value : removedReactor.value.state;
+          s = toOppParting.ok ? toOppParting.value : removedReactor.value.state;
         }
         return resolve(continuation, s, ctx, trace, depth);
       }

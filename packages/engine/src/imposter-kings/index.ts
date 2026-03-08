@@ -58,6 +58,7 @@ export {
   playerZones,
   playerHand,
   nextPlayer,
+  revealedState,
 } from "./state.js";
 
 export {

@@ -88,7 +88,6 @@ export const dealWithDeck = (
       court: [],
       accused,
       forgotten: forgottenCard === null ? null : hidden(forgottenCard),
-      army: [],
       condemned: [],
     },
     activePlayer: trueKing,
@@ -105,6 +104,7 @@ export const dealWithDeck = (
     armyRecruitedIds: [],
     hasExhaustedThisMustering: false,
     musteringPlayersDone: 0,
+    eliminatedPlayers: [],
   };
 };
 
@@ -159,7 +159,6 @@ export const deal = (
       court: [],
       accused,
       forgotten: forgottenCard === null ? null : hidden(forgottenCard),
-      army: [],
       condemned: [],
     },
     activePlayer: tk,
@@ -176,5 +175,6 @@ export const deal = (
     armyRecruitedIds: [],
     hasExhaustedThisMustering: false,
     musteringPlayersDone: 0,
+    eliminatedPlayers: [],
   };
 };

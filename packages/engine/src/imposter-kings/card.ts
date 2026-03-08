@@ -305,7 +305,7 @@ const soldierEffect = nameCard((name) =>
       "hand",
       { tag: "hasName", name },
       seq(
-        addRoundModifier(played, { tag: "valueChange", delta: 2, target: { tag: "self" } }),
+        addRoundModifier(played, { tag: "conditionalValueChange", delta: 2, target: { tag: "self" }, condition: cardIsOnThrone }),
         disgraceUpTo3,
       ),
     ),

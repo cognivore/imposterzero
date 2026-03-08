@@ -171,9 +171,9 @@ describe("King's Hand reaction windows", () => {
     // P1 reacts with KH
     state = chooseEffect(state, 1);
 
-    // Both KH and Inquisitor should be condemned
-    expect(state.shared.condemned.some((e) => e.card.id === kh.id)).toBe(true);
-    expect(state.shared.condemned.some((e) => e.card.id === inq.id)).toBe(true);
+    // KH goes to P1's parting, Inquisitor goes to P0's parting
+    expect(playerZones(state, 1).parting.some((c) => c.id === kh.id)).toBe(true);
+    expect(playerZones(state, 0).parting.some((c) => c.id === inq.id)).toBe(true);
 
     // Inquisitor no longer in court
     expect(state.shared.court.every((e) => e.card.id !== inq.id)).toBe(true);
@@ -182,7 +182,7 @@ describe("King's Hand reaction windows", () => {
     expect(playerZones(state, 1).hand.some((c) => c.kind.name === "Fool")).toBe(true);
     expect(playerZones(state, 1).antechamber).toHaveLength(0);
 
-    // Turn resets for P0 — it's still P0's turn, they get to play again
+    // P0's turn — must condemn parting card first
     expect(state.phase).toBe("play");
     expect(state.activePlayer).toBe(0);
   });
@@ -265,7 +265,7 @@ describe("King's Hand reaction windows", () => {
       ...state,
       shared: {
         ...state.shared,
-        condemned: [...state.shared.condemned, { card: kh, face: "up" as const }],
+        condemned: [...state.shared.condemned, { card: kh, face: "down" as const, knownBy: [0, 1] as const }],
       },
     };
 

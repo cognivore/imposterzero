@@ -59,6 +59,7 @@ export {
   removeFromRound,
   returnOneRallied,
   copyCardEffects,
+  assassinate3p,
   activeArmy,
   activeExhausted,
 } from "./program.js";

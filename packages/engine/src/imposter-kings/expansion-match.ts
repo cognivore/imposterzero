@@ -263,7 +263,6 @@ export const createExpansionRound = (
       court: [],
       accused,
       forgotten: forgottenCard === null ? null : hidden(forgottenCard),
-      army: [],
       condemned: [],
     },
     activePlayer: trueKing,
@@ -280,6 +279,7 @@ export const createExpansionRound = (
     armyRecruitedIds: [],
     hasExhaustedThisMustering: false,
     musteringPlayersDone: 0,
+    eliminatedPlayers: [],
   };
 };
 

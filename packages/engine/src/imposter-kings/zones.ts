@@ -35,13 +35,13 @@ export interface IKPlayerZones {
 
 export interface CondemnedEntry {
   readonly card: IKCard;
-  readonly face: FaceState;
+  readonly face: "down";
+  readonly knownBy: ReadonlyArray<import("@imposter-zero/types").PlayerId>;
 }
 
 export interface IKSharedZones {
   readonly court: ReadonlyArray<CourtEntry>;
   readonly accused: IKCard | null;
   readonly forgotten: HiddenCard | null;
-  readonly army: ReadonlyArray<IKCard>;
   readonly condemned: ReadonlyArray<CondemnedEntry>;
 }

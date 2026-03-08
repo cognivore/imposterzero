@@ -45,6 +45,7 @@ export interface IKState {
   readonly armyRecruitedIds: ReadonlyArray<number>;
   readonly hasExhaustedThisMustering: boolean;
   readonly musteringPlayersDone: number;
+  readonly eliminatedPlayers: ReadonlyArray<PlayerId>;
 }
 
 export const throne = (state: IKState): CourtEntry | null =>
@@ -56,5 +57,33 @@ export const playerZones = (state: IKState, player: PlayerId): IKPlayerZones =>
 export const playerHand = (state: IKState, player: PlayerId): ReadonlyArray<IKPlayerZones["hand"][number]> =>
   playerZones(state, player).hand;
 
-export const nextPlayer = (state: IKState, from: PlayerId = state.activePlayer): PlayerId =>
-  ((from + 1) % state.numPlayers) as PlayerId;
+export interface RevealedPlayerZones {
+  readonly hand: ReadonlyArray<import("./card.js").IKCard>;
+  readonly king: { readonly card: import("./card.js").IKCard; readonly face: "up" };
+  readonly successor: { readonly card: import("./card.js").IKCard; readonly face: "up" } | null;
+  readonly dungeon: { readonly card: import("./card.js").IKCard; readonly face: "up" } | null;
+}
+
+export interface RevealedState {
+  readonly players: ReadonlyArray<RevealedPlayerZones>;
+  readonly shared: IKSharedZones;
+}
+
+export const revealedState = (state: IKState): RevealedState => ({
+  players: state.players.map((p) => ({
+    hand: p.hand,
+    king: { card: p.king.card, face: "up" as const },
+    successor: p.successor ? { card: p.successor.card, face: "up" as const } : null,
+    dungeon: p.dungeon ? { card: p.dungeon.card, face: "up" as const } : null,
+  })),
+  shared: state.shared,
+});
+
+export const nextPlayer = (state: IKState, from: PlayerId = state.activePlayer): PlayerId => {
+  let next = ((from + 1) % state.numPlayers) as PlayerId;
+  for (let i = 0; i < state.numPlayers; i++) {
+    if (!state.eliminatedPlayers.includes(next)) return next;
+    next = ((next + 1) % state.numPlayers) as PlayerId;
+  }
+  return next;
+};

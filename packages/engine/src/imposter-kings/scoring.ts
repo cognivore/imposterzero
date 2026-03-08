@@ -11,7 +11,11 @@ const hasResources = (state: IKState, player: PlayerId): boolean => {
 
 const stuckAndWinner = (state: IKState): { stuck: PlayerId; winner: PlayerId } => {
   const stuck = state.forcedLoser ?? state.activePlayer;
-  const winner = ((stuck - 1 + state.numPlayers) % state.numPlayers) as PlayerId;
+  let winner = ((stuck - 1 + state.numPlayers) % state.numPlayers) as PlayerId;
+  for (let i = 0; i < state.numPlayers; i++) {
+    if (!state.eliminatedPlayers.includes(winner)) break;
+    winner = ((winner - 1 + state.numPlayers) % state.numPlayers) as PlayerId;
+  }
   return { stuck, winner };
 };
 
@@ -36,8 +40,10 @@ const score3p = (state: IKState): ReadonlyArray<number> => {
     }
   }
 
-  const second = [0, 1, 2].find((p) => p !== winner && p !== stuck)!;
-  scores[second] += 1;
+  const second = [0, 1, 2].find(
+    (p) => p !== winner && p !== stuck && !state.eliminatedPlayers.includes(p as PlayerId),
+  );
+  if (second !== undefined) scores[second] += 1;
 
   return scores;
 };
