@@ -105,7 +105,7 @@ export const computePossibleHand = (
   if (gameState.shared.accused) addCard(gameState.shared.accused.kind.name);
 
   for (const entry of gameState.shared.condemned) {
-    if (entry.face === "up") addCard(entry.card.kind.name);
+    if (entry.knownBy.includes(myIndex)) addCard(entry.card.kind.name);
   }
 
 
