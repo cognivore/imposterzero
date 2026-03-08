@@ -134,17 +134,18 @@ export const legalActions = (state: IKState): ReadonlyArray<IKAction> => {
     }));
   }
 
+  if (active.antechamber.length > 0) {
+    return active.antechamber.map((card) => ({
+      kind: "play" as const,
+      cardId: card.id,
+    }));
+  }
+
   const threshold = throneValue(state);
   const playable = active.hand
     .filter((card) => canPlayCard(card, state, threshold))
     .map((card) => ({ kind: "play" as const, cardId: card.id }));
 
-  const antechamberPlays = active.antechamber.map((card) => ({
-    kind: "play" as const,
-    cardId: card.id,
-  }));
-
   const canDisgrace = isKingFaceUp(state, state.activePlayer) && throne(state) !== null;
-  const actions = [...playable, ...antechamberPlays];
-  return canDisgrace ? [...actions, { kind: "disgrace" }] : actions;
+  return canDisgrace ? [...playable, { kind: "disgrace" }] : playable;
 };

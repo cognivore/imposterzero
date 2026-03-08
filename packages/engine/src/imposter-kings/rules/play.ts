@@ -98,20 +98,6 @@ const endOfTurn = (state: IKState, originalState: IKState): IKState => {
 };
 
 const endOfTurnAfterParting = (state: IKState, originalState: IKState): IKState => {
-  const activePlayer = originalState.activePlayer;
-  const zones = playerZones(state, activePlayer);
-
-  if (zones.antechamber.length > 0) {
-    if (zones.antechamber.length === 1) {
-      return applyAntechamberPlayDirect(state, zones.antechamber[0]!.id, originalState);
-    }
-    return {
-      ...state,
-      phase: "end_of_turn",
-      pendingResolution: null,
-    };
-  }
-
   return finalAdvance(state, originalState);
 };
 

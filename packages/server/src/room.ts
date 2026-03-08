@@ -191,8 +191,15 @@ const startNewRound = (
       room.expansionState.playerArmies,
       tk,
     );
-  } else if (trueKing !== undefined) {
-    initialState = deal(regulationDeck(numPlayers), numPlayers, undefined, trueKing);
+  } else {
+    const tk: PlayerId = trueKing ?? (0 as PlayerId);
+    const defaultSigs: ReadonlyArray<ReadonlyArray<CardName>> = Array.from(
+      { length: numPlayers },
+      () => ["Aegis", "Exile", "Ancestor"],
+    );
+    const armies = buildPlayerArmies(REGULATION_2P_EXPANSION, defaultSigs);
+    activeGame = createExpansionGame(REGULATION_2P_EXPANSION, armies, tk);
+    initialState = createExpansionRound(REGULATION_2P_EXPANSION, armies, tk);
   }
 
   const rawSession = startSession(activeGame, numPlayers, playerMapping, room.turnDuration, now, initialState);

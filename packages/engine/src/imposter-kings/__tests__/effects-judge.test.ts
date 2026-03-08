@@ -122,20 +122,20 @@ describe("Judge card effect", () => {
     const chosenCardId = (opts[0] as { kind: "card"; cardId: number }).cardId;
     state = chooseEffect(state, 0);
 
-    // --- Effect done + end-of-turn antechamber auto-play ---
+    // --- Effect done: card stays in antechamber, NOT auto-played ---
     expect(state.phase).toBe("play");
     expect(state.activePlayer).toBe(1);
 
-    expect(state.shared.court.some((e) => e.card.id === chosenCardId)).toBe(true);
-    expect(playerZones(state, 0).antechamber).toHaveLength(0);
+    expect(playerZones(state, 0).antechamber).toHaveLength(1);
+    expect(playerZones(state, 0).antechamber[0]!.id).toBe(chosenCardId);
 
-    expect(state.shared.court).toHaveLength(2);
-    expect(state.shared.court.some((e) => e.card.id === judgeCard.id)).toBe(true);
+    expect(state.shared.court).toHaveLength(1);
+    expect(state.shared.court[0]!.card.id).toBe(judgeCard.id);
 
     expect(playerZones(state, 0).hand).toHaveLength(p0HandBefore - 2);
 
     console.log(
-      `  Correct guess: Judge played, card ${chosenCardId} auto-played from antechamber to court`,
+      `  Correct guess: Judge played, card ${chosenCardId} placed in antechamber (forced play next turn)`,
     );
   });
 

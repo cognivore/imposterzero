@@ -1,11 +1,12 @@
 import { describe, it, expect } from "vitest";
 
-import { deal } from "../deal.js";
+import { deal, createDeck } from "../deal.js";
 import { regulationDeck } from "../card.js";
 import { legalActions, apply, applySafe } from "../rules.js";
 import { playerZones, type IKState } from "../state.js";
 import type { IKPlayerZones } from "../zones.js";
 import type { IKPlayCardAction } from "../actions.js";
+import type { PlayerId } from "@imposter-zero/types";
 
 const seededRandom = (seed: number) => {
   let s = seed;
@@ -59,8 +60,8 @@ const putInAntechamber = (
 };
 
 describe("antechamber mechanics", () => {
-  describe("antechamber cards are legal plays", () => {
-    it("antechamber cards appear in legalActions during play phase", () => {
+  describe("antechamber cards are forced plays", () => {
+    it("antechamber cards are the only legal plays during play phase", () => {
       let state = makePlayState(3);
       const active = state.activePlayer;
       const hand = playerZones(state, active).hand;
@@ -68,10 +69,67 @@ describe("antechamber mechanics", () => {
       state = putInAntechamber(state, active, hand[0]!.id);
       const legal = legalActions(state);
       const antechamberCard = playerZones(state, active).antechamber[0]!;
-      const hasAntechamberPlay = legal.some(
-        (a) => a.kind === "play" && a.cardId === antechamberCard.id,
+
+      const playActions = legal.filter((a) => a.kind === "play");
+      expect(playActions).toHaveLength(1);
+      expect(playActions[0]!.kind === "play" && playActions[0]!.cardId === antechamberCard.id).toBe(true);
+
+      const hasHandPlay = legal.some(
+        (a) => a.kind === "play" && hand.slice(1).some((c) => c.id === (a as IKPlayCardAction).cardId),
       );
-      expect(hasAntechamberPlay).toBe(true);
+      expect(hasHandPlay).toBe(false);
+    });
+  });
+
+  describe("Oathbound from Antechamber", () => {
+    it("Oathbound effect does not trigger when played from antechamber onto higher-value card", () => {
+      let state = makePlayState(2);
+      const active = state.activePlayer;
+
+      const deck = createDeck(regulationDeck(2));
+      const queenKind = deck.find((c) => c.kind.name === "Queen")!.kind;
+      const oathboundKind = deck.find((c) => c.kind.name === "Oathbound")!.kind;
+
+      const queenCard = { id: 9000, kind: queenKind };
+      const oathboundCard = { id: 9001, kind: oathboundKind };
+
+      const zones = playerZones(state, active);
+      state = {
+        ...state,
+        players: state.players.map((p, i) =>
+          i === active
+            ? { ...p, hand: zones.hand, antechamber: [oathboundCard] }
+            : p,
+        ),
+        shared: {
+          ...state.shared,
+          court: [{ card: queenCard, face: "up" as const, playedBy: ((1 - active) as PlayerId) }],
+        },
+      };
+
+      expect(playerZones(state, active).antechamber).toHaveLength(1);
+      expect(state.shared.court[0]!.card.kind.props.value).toBe(9);
+
+      const legal = legalActions(state);
+      const oathboundPlay = legal.find(
+        (a) => a.kind === "play" && a.cardId === oathboundCard.id,
+      );
+      expect(oathboundPlay).toBeDefined();
+
+      const result = applySafe(state, oathboundPlay!);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+
+      const afterPlay = resolveEffects(result.value);
+
+      expect(afterPlay.shared.court.some((e) => e.card.id === oathboundCard.id)).toBe(true);
+
+      const queenEntry = afterPlay.shared.court.find((e) => e.card.id === queenCard.id);
+      expect(queenEntry).toBeDefined();
+      expect(queenEntry!.face).toBe("up");
+
+      expect(afterPlay.phase).toBe("play");
+      expect(afterPlay.activePlayer).not.toBe(active);
     });
   });
 

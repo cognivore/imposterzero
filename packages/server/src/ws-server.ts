@@ -507,10 +507,7 @@ export const startServer = (
           const newTarget = Math.min(99, Math.max(1, Number(msg.targetScore) || 7));
           updateManagedRoomTargetScore(managed, newTarget);
         }
-        if (msg.expansion !== undefined) {
-          updateManagedRoomExpansion(managed, Boolean(msg.expansion));
-        }
-        const isExpansion = managed.room.phase === "lobby" && managed.room.expansionState !== null;
+        const isExpansion = managed.room.expansionState !== null;
         const settingsMsg = { type: "room_settings" as const, targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy, expansion: isExpansion };
         const pids = playersInRoom(store, managed.id);
         for (const pid of pids) {

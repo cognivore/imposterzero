@@ -27,9 +27,7 @@ export const LobbyView: React.FC<Props> = ({ phase, send }) => {
     send({ type: "update_settings", handHelper: !phase.handHelper } as never);
   };
 
-  const handleExpansionToggle = () => {
-    send({ type: "update_settings", expansion: !phase.expansion });
-  };
+
 
   return (
     <div className="lobby">
@@ -75,21 +73,11 @@ export const LobbyView: React.FC<Props> = ({ phase, send }) => {
                 />
                 <span className="setting-label">Hand Helper</span>
               </label>
-              <label className="expansion-toggle">
-                <input
-                  type="checkbox"
-                  checked={phase.expansion}
-                  onChange={handleExpansionToggle}
-                  style={{ width: 16, height: 16 }}
-                />
-                <span className="setting-label">Fragments of Nersetti</span>
-              </label>
             </>
           ) : (
             <>
               <span className="setting-pill">First to {phase.targetScore}</span>
               {phase.handHelper && <span className="setting-pill">Hand Helper</span>}
-              {phase.expansion && <span className="setting-pill">Expansion</span>}
             </>
           )}
         </div>

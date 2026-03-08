@@ -5,8 +5,8 @@
  *   1. Player 0 plays Inquisitor to empty court (always legal, threshold=0)
  *   2. Inquisitor effect: proceed -> name "Queen"
  *   3. Player 1 has Queen, forced to move it to antechamber
- *   4. Player 1's turn: plays a card from hand to court
- *   5. End-of-turn: Queen plays from antechamber, triggers disgrace-all
+ *   4. Player 1's turn: forced to play Queen from antechamber (ignoring throne)
+ *   5. Queen ETB: disgrace-all triggers
  *   6. Assert: all other court cards face-down
  */
 
@@ -147,18 +147,24 @@ describe("Inquisitor -> Queen antechamber ETB chain", () => {
     const courtAfterInq = state.shared.court.length;
     console.log(`  After Inquisitor: court has ${courtAfterInq} cards, P1 antechamber has Queen`);
 
-    // --- STEP 5: Player 1 plays a card from hand ---
+    // --- STEP 5: P1 forced to play Queen from antechamber (no hand play) ---
     const p1Legal = legalActions(state);
     const p1HandPlay = p1Legal.find(
       (a): a is IKPlayCardAction =>
         a.kind === "play" &&
         playerZones(state, 1).hand.some((c) => c.id === a.cardId),
     );
-    expect(p1HandPlay).toBeDefined();
-    state = apply(state, p1HandPlay!);
+    expect(p1HandPlay).toBeUndefined();
 
-    // --- STEP 6: End-of-turn should auto-play Queen from antechamber ---
-    // Resolve everything (effects, end_of_turn antechamber play, Queen ETB)
+    const queenPlay = p1Legal.find(
+      (a): a is IKPlayCardAction =>
+        a.kind === "play" &&
+        playerZones(state, 1).antechamber.some((c) => c.id === a.cardId),
+    );
+    expect(queenPlay).toBeDefined();
+    state = apply(state, queenPlay!);
+
+    // --- STEP 6: Resolve Queen ETB (disgrace-all) ---
     state = resolveAllNonPlay(state);
 
     // --- STEP 7: Assert Queen ETB fired ---
@@ -176,7 +182,7 @@ describe("Inquisitor -> Queen antechamber ETB chain", () => {
     expect(allDisgraced).toBe(true);
 
     console.log(
-      `  Chain complete: Queen from antechamber disgraced ${nonQueenCourt.length} court cards`,
+      `  Chain complete: Queen forced from antechamber, disgraced ${nonQueenCourt.length} court cards`,
     );
   });
 });

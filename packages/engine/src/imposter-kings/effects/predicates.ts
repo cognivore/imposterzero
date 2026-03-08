@@ -68,6 +68,7 @@ export const evaluate = (
       return top !== null && (top.face !== "up" || !top.card.kind.props.keywords.includes("royalty"));
     }
     case "playedOnHigherValue": {
+      if (ctx.playedFrom === "antechamber") return false;
       const court = state.shared.court;
       const idx = court.findIndex((e) => e.card.id === ctx.playedCard.id);
       if (idx <= 0) return false;
