@@ -24,8 +24,12 @@ import { refreshModifiers, crystallizeStickyModifiers } from "../effects/modifie
 import {
   done,
   active,
+  activeHand,
+  activeSuccessor,
   flipKing,
   disgrace as disgraceNode,
+  move,
+  withFirstCardIn,
   forceLoser,
   triggerReaction,
 } from "../effects/program.js";
@@ -192,7 +196,16 @@ const enterResolving = (
 const buildDisgraceEffect = (throneCardId: number): EffectProgram =>
   triggerReaction(
     "king_flip",
-    flipKing(active, "down", disgraceNode({ kind: "id", cardId: throneCardId })),
+    flipKing(
+      active,
+      "down",
+      disgraceNode(
+        { kind: "id", cardId: throneCardId },
+        withFirstCardIn(activeSuccessor, (cardId) =>
+          move({ kind: "id", cardId }, activeSuccessor, activeHand),
+        ),
+      ),
+    ),
     forceLoser(active),
   );
 

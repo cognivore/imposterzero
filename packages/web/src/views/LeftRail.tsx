@@ -52,6 +52,15 @@ export const LeftRail: React.FC<{ readonly turnCount: number }> = ({ turnCount }
               <span className="left-rail__system">{entry.description}</span>
             ) : entry.kind === "trace" ? (
               <span className="left-rail__trace">{entry.description}</span>
+            ) : entry.kind === "mustering" ? (
+              entry.playerIndex === -1 ? (
+                <span className="left-rail__system">{entry.description}</span>
+              ) : (
+                <>
+                  <span className="left-rail__player">{entry.playerName}</span>
+                  <span className="left-rail__desc">{entry.description}</span>
+                </>
+              )
             ) : (
               <>
                 <span className="left-rail__turn">T{entry.turnNumber}</span>

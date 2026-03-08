@@ -32,6 +32,7 @@ export interface ManagedRoom {
   botCounter: number;
   turnTimer: ReturnType<typeof setTimeout> | null;
   botTimer: ReturnType<typeof setTimeout> | null;
+  scoringTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const generateRoomId = (): string => randomBytes(4).toString("hex");
@@ -73,6 +74,7 @@ export const createManagedRoom = (
     botCounter: 0,
     turnTimer: null,
     botTimer: null,
+    scoringTimer: null,
   };
   store.rooms.set(id, managed);
   return managed;
@@ -102,6 +104,7 @@ export const browsersOnly = (store: RoomStore, allPlayerIds: ReadonlyArray<strin
 export const destroyRoom = (store: RoomStore, managed: ManagedRoom): void => {
   if (managed.turnTimer !== null) clearTimeout(managed.turnTimer);
   if (managed.botTimer !== null) clearTimeout(managed.botTimer);
+  if (managed.scoringTimer !== null) clearTimeout(managed.scoringTimer);
 
   for (const [pid, rid] of store.playerRoomMap) {
     if (rid === managed.id) store.playerRoomMap.delete(pid);

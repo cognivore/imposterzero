@@ -58,6 +58,7 @@ export type ClientPhase =
       readonly activePlayer: PlayerId;
       readonly numPlayers: number;
       readonly playerNames: readonly string[];
+      readonly turnDeadline: number;
     }
   | {
       readonly _tag: "mustering";
@@ -71,6 +72,7 @@ export type ClientPhase =
       readonly activePlayer: PlayerId;
       readonly numPlayers: number;
       readonly playerNames: readonly string[];
+      readonly turnDeadline: number;
     }
   | {
       readonly _tag: "setup";
@@ -84,6 +86,7 @@ export type ClientPhase =
       readonly activePlayer: PlayerId;
       readonly numPlayers: number;
       readonly playerNames: readonly string[];
+      readonly turnDeadline: number;
     }
   | {
       readonly _tag: "play";
@@ -98,6 +101,7 @@ export type ClientPhase =
       readonly numPlayers: number;
       readonly playerNames: readonly string[];
       readonly handHelper: boolean;
+      readonly turnDeadline: number;
     }
   | {
       readonly _tag: "resolving";
@@ -112,6 +116,7 @@ export type ClientPhase =
       readonly numPlayers: number;
       readonly playerNames: readonly string[];
       readonly handHelper: boolean;
+      readonly turnDeadline: number;
     }
   | {
       readonly _tag: "scoring";
@@ -126,6 +131,8 @@ export type ClientPhase =
       readonly roundsPlayed: number;
       readonly numPlayers: number;
       readonly playerNames: readonly string[];
+      readonly readyPlayers: readonly string[];
+      readonly reviewDeadline: number;
     }
   | {
       readonly _tag: "finished";
@@ -358,6 +365,8 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
       const playerNames = msg.playerNames ?? playerNamesOfPhase(phase, []);
       const handHelper = handHelperOf(phase);
 
+      const turnDeadline = msg.turnDeadline;
+
       if (msg.state.phase === "crown") {
         return {
           _tag: "crown",
@@ -371,6 +380,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
           activePlayer: msg.activePlayer,
           numPlayers,
           playerNames,
+          turnDeadline,
         };
       }
 
@@ -387,6 +397,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
           activePlayer: msg.activePlayer,
           numPlayers,
           playerNames,
+          turnDeadline,
         };
       }
 
@@ -403,6 +414,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
           activePlayer: msg.activePlayer,
           numPlayers,
           playerNames,
+          turnDeadline,
         };
       }
 
@@ -420,6 +432,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
           numPlayers,
           playerNames,
           handHelper,
+          turnDeadline,
         };
       }
 
@@ -436,6 +449,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
         numPlayers,
         playerNames,
         handHelper,
+        turnDeadline,
       };
     }
 
@@ -456,7 +470,14 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
         roundsPlayed: msg.roundsPlayed,
         numPlayers: numPlayersOf(phase, msg.scores.length),
         playerNames,
+        readyPlayers: [],
+        reviewDeadline: msg.reviewDeadline,
       };
+    }
+
+    case "scoring_ready": {
+      if (phase._tag !== "scoring") return phase;
+      return { ...phase, readyPlayers: msg.readyPlayers };
     }
 
     case "match_over": {
@@ -494,7 +515,7 @@ export const useGameReducer = () => {
 // ---------------------------------------------------------------------------
 
 export interface GameLogEvent {
-  readonly kind: "play" | "disgrace" | "round_start" | "round_end";
+  readonly kind: "play" | "disgrace" | "round_start" | "round_end" | "mustering";
   readonly turnNumber: number;
   readonly playerName: string;
   readonly playerIndex: number;
@@ -550,6 +571,67 @@ export const detectLogEvents = (
         description: "disgraced",
       });
     }
+  }
+
+  if (prev._tag === "mustering" && next._tag === "mustering") {
+    const prevState = prev.gameState;
+    const nextState = next.gameState;
+    const actor = prev.activePlayer;
+    const actorName = prev.playerNames[actor] ?? `Player ${actor}`;
+    const prevZones = prevState.players[actor];
+    const nextZones = nextState.players[actor];
+
+    if (prevZones && nextZones) {
+      if (nextState.musteringPlayersDone > prevState.musteringPlayersDone) {
+        events.push({
+          kind: "mustering",
+          turnNumber: 0,
+          playerName: actorName,
+          playerIndex: actor,
+          description: "finished mustering",
+        });
+      } else if (nextZones.exhausted.length > prevZones.exhausted.length && nextZones.army.length < prevZones.army.length && nextZones.recruitDiscard.length === prevZones.recruitDiscard.length) {
+        const exhausted = nextZones.exhausted.find((c) => !prevZones.exhausted.some((pc) => pc.id === c.id));
+        events.push({
+          kind: "mustering",
+          turnNumber: 0,
+          playerName: actorName,
+          playerIndex: actor,
+          description: `exhausted ${exhausted?.kind.name ?? "a card"} to begin recruiting`,
+        });
+      } else if (nextZones.recruitDiscard.length > prevZones.recruitDiscard.length) {
+        const discarded = nextZones.recruitDiscard.find((c) => !prevZones.recruitDiscard.some((pc) => pc.id === c.id));
+        const recruited = nextZones.hand.find((c) => !prevZones.hand.some((pc) => pc.id === c.id));
+        events.push({
+          kind: "mustering",
+          turnNumber: 0,
+          playerName: actorName,
+          playerIndex: actor,
+          description: `recruited ${recruited?.kind.name ?? "a card"} (discarded ${discarded?.kind.name ?? "a card"})`,
+        });
+      } else if (nextZones.exhausted.length > prevZones.exhausted.length && nextZones.army.length !== prevZones.army.length) {
+        const recovered = nextZones.army.find((c) => !prevZones.army.some((pc) => pc.id === c.id));
+        const newlyExhausted = nextZones.exhausted.filter((c) => !prevZones.exhausted.some((pc) => pc.id === c.id));
+        const exhaustedNames = newlyExhausted.map((c) => c.kind.name).join(" + ");
+        events.push({
+          kind: "mustering",
+          turnNumber: 0,
+          playerName: actorName,
+          playerIndex: actor,
+          description: `recommissioned: recovered ${recovered?.kind.name ?? "?"}, exhausted ${exhaustedNames}`,
+        });
+      }
+    }
+  }
+
+  if (prev._tag === "mustering" && next._tag !== "mustering" && next._tag === "setup") {
+    events.push({
+      kind: "mustering",
+      turnNumber: 0,
+      playerName: "",
+      playerIndex: -1,
+      description: "Mustering complete",
+    });
   }
 
   if ((prev._tag === "play" || prev._tag === "resolving") && next._tag === "scoring") {

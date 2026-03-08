@@ -5,6 +5,7 @@ import type { IKClientMessage } from "../ws-client.js";
 import { Card } from "./card/Card.js";
 import { toCardVisual } from "./card/types.js";
 import { PreviewZone } from "./PreviewZone.js";
+import { CountdownTimer } from "./CountdownTimer.js";
 
 type CrownPhase = Extract<ClientPhase, { readonly _tag: "crown" }>;
 
@@ -37,6 +38,7 @@ export const CrownView: React.FC<Props> = ({ phase, send }) => {
 
   return (
     <div className="crown-view">
+      <CountdownTimer turnDeadline={phase.turnDeadline} isMyTurn={isMyTurn} />
       <h1 className="crown-title">True King</h1>
 
       {(accused !== null || forgotten !== null) && (

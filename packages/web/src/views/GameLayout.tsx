@@ -8,6 +8,7 @@ import { RightRail } from "./RightRail.js";
 import { CourtZone } from "./CourtZone.js";
 import { HandZone } from "./HandZone.js";
 import { PreviewZone } from "./PreviewZone.js";
+import { CountdownTimer } from "./CountdownTimer.js";
 import { useDisgracedTracker } from "../stores/disgraced-tracker.js";
 import { useSeenCardsTracker } from "../stores/seen-cards.js";
 import { computePossibleHand } from "../logic/hand-helper.js";
@@ -120,6 +121,9 @@ export const GameLayout: React.FC<Props> = ({ phase, send }) => {
 
   return (
     <div className="game-layout">
+      <div className="game-layout__timer">
+        <CountdownTimer turnDeadline={phase.turnDeadline} isMyTurn={isMyTurn} />
+      </div>
       <LeftRail turnCount={gameState.turnCount} />
 
       <CourtZone

@@ -1,10 +1,12 @@
 import { useState, useCallback } from "react";
-import type { IKMusteringAction, IKBeginRecruitAction, IKRecruitAction, IKRecommissionAction } from "@imposter-zero/engine";
+import type { PlayerId } from "@imposter-zero/types";
+import type { IKMusteringAction, IKBeginRecruitAction, IKRecruitAction, IKRecommissionAction, IKPlayerZones } from "@imposter-zero/engine";
 import type { ClientPhase } from "../state.js";
 import type { IKClientMessage } from "../ws-client.js";
 import { Card } from "./card/Card.js";
 import { toCardVisual } from "./card/types.js";
 import { PreviewZone } from "./PreviewZone.js";
+import { CountdownTimer } from "./CountdownTimer.js";
 
 type MusteringPhase = Extract<ClientPhase, { readonly _tag: "mustering" }>;
 
@@ -13,8 +15,40 @@ interface Props {
   readonly send: (msg: IKClientMessage) => void;
 }
 
+const OpponentMustering: React.FC<{
+  readonly zones: IKPlayerZones;
+  readonly name: string;
+  readonly isActive: boolean;
+}> = ({ zones, name, isActive }) => (
+  <div className={`mustering-opponent ${isActive ? "mustering-opponent--active" : ""}`}>
+    <div className="mustering-opponent__name">
+      {name}
+      {isActive && <span className="mustering-opponent__acting"> (mustering)</span>}
+    </div>
+    <div className="mustering-opponent__row">
+      <span className="zone-label">Exhausted ({zones.exhausted.length})</span>
+      <div className="mustering-opponent__cards">
+        {zones.exhausted.map((c) => (
+          <Card key={c.id} visual={toCardVisual(c)} orientation="front" size="micro" />
+        ))}
+        {zones.exhausted.length === 0 && <span className="empty-zone">—</span>}
+      </div>
+    </div>
+    {zones.recruitDiscard.length > 0 && (
+      <div className="mustering-opponent__row">
+        <span className="zone-label">Discarded ({zones.recruitDiscard.length})</span>
+        <div className="mustering-opponent__cards">
+          {zones.recruitDiscard.map((c) => (
+            <Card key={c.id} visual={toCardVisual(c)} orientation="front" size="micro" />
+          ))}
+        </div>
+      </div>
+    )}
+  </div>
+);
+
 export const MusteringView: React.FC<Props> = ({ phase, send }) => {
-  const { gameState, legalActions, activePlayer, myIndex, playerNames } = phase;
+  const { gameState, legalActions, activePlayer, myIndex, playerNames, numPlayers } = phase;
   const isMyTurn = activePlayer === myIndex;
   const myZones = gameState.players[myIndex]!;
   const armyCards = myZones.army;
@@ -94,18 +128,41 @@ export const MusteringView: React.FC<Props> = ({ phase, send }) => {
     setRecommExhaust2(cardId);
   };
 
+  const activePlayerName = playerNames[activePlayer] ?? "opponent";
   const statusText = isMyTurn
     ? hasBegunRecruiting
       ? "You may recruit (discard a hand card, take an army card), recommission, or pass."
       : "Exhaust an army card to begin recruiting, recommission, or pass."
-    : `Waiting for ${playerNames[activePlayer] ?? "opponent"} to muster...`;
+    : `Waiting for ${activePlayerName} to muster...`;
+
+  const opponents = Array.from({ length: numPlayers }, (_, i) => i as PlayerId).filter(
+    (i) => i !== myIndex,
+  );
 
   return (
     <div className="mustering-layout">
       <div className="mustering-header">
         <h2>Mustering Phase</h2>
+        <CountdownTimer turnDeadline={phase.turnDeadline} isMyTurn={isMyTurn} />
         <p className="mustering-status">{statusText}</p>
       </div>
+
+      {opponents.length > 0 && (
+        <div className="mustering-opponents">
+          {opponents.map((i) => {
+            const opZones = gameState.players[i];
+            if (!opZones) return null;
+            return (
+              <OpponentMustering
+                key={i}
+                zones={opZones}
+                name={playerNames[i] ?? `Player ${i}`}
+                isActive={activePlayer === i}
+              />
+            );
+          })}
+        </div>
+      )}
 
       <div className="mustering-zones">
         <div className="mustering-zone">
@@ -163,26 +220,41 @@ export const MusteringView: React.FC<Props> = ({ phase, send }) => {
         </div>
       </div>
 
-      {hasBegunRecruiting && canRecruit && (
-        <div className="mustering-hand">
-          <span className="zone-label">Your Hand ({handCards.length}) -- select a card to discard for Recruit</span>
-          <div className="mustering-cards hand-cards">
-            {handCards.map((card) => {
-              const isSelected = selectedHandCard === card.id;
-              return (
-                <div
-                  key={card.id}
-                  className={`mustering-card-slot ${isSelected ? "selected-discard" : ""}`}
-                  onClick={() => {
-                    if (!isMyTurn) return;
-                    setSelectedHandCard(isSelected ? null : card.id);
-                  }}
-                >
-                  <Card visual={toCardVisual(card)} orientation="front" size="small" />
-                </div>
-              );
-            })}
-          </div>
+      <div className="mustering-hand">
+        <span className="zone-label">
+          Your Hand ({handCards.length})
+          {isMyTurn && hasBegunRecruiting && canRecruit ? " — select a card to discard for Recruit" : ""}
+        </span>
+        <div className="mustering-cards hand-cards">
+          {handCards.map((card) => {
+            const selectable = isMyTurn && hasBegunRecruiting && canRecruit;
+            const isSelected = selectedHandCard === card.id;
+            return (
+              <div
+                key={card.id}
+                className={`mustering-card-slot ${isSelected ? "selected-discard" : ""} ${selectable ? "" : "mustering-card-slot--readonly"}`}
+                onClick={() => {
+                  if (!selectable) return;
+                  setSelectedHandCard(isSelected ? null : card.id);
+                }}
+              >
+                <Card visual={toCardVisual(card)} orientation="front" size="small" />
+              </div>
+            );
+          })}
+          {handCards.length === 0 && <div className="empty-zone">No cards in hand</div>}
+        </div>
+      </div>
+
+      {gameState.shared.accused !== null && (
+        <div className="mustering-accused">
+          <span className="zone-label">Accused</span>
+          <Card
+            visual={toCardVisual(gameState.shared.accused)}
+            orientation="front"
+            size="small"
+            previewSource="side"
+          />
         </div>
       )}
 

@@ -176,14 +176,17 @@ describe("play phase", () => {
       expect(next.activePlayer).not.toBe(state.activePlayer);
     });
 
-    it("does not remove any card from hand", () => {
+    it("recalls successor to hand", () => {
       const found = findDisgraceState();
       expect(found).not.toBeNull();
       const { state } = found!;
-      const handBefore = playerZones(state, state.activePlayer).hand.length;
+      const zones = playerZones(state, state.activePlayer);
+      const hasSuccessor = zones.successor !== null;
+      const handBefore = zones.hand.length;
       const next = apply(state, { kind: "disgrace" });
-      const handAfter = playerZones(next, state.activePlayer).hand.length;
-      expect(handAfter).toBe(handBefore);
+      const nextZones = playerZones(next, state.activePlayer);
+      expect(nextZones.successor).toBeNull();
+      expect(nextZones.hand.length).toBe(handBefore + (hasSuccessor ? 1 : 0));
     });
   });
 

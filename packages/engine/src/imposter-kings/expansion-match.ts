@@ -287,6 +287,22 @@ export const createExpansionRound = (
 // End-of-round Army exhaustion: recruited/rallied cards return to exhausted
 // ---------------------------------------------------------------------------
 
+const findCardNameById = (state: IKState, cardId: number): CardName | null => {
+  for (const p of state.players) {
+    for (const c of p.hand) if (c.id === cardId) return c.kind.name;
+    if (p.king.card.id === cardId) return p.king.card.kind.name;
+    if (p.successor?.card.id === cardId) return p.successor.card.kind.name;
+    if (p.dungeon?.card.id === cardId) return p.dungeon.card.kind.name;
+    for (const c of [...p.antechamber, ...p.parting, ...p.army, ...p.exhausted, ...p.recruitDiscard])
+      if (c.id === cardId) return c.kind.name;
+  }
+  for (const e of state.shared.court) if (e.card.id === cardId) return e.card.kind.name;
+  if (state.shared.accused?.id === cardId) return state.shared.accused.kind.name;
+  if (state.shared.forgotten?.card.id === cardId) return state.shared.forgotten.card.kind.name;
+  for (const e of state.shared.condemned) if (e.card.id === cardId) return e.card.kind.name;
+  return null;
+};
+
 export const exhaustArmyCardsPostRound = (
   finalState: IKState,
   prevArmies: ReadonlyArray<PlayerArmy>,
@@ -296,9 +312,9 @@ export const exhaustArmyCardsPostRound = (
     const allKinds = [...army.available, ...army.exhausted];
 
     const roundExhaustedNames = new Set(pz.exhausted.map((c) => c.kind.name));
-    const recruitedIds = new Set(finalState.armyRecruitedIds);
-    for (const c of pz.hand) {
-      if (recruitedIds.has(c.id)) roundExhaustedNames.add(c.kind.name);
+    for (const id of finalState.armyRecruitedIds) {
+      const name = findCardNameById(finalState, id);
+      if (name) roundExhaustedNames.add(name);
     }
 
     for (const k of army.exhausted) {

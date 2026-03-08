@@ -124,6 +124,32 @@ export const startServer = (
     if (m.botTimer !== null) { clearTimeout(m.botTimer); m.botTimer = null; }
   };
 
+  const clearRoomScoringTimer = (m: ManagedRoom): void => {
+    if (m.scoringTimer !== null) { clearTimeout(m.scoringTimer); m.scoringTimer = null; }
+  };
+
+  const scheduleScoringTimer = (m: ManagedRoom): void => {
+    clearRoomScoringTimer(m);
+    if (m.room.phase !== "scoring") return;
+    const scoring = m.room as ScoringRoom;
+    const delay = Math.max(1, scoring.reviewDeadline - Date.now() + 1);
+    m.scoringTimer = setTimeout(() => {
+      if (m.room.phase !== "scoring") return;
+      const now = Date.now();
+      const sr = m.room as ScoringRoom;
+      for (const player of sr.lobby.players) {
+        if (sr.readyPlayers.has(player.id)) continue;
+        const result = roomTransition(m.room, { kind: "ready", playerId: player.id, now }, now);
+        if (result.ok) {
+          m.room = result.value.room;
+          broadcastToRoom(m, result.value.messages);
+        }
+      }
+      scheduleTurnTimer(m);
+      scheduleBotTurn(m);
+    }, delay);
+  };
+
   const findBotByIndex = (m: ManagedRoom, playing: PlayingRoom, playerIdx: PlayerId): string | null => {
     for (const [id, idx] of playing.session.playerMapping) {
       if (idx === playerIdx && isBot(m.botRegistry, id)) return id;
@@ -132,10 +158,28 @@ export const startServer = (
   };
 
   const advanceIfScoring = (m: ManagedRoom, now: number): void => {
-    if (autoAdvanceScoring && m.room.phase === "scoring") {
+    if (m.room.phase !== "scoring") return;
+
+    if (autoAdvanceScoring) {
       const result = continueAfterScoring(m.room as ScoringRoom, now);
       m.room = result.room;
       broadcastToRoom(m, result.messages);
+      return;
+    }
+
+    for (const player of m.room.lobby.players) {
+      if (!isBot(m.botRegistry, player.id)) continue;
+      const scoring = m.room as ScoringRoom;
+      if (scoring.readyPlayers.has(player.id)) continue;
+      const result = roomTransition(m.room, { kind: "ready", playerId: player.id, now }, now);
+      if (result.ok) {
+        m.room = result.value.room;
+        broadcastToRoom(m, result.value.messages);
+      }
+    }
+
+    if (m.room.phase === "scoring") {
+      scheduleScoringTimer(m);
     }
   };
 
@@ -235,7 +279,7 @@ export const startServer = (
       const playing = m.room as PlayingRoom;
       const legalActions = playing.game.legalActions(playing.session.state);
       const activePlayer = playing.game.currentPlayer(playing.session.state) as PlayerId;
-      sendJson(ws, { type: "state", state: playing.session.state, legalActions, activePlayer, playerNames });
+      sendJson(ws, { type: "state", state: playing.session.state, legalActions, activePlayer, playerNames, turnDeadline: playing.session.turnDeadline });
     } else if (m.room.phase === "finished") {
       const finished = m.room as FinishedRoom;
       sendJson(ws, { type: "match_over", winners: finished.winners, finalScores: [...finished.match.scores], playerNames });
@@ -248,7 +292,11 @@ export const startServer = (
         matchScores: [...scoring.match.scores],
         roundsPlayed: scoring.match.roundsPlayed,
         playerNames,
+        reviewDeadline: scoring.reviewDeadline,
       });
+      if (scoring.readyPlayers.size > 0) {
+        sendJson(ws, { type: "scoring_ready", readyPlayers: [...scoring.readyPlayers] });
+      }
     } else {
       sendJson(ws, { type: "lobby_state", lobby: m.room.lobby });
     }
@@ -575,6 +623,7 @@ export const startServer = (
         for (const m of store.rooms.values()) {
           clearRoomTurnTimer(m);
           clearRoomBotTimer(m);
+          clearRoomScoringTimer(m);
         }
         for (const entry of registry.allConnected()) {
           entry.ws!.close();

@@ -202,6 +202,7 @@ export const sharedZone = (slot: IKSharedZoneSlot): ZoneRef => ({
 });
 
 export const activeHand: ZoneRef = playerZone(active, "hand");
+export const activeSuccessor: ZoneRef = playerZone(active, "successor");
 export const court: ZoneRef = sharedZone("court");
 export const accused: ZoneRef = sharedZone("accused");
 

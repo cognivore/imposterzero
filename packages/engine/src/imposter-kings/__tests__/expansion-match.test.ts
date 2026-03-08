@@ -8,6 +8,7 @@ import {
   apply,
   isTerminal,
   currentPlayer,
+  playerZones,
   BASE_ARMY_KINDS,
 } from "../index.js";
 import {
@@ -112,5 +113,91 @@ describe("Army exhaustion across rounds", () => {
     const result = exhaustArmyCardsPostRound(state, armies);
     expect(result[0]!.exhausted.length).toBe(2);
     expect(result[1]!.exhausted.length).toBe(0);
+  });
+
+  it("recruited card becomes exhausted even after being played to court", () => {
+    const armies: ReadonlyArray<PlayerArmy> = [
+      { available: BASE_ARMY_KINDS.slice(0, 3), exhausted: [] },
+      { available: BASE_ARMY_KINDS.slice(0, 3), exhausted: [] },
+    ];
+    let state = createExpansionRound(REGULATION_2P_EXPANSION, armies, 0, seededRng(42));
+    state = apply(state, { kind: "crown", firstPlayer: 0 });
+    expect(state.phase).toBe("mustering");
+
+    const p1 = state.players[state.activePlayer]!;
+    const exhaustTarget = p1.army[0]!;
+    state = apply(state, { kind: "begin_recruit", exhaustCardId: exhaustTarget.id });
+
+    const p1b = state.players[state.activePlayer]!;
+    const recruitTarget = p1b.army[0]!;
+    const recruitedName = recruitTarget.kind.name;
+    state = apply(state, {
+      kind: "recruit",
+      discardFromHandId: p1b.hand[0]!.id,
+      takeFromArmyId: recruitTarget.id,
+    });
+    expect(state.armyRecruitedIds).toContain(recruitTarget.id);
+
+    state = apply(state, { kind: "end_mustering" });
+    state = apply(state, { kind: "end_mustering" });
+    expect(state.phase).toBe("setup");
+
+    const s1 = legalActions(state).find((a) => a.kind === "commit")!;
+    state = apply(state, s1);
+    const s2 = legalActions(state).find((a) => a.kind === "commit")!;
+    state = apply(state, s2);
+    expect(state.phase).toBe("play");
+
+    const musteringPlayer = state.activePlayer === 1 ? 1 : 0;
+    const recruitedCard = state.players[musteringPlayer]!.hand.find(
+      (c) => c.id === recruitTarget.id,
+    );
+    if (recruitedCard) {
+      const playAction = legalActions(state).find(
+        (a) => a.kind === "play" && a.cardId === recruitedCard.id,
+      );
+      if (playAction) {
+        state = apply(state, playAction);
+        while (state.phase === "resolving" || state.phase === "end_of_turn") {
+          const legal = legalActions(state);
+          if (legal.length === 0) break;
+          state = apply(state, legal[0]!);
+        }
+      }
+    }
+
+    const finalState: IKState = {
+      ...state,
+      armyRecruitedIds: [recruitTarget.id],
+    };
+    const result = exhaustArmyCardsPostRound(finalState, armies);
+    const musterIdx = 1;
+    expect(result[musterIdx]!.exhausted.map((k) => k.name)).toContain(recruitedName);
+  });
+
+  it("recruited card in court is still marked exhausted for next round", () => {
+    const armies: ReadonlyArray<PlayerArmy> = [
+      { available: BASE_ARMY_KINDS.slice(0, 3), exhausted: [] },
+      { available: BASE_ARMY_KINDS.slice(0, 3), exhausted: [] },
+    ];
+    const state = createExpansionRound(REGULATION_2P_EXPANSION, armies, 0, seededRng(42));
+
+    const recruitedCard = state.players[0]!.army[0]!;
+    const recruitedName = recruitedCard.kind.name;
+
+    const fakeState: IKState = {
+      ...state,
+      armyRecruitedIds: [recruitedCard.id],
+      shared: {
+        ...state.shared,
+        court: [{ card: recruitedCard, face: "up" as const, playedBy: 0 as PlayerId }],
+      },
+      players: state.players.map((p, i) =>
+        i === 0 ? { ...p, army: p.army.filter((c) => c.id !== recruitedCard.id) } : p,
+      ),
+    };
+
+    const result = exhaustArmyCardsPostRound(fakeState, armies);
+    expect(result[0]!.exhausted.map((k) => k.name)).toContain(recruitedName);
   });
 });

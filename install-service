@@ -35,24 +35,25 @@ nix_cmd() { (cd "$PROJECT_DIR" && nix develop --command "$@"); }
 # several seconds to release the socket. Without this, the next spawn
 # hits EADDRINUSE every time.
 kill_server_port() {
-    local pid
-    pid=$(lsof -ti :"$SERVER_PORT" 2>/dev/null || true)
-    if [[ -z "$pid" ]]; then
+    local pids
+    pids=$(lsof -ti :"$SERVER_PORT" 2>/dev/null || true)
+    if [[ -z "$pids" ]]; then
         return 0
     fi
 
-    info "Killing process $pid on port $SERVER_PORT..."
-    kill "$pid" 2>/dev/null || true
+    info "Killing processes on port $SERVER_PORT: $(echo $pids | tr '\n' ' ')"
+    kill $pids 2>/dev/null || true
 
     local waited=0
     while lsof -ti :"$SERVER_PORT" &>/dev/null && (( waited < 10 )); do
         sleep 1
-        (( waited++ ))
+        (( ++waited ))
     done
 
-    if lsof -ti :"$SERVER_PORT" &>/dev/null; then
+    pids=$(lsof -ti :"$SERVER_PORT" 2>/dev/null || true)
+    if [[ -n "$pids" ]]; then
         warn "Process didn't exit gracefully, force-killing..."
-        kill -9 "$(lsof -ti :"$SERVER_PORT" 2>/dev/null)" 2>/dev/null || true
+        kill -9 $pids 2>/dev/null || true
         sleep 1
     fi
 }
@@ -64,16 +65,16 @@ wait_for_server() {
     info "Waiting for server to accept connections..."
     local waited=0
     local code
-    while (( waited < 30 )); do
+    while (( waited < 60 )); do
         code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://localhost:${SERVER_PORT}/" 2>/dev/null) || code="000"
         if [[ "$code" == "426" || "$code" == "101" ]]; then
             info "Server is ready (${waited}s)"
             return 0
         fi
         sleep 1
-        (( waited++ ))
+        (( ++waited ))
     done
-    warn "Server did not respond after ${waited}s — check logs"
+    warn "Server did not respond after ${waited}s — check logs at $LOG_DIR/"
 }
 
 check_prerequisites() {
@@ -226,6 +227,7 @@ do_install() {
     if launchctl list 2>/dev/null | grep -q "$SERVICE_NAME"; then
         warn "Service already loaded. Stopping first..."
         launchctl unload "$PLIST_FILE" 2>/dev/null || true
+        sleep 1
         kill_server_port
     fi
 
@@ -249,6 +251,7 @@ do_uninstall() {
 
     if [[ -f "$PLIST_FILE" ]]; then
         launchctl unload "$PLIST_FILE" 2>/dev/null || true
+        sleep 1
         kill_server_port
         rm -f "$PLIST_FILE"
         info "Removed LaunchAgent plist"
@@ -344,7 +347,9 @@ do_restart() {
 
     if [[ -f "$PLIST_FILE" ]]; then
         launchctl unload "$PLIST_FILE" 2>/dev/null || true
+        sleep 1
         kill_server_port
+        : > "$LOG_DIR/server.stderr.log"
         launchctl load "$PLIST_FILE"
         info "Service restarted"
 

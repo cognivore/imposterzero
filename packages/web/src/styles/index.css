@@ -874,8 +874,9 @@ body {
 .game-layout {
   display: grid;
   grid-template-columns: var(--rail-width) 1fr var(--rail-width);
-  grid-template-rows: 1fr auto;
+  grid-template-rows: auto 1fr auto;
   grid-template-areas:
+    "timer      timer   timer"
     "left-rail  court   right-rail"
     "left-rail  hand    right-rail";
   height: 100vh;
@@ -883,6 +884,13 @@ body {
   overflow: hidden;
   padding: var(--space-md);
   gap: var(--space-md);
+}
+
+.game-layout__timer {
+  grid-area: timer;
+  display: flex;
+  justify-content: center;
+  padding: 0 var(--space-md);
 }
 
 /* ---- Zone label — shared typographic treatment ---- */
@@ -995,6 +1003,11 @@ body {
   border-left-color: var(--text-dim);
   padding: 1px var(--space-sm);
   min-height: unset;
+}
+
+.left-rail__entry--mustering {
+  border-left-color: var(--accent);
+  opacity: 0.85;
 }
 
 .left-rail__trace {
@@ -1815,6 +1828,147 @@ body {
   justify-content: center;
 }
 
+/* --- Scoring full-reveal layout --- */
+
+.scoring-players {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
+  margin: var(--space-md) 0;
+}
+
+.scoring-player {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  min-width: 160px;
+}
+
+.scoring-player.is-me {
+  border-color: var(--accent);
+  background: rgba(212, 175, 55, 0.08);
+}
+
+.scoring-player__name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.scoring-player.is-me .scoring-player__name {
+  color: var(--accent);
+}
+
+.scoring-player__score {
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.scoring-player__zones {
+  display: flex;
+  gap: var(--space-sm);
+  justify-content: center;
+}
+
+.scoring-player__zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.scoring-player__empty {
+  width: var(--card-small-width);
+  height: var(--card-small-height);
+  border: 1px dashed rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-sm, 4px);
+  opacity: 0.35;
+}
+
+.scoring-player__hand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: var(--space-xs);
+}
+
+.scoring-player__hand-cards {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.scoring-court {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.scoring-court__cards {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.scoring-side-zones {
+  display: flex;
+  gap: var(--space-md);
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.scoring-side-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.scoring-ready {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.scoring-ready__statuses {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.scoring-ready__badge {
+  font-size: 0.82rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  transition: background 0.2s, color 0.2s;
+}
+
+.scoring-ready__badge--ready {
+  background: rgba(109, 191, 139, 0.18);
+  color: var(--positive);
+  font-weight: 600;
+}
+
 /* =========================================================================
    Room Browser
    ========================================================================= */
@@ -2284,8 +2438,9 @@ body {
 @media (min-width: 768px) and (max-width: 1023px) {
   .game-layout {
     grid-template-columns: var(--rail-width) 1fr;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto auto 1fr auto;
     grid-template-areas:
+      "timer      timer"
       "left-rail  court-meta"
       "left-rail  court"
       "left-rail  hand";
@@ -2325,8 +2480,9 @@ body {
 
   .game-layout {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr auto auto;
+    grid-template-rows: auto auto 1fr auto auto;
     grid-template-areas:
+      "timer"
       "meta"
       "court"
       "hand"
@@ -2381,6 +2537,73 @@ body {
   .create-card {
     width: 100%;
   }
+}
+
+/* -----------------------------------------------------------------------
+   Countdown Timer
+   ----------------------------------------------------------------------- */
+
+.countdown-timer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 320px;
+  transition: opacity 0.2s;
+}
+
+.countdown-timer--dim {
+  opacity: 0.5;
+}
+
+.countdown-timer__track {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.countdown-timer__bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.25s linear;
+}
+
+.countdown-timer__bar--mine {
+  background: var(--accent);
+}
+
+.countdown-timer__bar--theirs {
+  background: var(--text-muted);
+}
+
+.countdown-timer__bar--urgent {
+  background: var(--negative);
+  animation: timer-pulse 0.8s ease-in-out infinite;
+}
+
+.countdown-timer__bar--expired {
+  width: 0 !important;
+  background: var(--negative);
+}
+
+@keyframes timer-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.countdown-timer__label {
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  min-width: 2.5rem;
+  text-align: right;
+}
+
+.countdown-timer__label--urgent {
+  color: var(--negative);
+  font-weight: 700;
 }
 
 /* -----------------------------------------------------------------------
@@ -2483,6 +2706,70 @@ body {
   gap: var(--space-sm);
   justify-content: center;
   padding: var(--space-sm) 0;
+}
+
+.mustering-card-slot--readonly {
+  cursor: default;
+}
+
+.mustering-card-slot--readonly:hover {
+  outline: none;
+}
+
+.mustering-accused {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.mustering-opponents {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-bottom: var(--space-sm);
+}
+
+.mustering-opponent {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+  min-width: 160px;
+}
+
+.mustering-opponent--active {
+  border-color: var(--accent);
+  background: rgba(212, 175, 55, 0.06);
+}
+
+.mustering-opponent__name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 0.3rem;
+}
+
+.mustering-opponent__acting {
+  font-weight: 400;
+  color: var(--accent);
+  text-transform: none;
+}
+
+.mustering-opponent__row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.2rem;
+}
+
+.mustering-opponent__cards {
+  display: flex;
+  gap: 0.2rem;
+  flex-wrap: wrap;
 }
 
 .mustering-actions .btn {

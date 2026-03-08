@@ -74,6 +74,7 @@ export type ServerMessage<S = unknown, A = unknown, L = unknown> =
       readonly legalActions: ReadonlyArray<A>;
       readonly activePlayer: PlayerId;
       readonly playerNames: ReadonlyArray<string>;
+      readonly turnDeadline: number;
     }
   | {
       readonly type: "round_over";
@@ -82,6 +83,11 @@ export type ServerMessage<S = unknown, A = unknown, L = unknown> =
       readonly matchScores: ReadonlyArray<number>;
       readonly roundsPlayed: number;
       readonly playerNames: ReadonlyArray<string>;
+      readonly reviewDeadline: number;
+    }
+  | {
+      readonly type: "scoring_ready";
+      readonly readyPlayers: ReadonlyArray<string>;
     }
   | {
       readonly type: "match_over";
@@ -114,6 +120,7 @@ const KNOWN_TYPES: ReadonlySet<string> = new Set([
   "draft_state",
   "state",
   "round_over",
+  "scoring_ready",
   "match_over",
   "error",
 ]);
