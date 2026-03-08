@@ -681,7 +681,7 @@ const HERALD: CardContent = {
 
 const WARLORD: CardContent = {
   keywords: [],
-  shortText: "+1 value per Royalty in Court.",
+  shortText: "+1 value if Royalty in Court.",
   fullText:
     "If there are any Royalty in the Court, this card gains +1 value in your hand and an additional +1 value after being played.",
   flavorTexts: ["In chaos, her influence shines"],
@@ -727,7 +727,7 @@ const mysticEffect = ifCond(
 
 const MYSTIC: CardContent = {
   keywords: [],
-  shortText: "Disgrace to blank a card value.",
+  shortText: "Disgrace to blank cards of a value.",
   fullText:
     "If there are any Disgraced cards in Court, you may Disgrace this card after playing it to choose a number between 1\u20138. Cards of that base value lose their card text and have a value of 3 after being played for this round.",
   flavorTexts: ["She speaks and the Court is silenced"],

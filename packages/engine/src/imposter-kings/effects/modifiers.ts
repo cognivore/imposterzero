@@ -81,6 +81,16 @@ export const effectiveValue = (state: IKState, card: IKCard): number => {
   const isSteadfast = effectiveKeywords(state, card).includes("steadfast");
   let value = card.kind.props.value;
 
+  if (
+    card.kind.name === "Warlord" &&
+    !state.shared.court.some((e) => e.card.id === card.id) &&
+    state.shared.court.some(
+      (e) => e.face === "up" && effectiveKeywords(state, e.card).includes("royalty"),
+    )
+  ) {
+    value += 1;
+  }
+
   const dummyCtx = {
     playedCard: card,
     activePlayer: state.activePlayer,
