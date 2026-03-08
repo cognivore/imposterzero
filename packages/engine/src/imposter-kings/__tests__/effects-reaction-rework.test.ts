@@ -231,7 +231,7 @@ describe("reaction system rework regressions", () => {
   });
 
   describe("KH parting flow", () => {
-    it("KH reaction condemns both cards through parting zone", () => {
+    it("KH reaction auto-condemns both cards immediately", () => {
       let state = setupTwoPlayerGame(
         ["Elder", "Zealot", "Inquisitor", "Soldier", "Soldier"],
         ["Elder", "Oathbound", "King's Hand", "Fool", "Oathbound"],
@@ -258,37 +258,16 @@ describe("reaction system rework regressions", () => {
 
       state = chooseEffect(state, 1);
 
-      expect(playerZones(state, 0).parting.some((c) => c.id === inq.id)).toBe(true);
-      expect(playerZones(state, 1).parting.some((c) => c.id === kh.id)).toBe(true);
-      expect(state.shared.condemned.every((e) => e.card.id !== inq.id)).toBe(true);
-      expect(state.shared.condemned.every((e) => e.card.id !== kh.id)).toBe(true);
+      expect(playerZones(state, 0).parting).toHaveLength(0);
+      expect(playerZones(state, 1).parting).toHaveLength(0);
+      expect(state.shared.condemned.some((e) => e.card.id === inq.id)).toBe(true);
+      expect(state.shared.condemned.some((e) => e.card.id === kh.id)).toBe(true);
 
       expect(state.phase).toBe("play");
       expect(state.activePlayer).toBe(0);
 
       const p0Legal = legalActions(state);
-      expect(p0Legal.every((a) => a.kind === "play")).toBe(true);
-      const condemnInqAction = p0Legal.find(
-        (a) => a.kind === "play" && a.cardId === inq.id,
-      );
-      expect(condemnInqAction).toBeDefined();
-
-      state = apply(state, condemnInqAction!);
-
-      expect(state.activePlayer).toBe(1);
-
-      const p1Legal = legalActions(state);
-      const condemnKhAction = p1Legal.find(
-        (a) => a.kind === "play" && a.cardId === kh.id,
-      );
-      expect(condemnKhAction).toBeDefined();
-
-      state = apply(state, condemnKhAction!);
-
-      expect(state.shared.condemned.some((e) => e.card.id === inq.id)).toBe(true);
-      expect(state.shared.condemned.some((e) => e.card.id === kh.id)).toBe(true);
-      expect(state.activePlayer).toBe(0);
-      expect(state.phase).toBe("play");
+      expect(p0Legal.every((a) => a.cardId !== inq.id)).toBe(true);
     });
   });
 
@@ -312,22 +291,16 @@ describe("reaction system rework regressions", () => {
       state = chooseEffect(state, 1);
 
       expect(state.phase).toBe("play");
-      expect(playerZones(state, 0).parting.length).toBeGreaterThan(0);
-      expect(playerZones(state, 1).parting.length).toBeGreaterThan(0);
+      expect(playerZones(state, 0).parting).toHaveLength(0);
+      expect(playerZones(state, 1).parting).toHaveLength(0);
 
-      const p0PartingCard = playerZones(state, 0).parting[0]!;
-      state = apply(state, { kind: "play", cardId: p0PartingCard.id });
-
-      const p1PartingCard = playerZones(state, 1).parting[0]!;
-      state = apply(state, { kind: "play", cardId: p1PartingCard.id });
+      expect(state.shared.condemned.length).toBeGreaterThanOrEqual(2);
 
       for (const entry of state.shared.condemned) {
         expect(entry.face).toBe("down");
         expect(entry.knownBy).toContain(0);
         expect(entry.knownBy).toContain(1);
       }
-
-      expect(state.shared.condemned.length).toBeGreaterThanOrEqual(2);
     });
   });
 });

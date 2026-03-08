@@ -1,4 +1,4 @@
-import { ok, err, type Result } from "@imposter-zero/types";
+import { ok, err, type Result, type PlayerId } from "@imposter-zero/types";
 
 import { ikCardOps } from "../card.js";
 import type { TransitionError } from "../errors.js";
@@ -234,6 +234,29 @@ const applyCondemnPartingSafe = (
   return ok(finalAdvance(afterCondemn, state));
 };
 
+const flushAllParting = (state: IKState): IKState => {
+  const allPlayers: PlayerId[] = Array.from(
+    { length: state.numPlayers },
+    (_, i) => i as PlayerId,
+  );
+  let s = state;
+  for (const p of allPlayers) {
+    const parting = readZone(s, { scope: "player", player: p, slot: "parting" });
+    for (const card of parting) {
+      const removed = removeFromZone(s, { scope: "player", player: p, slot: "parting" }, card.id);
+      if (!removed.ok) continue;
+      const inserted = insertIntoZone(
+        removed.value.state,
+        { scope: "shared", slot: "condemned" },
+        removed.value.card,
+        { face: "down", knownBy: allPlayers },
+      );
+      s = inserted.ok ? inserted.value : removed.value.state;
+    }
+  }
+  return s;
+};
+
 // ---------------------------------------------------------------------------
 // Play a card (from hand or antechamber)
 // ---------------------------------------------------------------------------
@@ -317,13 +340,13 @@ export const applyPlaySafe = (
 
   if (resolution.tag === "done") {
     if (resolution.state.khPrevented) {
-      return ok(refreshModifiers({
+      return ok(refreshModifiers(flushAllParting({
         ...resolution.state,
         phase: "play",
         activePlayer,
         pendingResolution: null,
         khPrevented: undefined,
-      }));
+      })));
     }
     return ok(endOfTurn(resolution.state, state));
   }
@@ -371,13 +394,13 @@ export const applyEffectChoiceSafe = (
 
   if (resolution.tag === "done") {
     if (resolution.state.khPrevented) {
-      return ok(refreshModifiers({
+      return ok(refreshModifiers(flushAllParting({
         ...resolution.state,
         phase: "play",
         activePlayer: pending.effectPlayer,
         pendingResolution: null,
         khPrevented: undefined,
-      }));
+      })));
     }
     return ok(endOfTurn(resolution.state, pending.stateBeforeEffect));
   }

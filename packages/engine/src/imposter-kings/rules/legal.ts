@@ -85,7 +85,18 @@ export const legalActions = (state: IKState): ReadonlyArray<IKAction> => {
       const chooser = pending.choosingPlayer;
       const hand = playerZones(state, chooser).hand;
       const hasKH = hand.some((c) => c.kind.name === "King's Hand");
-      if (!hasKH) {
+      const courtTop = state.shared.court.length > 0
+        ? state.shared.court[state.shared.court.length - 1]!
+        : null;
+      const courtHasKH = state.shared.court.some(
+        (e) =>
+          e.face === "up" &&
+          e.card.kind.name === "King's Hand" &&
+          e.card.id !== courtTop?.card.id,
+      );
+      const strangerCanReact =
+        courtHasKH && hand.some((c) => c.kind.name === "Stranger");
+      if (!hasKH && !strangerCanReact) {
         return [{ kind: "effect_choice" as const, choice: 0 }];
       }
     }
