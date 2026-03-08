@@ -22,6 +22,7 @@ export type IKPlayerZoneSlot =
   | "king"
   | "successor"
   | "dungeon"
+  | "squire"
   | "antechamber"
   | "parting"
   | "army"
@@ -61,6 +62,8 @@ const readPlayerZone = (
       return zones.successor ? [zones.successor.card] : [];
     case "dungeon":
       return zones.dungeon ? [zones.dungeon.card] : [];
+    case "squire":
+      return zones.squire ? [zones.squire.card] : [];
     case "antechamber":
       return zones.antechamber;
     case "parting":
@@ -157,6 +160,19 @@ const removeFromPlayerZone = (
         return err({ kind: "card_not_in_zone", cardId, addr });
       const card = zones.dungeon.card;
       const next: IKPlayerZones = { ...zones, dungeon: null };
+      return ok({
+        card,
+        state: {
+          ...state,
+          players: replacePlayerZones(state.players, player, next),
+        },
+      });
+    }
+    case "squire": {
+      if (!zones.squire || zones.squire.card.id !== cardId)
+        return err({ kind: "card_not_in_zone", cardId, addr });
+      const card = zones.squire.card;
+      const next: IKPlayerZones = { ...zones, squire: null };
       return ok({
         card,
         state: {
@@ -354,6 +370,16 @@ const insertIntoPlayerZone = (
       const next: IKPlayerZones = {
         ...zones,
         dungeon: { card, face: "down" },
+      };
+      return ok({
+        ...state,
+        players: replacePlayerZones(state.players, player, next),
+      });
+    }
+    case "squire": {
+      const next: IKPlayerZones = {
+        ...zones,
+        squire: { card, face: "down" },
       };
       return ok({
         ...state,

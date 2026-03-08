@@ -41,6 +41,7 @@ export const findCardName = (state: IKState, cardId: number): string => {
     if (p.king.card.id === cardId) return "King";
     if (p.successor?.card.id === cardId) return p.successor.card.kind.name;
     if (p.dungeon?.card.id === cardId) return p.dungeon.card.kind.name;
+    if (p.squire?.card.id === cardId) return p.squire.card.kind.name;
     for (const c of p.antechamber) {
       if (c.id === cardId) return c.kind.name;
     }
@@ -125,6 +126,8 @@ const describeFilter = (filter: CardFilter | null): string => {
       return `a card with base value ${filter.value}`;
     case "hasName":
       return `a card named "${filter.name}"`;
+    case "nameInSet":
+      return `a card named one of [${filter.names.join(", ")}]`;
   }
 };
 
@@ -326,6 +329,9 @@ export const describeStep: DescribeStep = {
 
   rally: (_node, ctx) =>
     `Player ${ctx.activePlayer} rallies a card from their army.`,
+
+  charismaticRally: (node, ctx) =>
+    `Player ${ctx.activePlayer} rallies a card (value ≤ ${(node as { maxValue: number }).maxValue}) from their army (charismatic).`,
 
   recall: (_node, ctx) =>
     `Player ${ctx.activePlayer} recalls an exhausted card to their army.`,

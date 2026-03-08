@@ -32,10 +32,18 @@ import {
   withFirstCardIn,
   forceLoser,
   triggerReaction,
+  recall,
+  rally,
+  charismaticRally,
+  binaryChoice,
+  seq,
+  playerZone,
 } from "../effects/program.js";
+import type { KingFacet } from "../zones.js";
 import { resolve, replay } from "../effects/interpreter.js";
 import { type TraceEntry } from "../effects/trace.js";
 import { regulationDeck, SIGNATURE_CARD_KINDS, type CardName } from "../card.js";
+import { BASE_ARMY_NAMES } from "../config.js";
 import { canPlayCard, legalActions as computeLegalActions } from "./legal.js";
 
 // ---------------------------------------------------------------------------
@@ -193,21 +201,111 @@ const enterResolving = (
 // Effect program reconstruction for replay
 // ---------------------------------------------------------------------------
 
-const buildDisgraceEffect = (throneCardId: number): EffectProgram =>
-  triggerReaction(
-    "king_flip",
-    flipKing(
-      active,
-      "down",
-      disgraceNode(
-        { kind: "id", cardId: throneCardId },
-        withFirstCardIn(activeSuccessor, (cardId) =>
-          move({ kind: "id", cardId }, activeSuccessor, activeHand),
-        ),
+const activeSquire = playerZone(active, "squire");
+
+const buildDefaultDisgrace = (throneCardId: number): EffectProgram =>
+  flipKing(
+    active,
+    "down",
+    disgraceNode(
+      { kind: "id", cardId: throneCardId },
+      withFirstCardIn(activeSuccessor, (cardId) =>
+        move({ kind: "id", cardId }, activeSuccessor, activeHand),
       ),
     ),
-    forceLoser(active),
   );
+
+const buildTacticianDisgrace = (
+  throneCardId: number,
+  throneBaseValue: number,
+  successorBaseValue: number,
+): EffectProgram => {
+  const takeSuccessor = (then: EffectProgram) =>
+    withFirstCardIn(activeSuccessor, (sId) =>
+      move({ kind: "id", cardId: sId }, activeSuccessor, activeHand, then),
+    );
+  const takeSquire = withFirstCardIn(activeSquire, (sqId) =>
+    move({ kind: "id", cardId: sqId }, activeSquire, activeHand),
+  );
+  const removeSquireThenRally = withFirstCardIn(activeSquire, (sqId) =>
+    seq(
+      move({ kind: "id", cardId: sqId }, activeSquire, { kind: "sharedZone", slot: "condemned" }),
+      rally(),
+    ),
+  );
+
+  const matched = successorBaseValue === throneBaseValue;
+
+  const baseArmyFilter = { tag: "nameInSet" as const, names: BASE_ARMY_NAMES };
+
+  const body = matched
+    ? takeSuccessor(
+        recall(
+          binaryChoice(active, (choseRally) =>
+            choseRally ? removeSquireThenRally : takeSquire,
+          ),
+          baseArmyFilter,
+        ),
+      )
+    : binaryChoice(active, (choseSuccessor) =>
+        choseSuccessor
+          ? withFirstCardIn(activeSuccessor, (sId) =>
+              move({ kind: "id", cardId: sId }, activeSuccessor, activeHand),
+            )
+          : withFirstCardIn(activeSquire, (sqId) =>
+              move({ kind: "id", cardId: sqId }, activeSquire, activeHand),
+            ),
+      );
+
+  return flipKing(
+    active,
+    "down",
+    disgraceNode({ kind: "id", cardId: throneCardId }, body),
+  );
+};
+
+const buildCharismaticDisgrace = (
+  throneCardId: number,
+  successorBaseValue: number,
+): EffectProgram =>
+  flipKing(
+    active,
+    "down",
+    disgraceNode(
+      { kind: "id", cardId: throneCardId },
+      binaryChoice(active, (choseRally) =>
+        choseRally
+          ? withFirstCardIn(activeSuccessor, (sId) =>
+              seq(
+                move({ kind: "id", cardId: sId }, activeSuccessor, { kind: "sharedZone", slot: "condemned" }),
+                charismaticRally(successorBaseValue),
+              ),
+            )
+          : withFirstCardIn(activeSuccessor, (sId) =>
+              move({ kind: "id", cardId: sId }, activeSuccessor, activeHand),
+            ),
+      ),
+    ),
+  );
+
+const buildDisgraceEffect = (
+  throneCardId: number,
+  facet: KingFacet,
+  throneBaseValue: number,
+  successorBaseValue: number,
+): EffectProgram => {
+  const body = (() => {
+    switch (facet) {
+      case "masterTactician":
+        return buildTacticianDisgrace(throneCardId, throneBaseValue, successorBaseValue);
+      case "charismatic":
+        return buildCharismaticDisgrace(throneCardId, successorBaseValue);
+      default:
+        return buildDefaultDisgrace(throneCardId);
+    }
+  })();
+  return triggerReaction("king_flip", body, forceLoser(active));
+};
 
 const getEffectProgram = (pending: PendingResolution): EffectProgram | null => {
   const { source } = pending;
@@ -218,7 +316,13 @@ const getEffectProgram = (pending: PendingResolution): EffectProgram | null => {
     if (!entry) return null;
     return effectByCardName.get(entry.card.kind.name as CardName) ?? null;
   }
-  return buildDisgraceEffect(source.throneCardId);
+  const st = pending.stateBeforeEffect;
+  const activePlayer = pending.effectPlayer as import("@imposter-zero/types").PlayerId;
+  const facet = playerZones(st, activePlayer).king.facet;
+  const throneEntry = st.shared.court.find((e) => e.card.id === source.throneCardId);
+  const throneBaseValue = throneEntry?.card.kind.props.value ?? 0;
+  const successorBaseValue = playerZones(st, activePlayer).successor?.card.kind.props.value ?? 0;
+  return buildDisgraceEffect(source.throneCardId, facet, throneBaseValue, successorBaseValue);
 };
 
 // ---------------------------------------------------------------------------
@@ -468,7 +572,10 @@ export const applyDisgraceSafe = (
     return err({ kind: "king_already_down" });
   }
 
-  const effect = buildDisgraceEffect(top.card.id);
+  const facet = playerZones(state, activePlayer).king.facet;
+  const throneBaseValue = top.card.kind.props.value;
+  const successorBaseValue = playerZones(state, activePlayer).successor?.card.kind.props.value ?? 0;
+  const effect = buildDisgraceEffect(top.card.id, facet, throneBaseValue, successorBaseValue);
   const ctx: EffectContext = {
     playedCard: top.card,
     activePlayer,

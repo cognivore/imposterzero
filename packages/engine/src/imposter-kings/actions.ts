@@ -10,6 +10,7 @@ export interface IKSetupAction {
   readonly kind: "commit";
   readonly successorId: number;
   readonly dungeonId: number;
+  readonly squireId?: number;
 }
 
 export interface IKPlayCardAction {

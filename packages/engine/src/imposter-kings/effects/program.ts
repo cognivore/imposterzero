@@ -37,7 +37,8 @@ export type CardFilter =
   | { readonly tag: "hasKeyword"; readonly keyword: CardKeyword }
   | { readonly tag: "minValue"; readonly value: number }
   | { readonly tag: "hasBaseValue"; readonly value: number }
-  | { readonly tag: "hasName"; readonly name: CardName };
+  | { readonly tag: "hasName"; readonly name: CardName }
+  | { readonly tag: "nameInSet"; readonly names: ReadonlyArray<CardName> };
 
 // ---------------------------------------------------------------------------
 // Trigger and modifier types (Phase 4/5 forward declarations)
@@ -117,7 +118,9 @@ export type EffectProgram =
   | { readonly tag: "khReactionWindow"; readonly continuation: EffectProgram }
   // Army interaction — Rally (army → hand with tracking) and Recall (exhausted → army)
   | { readonly tag: "rally"; readonly then: EffectProgram }
-  | { readonly tag: "recall"; readonly then: EffectProgram }
+  | { readonly tag: "recall"; readonly filter: CardFilter | null; readonly then: EffectProgram }
+  // Charismatic rally — like rally but filters by base value ≤ maxValue, tracks in charismaticRallyIds
+  | { readonly tag: "charismaticRally"; readonly maxValue: number; readonly then: EffectProgram }
   // Binary choice — yields yes/no to a specified player
   | { readonly tag: "binaryChoice"; readonly player: PlayerRef; readonly andThen: (chose: boolean) => EffectProgram }
   // Reveal zone contents (informational, logged)
@@ -366,10 +369,19 @@ export const rally = (then: EffectProgram = done): EffectProgram => ({
   then,
 });
 
-export const recall = (then: EffectProgram = done): EffectProgram => ({
+export const recall = (
+  then: EffectProgram = done,
+  filter: CardFilter | null = null,
+): EffectProgram => ({
   tag: "recall",
+  filter,
   then,
 });
+
+export const charismaticRally = (
+  maxValue: number,
+  then: EffectProgram = done,
+): EffectProgram => ({ tag: "charismaticRally", maxValue, then });
 
 export const binaryChoice = (
   player: PlayerRef,
@@ -411,3 +423,4 @@ export const assassinate3p = (
 
 export const activeArmy: ZoneRef = playerZone(active, "army");
 export const activeExhausted: ZoneRef = playerZone(active, "exhausted");
+export const activeSquire: ZoneRef = playerZone(active, "squire");

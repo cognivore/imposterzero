@@ -4,6 +4,8 @@ import type { IKCard } from "./card.js";
 
 export type FaceState = "up" | "down";
 
+export type KingFacet = "default" | "masterTactician" | "charismatic";
+
 export interface HiddenCard {
   readonly card: IKCard;
   readonly face: "down";
@@ -19,6 +21,7 @@ export interface CourtEntry {
 export interface KingZone {
   readonly card: IKCard;
   readonly face: FaceState;
+  readonly facet: KingFacet;
 }
 
 export interface IKPlayerZones {
@@ -26,6 +29,7 @@ export interface IKPlayerZones {
   readonly king: KingZone;
   readonly successor: HiddenCard | null;
   readonly dungeon: HiddenCard | null;
+  readonly squire: HiddenCard | null;
   readonly antechamber: ReadonlyArray<IKCard>;
   readonly parting: ReadonlyArray<IKCard>;
   readonly army: ReadonlyArray<IKCard>;

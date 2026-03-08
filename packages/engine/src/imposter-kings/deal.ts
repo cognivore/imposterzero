@@ -1,8 +1,16 @@
 import type { PlayerId } from "@imposter-zero/types";
 
-import { KING_CARD_KIND, type IKCard, type IKCardKind } from "./card.js";
+import { KING_CARD_KIND, KING_TACTICIAN_KIND, KING_CHARISMATIC_KIND, type IKCard, type IKCardKind } from "./card.js";
 import type { IKState } from "./state.js";
-import type { HiddenCard, IKPlayerZones } from "./zones.js";
+import type { HiddenCard, KingFacet, IKPlayerZones } from "./zones.js";
+
+const kingKindForFacet = (facet: KingFacet): IKCardKind => {
+  switch (facet) {
+    case "default": return KING_CARD_KIND;
+    case "masterTactician": return KING_TACTICIAN_KIND;
+    case "charismatic": return KING_CHARISMATIC_KIND;
+  }
+};
 
 export type RandomSource = () => number;
 
@@ -25,9 +33,9 @@ export const shuffle = <T>(
   return next;
 };
 
-const createKingCard = (baseId: number, player: PlayerId): IKCard => ({
+const createKingCard = (baseId: number, player: PlayerId, facet: KingFacet = "default"): IKCard => ({
   id: baseId + player,
-  kind: KING_CARD_KIND,
+  kind: kingKindForFacet(facet),
 });
 
 const dealHands = (
@@ -50,6 +58,7 @@ export const dealWithDeck = (
   orderedDeck: ReadonlyArray<IKCard>,
   numPlayers: number,
   trueKing: PlayerId = 0,
+  facets?: ReadonlyArray<KingFacet>,
 ): IKState => {
   if (numPlayers < 2 || numPlayers > 4) {
     throw new RangeError(`Imposter Kings supports 2-4 players, received ${numPlayers}`);
@@ -70,17 +79,21 @@ export const dealWithDeck = (
   }
 
   const kingIdBase = orderedDeck.length;
-  const players: ReadonlyArray<IKPlayerZones> = hands.map((hand, player) => ({
-    hand,
-    king: { card: createKingCard(kingIdBase, player), face: "up" },
-    successor: null,
-    dungeon: null,
-    antechamber: [],
-    parting: [],
-    army: [],
-    exhausted: [],
-    recruitDiscard: [],
-  }));
+  const players: ReadonlyArray<IKPlayerZones> = hands.map((hand, player) => {
+    const facet: KingFacet = facets?.[player] ?? "default";
+    return {
+      hand,
+      king: { card: createKingCard(kingIdBase, player, facet), face: "up" as const, facet },
+      successor: null,
+      dungeon: null,
+      squire: null,
+      antechamber: [],
+      parting: [],
+      army: [],
+      exhausted: [],
+      recruitDiscard: [],
+    };
+  });
 
   return {
     players,
@@ -102,6 +115,8 @@ export const dealWithDeck = (
     crystallizedModifiers: [],
     publiclyTrackedKH: [],
     armyRecruitedIds: [],
+    charismaticRallyIds: [],
+    revealedSuccessors: [],
     hasExhaustedThisMustering: false,
     musteringPlayersDone: 0,
     eliminatedPlayers: [],
@@ -113,6 +128,7 @@ export const deal = (
   numPlayers: number,
   randomSource?: RandomSource,
   trueKing?: PlayerId,
+  facets?: ReadonlyArray<KingFacet>,
 ): IKState => {
   if (numPlayers < 2 || numPlayers > 4) {
     throw new RangeError(`Imposter Kings supports 2-4 players, received ${numPlayers}`);
@@ -138,20 +154,25 @@ export const deal = (
   }
 
   const kingIdBase = deck.length;
-  const players: ReadonlyArray<IKPlayerZones> = hands.map((hand, player) => ({
-    hand,
-    king: {
-      card: createKingCard(kingIdBase, player),
-      face: "up",
-    },
-    successor: null,
-    dungeon: null,
-    antechamber: [],
-    parting: [],
-    army: [],
-    exhausted: [],
-    recruitDiscard: [],
-  }));
+  const players: ReadonlyArray<IKPlayerZones> = hands.map((hand, player) => {
+    const facet: KingFacet = facets?.[player] ?? "default";
+    return {
+      hand,
+      king: {
+        card: createKingCard(kingIdBase, player, facet),
+        face: "up" as const,
+        facet,
+      },
+      successor: null,
+      dungeon: null,
+      squire: null,
+      antechamber: [],
+      parting: [],
+      army: [],
+      exhausted: [],
+      recruitDiscard: [],
+    };
+  });
 
   return {
     players,
@@ -173,6 +194,8 @@ export const deal = (
     crystallizedModifiers: [],
     publiclyTrackedKH: [],
     armyRecruitedIds: [],
+    charismaticRallyIds: [],
+    revealedSuccessors: [],
     hasExhaustedThisMustering: false,
     musteringPlayersDone: 0,
     eliminatedPlayers: [],

@@ -53,6 +53,7 @@ export {
   khWindow,
   rally,
   recall,
+  charismaticRally,
   binaryChoice,
   revealZone,
   checkDungeon,
@@ -62,6 +63,7 @@ export {
   assassinate3p,
   activeArmy,
   activeExhausted,
+  activeSquire,
 } from "./program.js";
 
 export {

@@ -125,6 +125,32 @@ export const KING_CARD_KIND: IKCardKind = {
   },
 };
 
+export const KING_TACTICIAN_KIND: IKCardKind = {
+  name: "King",
+  props: {
+    value: 0,
+    keywords: [],
+    shortText: "Squire setup; Disgrace with Recall/Rally branches.",
+    fullText:
+      "Place a card from your hand face down next to your Successor as its Squire. Flip to Disgrace the card on the Throne. You may reveal and take your Successor if it had the same base value as the Throne card. If you do, Recall a base Army card, then either take your Squire OR reveal and remove it from the round to Rally. Otherwise, take either your Successor or Squire.",
+    flavorText: "Those who oppose him dance to his unseen hand",
+    effects: [],
+  },
+};
+
+export const KING_CHARISMATIC_KIND: IKCardKind = {
+  name: "King",
+  props: {
+    value: 0,
+    keywords: [],
+    shortText: "Revealed Successor; Disgrace with Rally option.",
+    fullText:
+      "Once the game starts, reveal your Successor. Flip to Disgrace the card on the Throne. Take your Successor OR remove your Successor from the round to Rally a card of equal or lower base value.",
+    flavorText: "The silver tongue of diplomacy masks his strength",
+    effects: [],
+  },
+};
+
 interface CardContent {
   readonly keywords: readonly CardKeyword[];
   readonly shortText: string;

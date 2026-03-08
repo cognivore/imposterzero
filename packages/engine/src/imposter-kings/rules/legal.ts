@@ -124,7 +124,7 @@ export const legalActions = (state: IKState): ReadonlyArray<IKAction> => {
     if (active.successor !== null || active.dungeon !== null) {
       return [];
     }
-    return commitActionsForHand(active.hand);
+    return commitActionsForHand(active.hand, active.king.facet);
   }
 
   if (active.parting.length > 0) {

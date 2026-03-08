@@ -43,6 +43,8 @@ export interface IKState {
   readonly khPrevented?: boolean;
   readonly publiclyTrackedKH: ReadonlyArray<number>;
   readonly armyRecruitedIds: ReadonlyArray<number>;
+  readonly charismaticRallyIds: ReadonlyArray<number>;
+  readonly revealedSuccessors: ReadonlyArray<PlayerId>;
   readonly hasExhaustedThisMustering: boolean;
   readonly musteringPlayersDone: number;
   readonly eliminatedPlayers: ReadonlyArray<PlayerId>;
@@ -62,6 +64,7 @@ export interface RevealedPlayerZones {
   readonly king: { readonly card: import("./card.js").IKCard; readonly face: "up" };
   readonly successor: { readonly card: import("./card.js").IKCard; readonly face: "up" } | null;
   readonly dungeon: { readonly card: import("./card.js").IKCard; readonly face: "up" } | null;
+  readonly squire: { readonly card: import("./card.js").IKCard; readonly face: "up" } | null;
 }
 
 export interface RevealedState {
@@ -75,6 +78,7 @@ export const revealedState = (state: IKState): RevealedState => ({
     king: { card: p.king.card, face: "up" as const },
     successor: p.successor ? { card: p.successor.card, face: "up" as const } : null,
     dungeon: p.dungeon ? { card: p.dungeon.card, face: "up" as const } : null,
+    squire: p.squire ? { card: p.squire.card, face: "up" as const } : null,
   })),
   shared: state.shared,
 });

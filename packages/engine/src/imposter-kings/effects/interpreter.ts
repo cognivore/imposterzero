@@ -87,6 +87,8 @@ const matchesFilter = (
       return card.kind.props.value === filter.value;
     case "hasName":
       return card.kind.name === filter.name;
+    case "nameInSet":
+      return filter.names.includes(card.kind.name as import("../card.js").CardName);
   }
 };
 
@@ -549,15 +551,48 @@ export const resolve = (
       };
     }
 
+    case "charismaticRally": {
+      const armyZone = { scope: "player" as const, player: ctx.activePlayer, slot: "army" as const };
+      const handZone = { scope: "player" as const, player: ctx.activePlayer, slot: "hand" as const };
+      const armyCards = readZone(state, armyZone);
+      const eligible = armyCards.filter((c) => c.kind.props.value <= program.maxValue);
+      if (eligible.length === 0) {
+        emitRaw(trace, depth, "charismaticRally", "No eligible army cards — skipping.");
+        return resolve(program.then, state, ctx, trace, depth);
+      }
+      const options = eligible.map((c) => ({ kind: "card" as const, cardId: c.id }));
+      return {
+        tag: "needChoice",
+        state,
+        player: ctx.activePlayer,
+        options,
+        resume: (choice) => {
+          emitChoice(trace, depth, choice, options, state, ctx.activePlayer);
+          const chosenId = options[choice]!.cardId;
+          const result = zoneMove(state, chosenId, armyZone, handZone);
+          const s = result.ok ? result.value : state;
+          const tracked: IKState = {
+            ...s,
+            armyRecruitedIds: [...s.armyRecruitedIds, chosenId],
+            charismaticRallyIds: [...s.charismaticRallyIds, chosenId],
+          };
+          return resolve(program.then, tracked, ctx, trace, depth);
+        },
+      };
+    }
+
     case "recall": {
       const exhaustZone = { scope: "player" as const, player: ctx.activePlayer, slot: "exhausted" as const };
       const armyZone = { scope: "player" as const, player: ctx.activePlayer, slot: "army" as const };
       const exhaustedCards = readZone(state, exhaustZone);
-      if (exhaustedCards.length === 0) {
-        emitRaw(trace, depth, "recall", "No exhausted cards — skipping.");
+      const eligible = program.filter
+        ? exhaustedCards.filter((c) => matchesFilter(c, program.filter!, state))
+        : exhaustedCards;
+      if (eligible.length === 0) {
+        emitRaw(trace, depth, "recall", "No eligible exhausted cards — skipping.");
         return resolve(program.then, state, ctx, trace, depth);
       }
-      const options = exhaustedCards.map((c) => ({ kind: "card" as const, cardId: c.id }));
+      const options = eligible.map((c) => ({ kind: "card" as const, cardId: c.id }));
       return {
         tag: "needChoice",
         state,
@@ -818,6 +853,7 @@ const findCardInState = (state: IKState, cardId: number): import("../card.js").I
     for (const c of p.hand) if (c.id === cardId) return c;
     if (p.successor?.card.id === cardId) return p.successor.card;
     if (p.dungeon?.card.id === cardId) return p.dungeon.card;
+    if (p.squire?.card.id === cardId) return p.squire.card;
     for (const c of p.antechamber) if (c.id === cardId) return c;
     for (const c of p.parting) if (c.id === cardId) return c;
     for (const c of p.army) if (c.id === cardId) return c;

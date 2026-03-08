@@ -7,6 +7,8 @@ export {
   type IKCard,
   ikCardOps,
   KING_CARD_KIND,
+  KING_TACTICIAN_KIND,
+  KING_CHARISMATIC_KIND,
   BASE_DECK,
   THREE_PLAYER_EXTRAS,
   FOUR_PLAYER_EXTRAS,
@@ -43,6 +45,7 @@ export {
   type HiddenCard,
   type CourtEntry,
   type CondemnedEntry,
+  type KingFacet,
   type KingZone,
   type IKPlayerZones,
   type IKSharedZones,
@@ -64,6 +67,7 @@ export {
 export {
   throneValue,
   isKingFaceUp,
+  kingFacet,
   hasCommittedSetup,
   allPlayersCommittedSetup,
 } from "./selectors.js";
