@@ -43,6 +43,7 @@ import {
   removeFromRound,
   returnOneRallied,
   copyCardEffects,
+  swapWithCourt,
 } from "./effects/program.js";
 import type { CardRef, ModifierSpec } from "./effects/program.js";
 import {
@@ -799,9 +800,10 @@ const sentryEffect = optional(
     chooseCard(active, courtZone, { tag: "notDisgracedOrRoyalty" }, (courtCardId) =>
       khWindow(
         chooseCard(active, activeHand, null, (handCardId) =>
-          seq(
-            move({ kind: "id", cardId: courtCardId } as CardRef, courtZone, activeHand),
-            move({ kind: "id", cardId: handCardId } as CardRef, activeHand, courtZone),
+          swapWithCourt(
+            { kind: "id", cardId: courtCardId } as CardRef,
+            { kind: "id", cardId: handCardId } as CardRef,
+            activeHand,
           ),
         ),
       ),

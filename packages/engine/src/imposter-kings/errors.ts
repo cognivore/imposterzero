@@ -13,6 +13,7 @@ export type TransitionError =
   | { readonly kind: "no_pending_resolution" }
   | { readonly kind: "card_not_in_army"; readonly cardId: number }
   | { readonly kind: "card_not_exhausted"; readonly cardId: number }
+  | { readonly kind: "king_already_selected" }
   | { readonly kind: "not_enough_exhausted_for_recommission" }
   | { readonly kind: "no_army_cards_available" }
   | { readonly kind: "must_exhaust_for_first_recruit" };
@@ -43,6 +44,8 @@ export const transitionErrorMessage = (e: TransitionError): string => {
       return `Card ${e.cardId} is not in the player's army`;
     case "card_not_exhausted":
       return `Card ${e.cardId} is not in the player's exhausted zone`;
+    case "king_already_selected":
+      return "A special king has already been selected this round";
     case "not_enough_exhausted_for_recommission":
       return "Need at least 2 exhausted cards and 1 exhausted card to recover for recommission";
     case "no_army_cards_available":

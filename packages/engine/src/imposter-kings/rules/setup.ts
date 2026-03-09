@@ -72,7 +72,7 @@ export const applyCommitSafe = (
 
   let squireEntry: IKPlayerZones["squire"] = null;
   if (facet === "masterTactician") {
-    if (!action.squireId) {
+    if (action.squireId === undefined || action.squireId === null) {
       return err({ kind: "cards_not_found", successorId: action.successorId, dungeonId: action.dungeonId });
     }
     const squireCard = active.hand.find((card) => card.id === action.squireId);

@@ -4,14 +4,19 @@ import type {
   IKBeginRecruitAction,
   IKRecruitAction,
   IKRecommissionAction,
+  IKSelectKingAction,
   IKMusteringAction,
   IKAction,
 } from "../actions.js";
 import type { TransitionError } from "../errors.js";
 import type { IKState } from "../state.js";
-import { playerZones, nextPlayer } from "../state.js";
+import { playerZones } from "../state.js";
 import { replacePlayerZones } from "./shared.js";
 import type { IKPlayerZones } from "../zones.js";
+import {
+  KING_CHARISMATIC_KIND,
+  KING_TACTICIAN_KIND,
+} from "../card.js";
 
 export const applyBeginRecruitSafe = (
   state: IKState,
@@ -99,6 +104,37 @@ export const applyRecommissionSafe = (
   });
 };
 
+export const applySelectKingSafe = (
+  state: IKState,
+  action: IKSelectKingAction,
+): Result<TransitionError, IKState> => {
+  const zones = playerZones(state, state.activePlayer);
+  if (zones.king.facet !== "default") {
+    return err({ kind: "king_already_selected" });
+  }
+
+  const kind = action.facet === "charismatic"
+    ? KING_CHARISMATIC_KIND
+    : KING_TACTICIAN_KIND;
+
+  const nextZones: IKPlayerZones = {
+    ...zones,
+    king: {
+      ...zones.king,
+      facet: action.facet,
+      card: {
+        ...zones.king.card,
+        kind,
+      },
+    },
+  };
+
+  return ok({
+    ...state,
+    players: replacePlayerZones(state.players, state.activePlayer, nextZones),
+  });
+};
+
 export const applyEndMusteringSafe = (
   state: IKState,
 ): Result<TransitionError, IKState> => {
@@ -131,6 +167,8 @@ export const applyMusteringSafe = (
       return applyRecruitSafe(state, action);
     case "recommission":
       return applyRecommissionSafe(state, action);
+    case "select_king":
+      return applySelectKingSafe(state, action);
     case "end_mustering":
       return applyEndMusteringSafe(state);
   }
@@ -139,6 +177,11 @@ export const applyMusteringSafe = (
 export const legalMusteringActions = (state: IKState): ReadonlyArray<IKAction> => {
   const zones = playerZones(state, state.activePlayer);
   const actions: IKAction[] = [];
+
+  if (zones.king.facet === "default") {
+    actions.push({ kind: "select_king", facet: "charismatic" });
+    actions.push({ kind: "select_king", facet: "masterTactician" });
+  }
 
   actions.push({ kind: "end_mustering" });
 

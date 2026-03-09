@@ -321,8 +321,11 @@ export const exhaustArmyCardsPostRound = (
       if (name) roundExhaustedNames.add(name);
     }
 
+    const roundArmyNames = new Set(pz.army.map((c) => c.kind.name));
     for (const k of army.exhausted) {
-      roundExhaustedNames.add(k.name);
+      if (!roundArmyNames.has(k.name)) {
+        roundExhaustedNames.add(k.name);
+      }
     }
 
     const findKind = (name: CardName): IKCardKind | undefined =>

@@ -18,6 +18,7 @@ export {
 } from "./card.js";
 
 export {
+  type SelectableKingFacet,
   type IKCrownAction,
   type IKSetupAction,
   type IKPlayCardAction,
@@ -26,6 +27,7 @@ export {
   type IKBeginRecruitAction,
   type IKRecruitAction,
   type IKRecommissionAction,
+  type IKSelectKingAction,
   type IKEndMusteringAction,
   type IKMusteringAction,
   isMusteringAction,

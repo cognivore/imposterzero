@@ -294,6 +294,9 @@ export const describeStep: DescribeStep = {
   condemn: (node, ctx, state) =>
     `Condemn ${describeCardRef(node.card, ctx, state)} from ${describeZoneRef(node.from, ctx)}.`,
 
+  swapWithCourt: (node, ctx, state) =>
+    `Swap ${describeCardRef(node.courtCard, ctx, state)} in court with ${describeCardRef(node.handCard, ctx, state)} from ${describeZoneRef(node.handZone, ctx)}.`,
+
   withFirstCardIn: (node, ctx) =>
     `Take the first card in ${describeZoneRef(node.zone, ctx)}.`,
 

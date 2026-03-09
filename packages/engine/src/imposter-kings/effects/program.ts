@@ -133,6 +133,8 @@ export type EffectProgram =
   | { readonly tag: "returnOneRallied"; readonly then: EffectProgram }
   // Copy a Court card's onPlay effects and adopt its name (Stranger)
   | { readonly tag: "copyCardEffects"; readonly zone: ZoneRef; readonly filter: CardFilter | null; readonly andThen: (cardId: number) => EffectProgram }
+  // Swap a court card with a hand card, preserving the court card's position
+  | { readonly tag: "swapWithCourt"; readonly courtCard: CardRef; readonly handCard: CardRef; readonly handZone: ZoneRef; readonly then: EffectProgram }
   // 3p Assassination: shuffle assassin into victim hand, assassinator picks a card, eliminate victim
   | { readonly tag: "assassinate3p"; readonly victim: PlayerRef; readonly assassin: PlayerRef; readonly assassinCardId: number };
 
@@ -269,6 +271,13 @@ export const condemn = (
   from: ZoneRef,
   then: EffectProgram = done,
 ): EffectProgram => ({ tag: "condemn", card, from, then });
+
+export const swapWithCourt = (
+  courtCard: CardRef,
+  handCard: CardRef,
+  handZone: ZoneRef,
+  then: EffectProgram = done,
+): EffectProgram => ({ tag: "swapWithCourt", courtCard, handCard, handZone, then });
 
 export const withFirstCardIn = (
   zone: ZoneRef,

@@ -145,6 +145,7 @@ const abstractAction = (
   if (action.kind === "begin_recruit") return "BR";
   if (action.kind === "recruit") return "RCR";
   if (action.kind === "recommission") return "RCM";
+  if (action.kind === "select_king") return action.facet === "charismatic" ? "KC" : "KT";
   if (action.kind === "end_mustering") return "EM";
 
   const succ = state.players[player]!.hand.find((c) => c.id === action.successorId);

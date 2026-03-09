@@ -4,6 +4,7 @@ import {
   BASE_ARMY_KINDS,
   type IKState,
   type IKAction,
+  type IKSetupAction,
   legalActions,
   apply,
   playerZones,
@@ -70,6 +71,64 @@ describe("Mustering Phase", () => {
 
     s = apply(s, { kind: "end_mustering" });
     expect(s.phase).toBe("setup");
+  });
+
+  it("offers optional king selection during mustering", () => {
+    const armies = makeArmies();
+    const state = createExpansionRound(REGULATION_2P_EXPANSION, armies, 0, seededRng(42));
+    const s = apply(state, { kind: "crown", firstPlayer: 0 });
+
+    const legal = legalActions(s);
+    expect(legal).toContainEqual({ kind: "select_king", facet: "charismatic" });
+    expect(legal).toContainEqual({ kind: "select_king", facet: "masterTactician" });
+    expect(legal).toContainEqual({ kind: "end_mustering" });
+  });
+
+  it("select_king updates the king facet and remains in mustering", () => {
+    const armies = makeArmies();
+    const state = createExpansionRound(REGULATION_2P_EXPANSION, armies, 0, seededRng(42));
+    let s = apply(state, { kind: "crown", firstPlayer: 0 });
+
+    expect(playerZones(s, 1).king.facet).toBe("default");
+    s = apply(s, { kind: "select_king", facet: "charismatic" });
+
+    expect(s.phase).toBe("mustering");
+    expect(playerZones(s, 1).king.facet).toBe("charismatic");
+    expect(playerZones(s, 1).king.card.kind.props.shortText).toContain("Revealed Successor");
+    expect(legalActions(s).some((a) => a.kind === "select_king")).toBe(false);
+    expect(legalActions(s).some((a) => a.kind === "end_mustering")).toBe(true);
+  });
+
+  it("players may skip special king selection and keep the default king", () => {
+    const armies = makeArmies();
+    const state = createExpansionRound(REGULATION_2P_EXPANSION, armies, 0, seededRng(42));
+
+    let s = apply(state, { kind: "crown", firstPlayer: 0 });
+    s = apply(s, { kind: "end_mustering" });
+    s = apply(s, { kind: "end_mustering" });
+
+    expect(s.phase).toBe("setup");
+    expect(playerZones(s, 0).king.facet).toBe("default");
+    expect(playerZones(s, 1).king.facet).toBe("default");
+  });
+
+  it("selecting Master Tactician changes setup commits to require a squire", () => {
+    const armies = makeArmies();
+    const state = createExpansionRound(REGULATION_2P_EXPANSION, armies, 0, seededRng(42));
+
+    let s = apply(state, { kind: "crown", firstPlayer: 0 });
+    s = apply(s, { kind: "end_mustering" });
+    s = apply(s, { kind: "select_king", facet: "masterTactician" });
+    s = apply(s, { kind: "end_mustering" });
+
+    expect(s.phase).toBe("setup");
+    expect(s.activePlayer).toBe(0);
+
+    const commits = legalActions(s).filter(
+      (a): a is IKSetupAction => a.kind === "commit",
+    );
+    expect(commits.length).toBeGreaterThan(0);
+    expect(commits.every((a) => a.squireId !== undefined)).toBe(true);
   });
 
   it("begin_recruit exhausts an army card, then recruit swaps hand for army", () => {

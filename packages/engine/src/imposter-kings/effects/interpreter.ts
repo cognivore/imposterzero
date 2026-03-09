@@ -329,6 +329,32 @@ export const resolve = (
       return resolve(program.then, result.ok ? result.value : state, ctx, trace, depth);
     }
 
+    case "swapWithCourt": {
+      const courtCid = resolveCard(program.courtCard, ctx, state);
+      const handCid = resolveCard(program.handCard, ctx, state);
+      const handZone = resolveZone(program.handZone, ctx);
+      const courtAddr: import("../zone-addr.js").IKZoneAddress = { scope: "shared", slot: "court" };
+      const courtIdx = state.shared.court.findIndex((e) => e.card.id === courtCid);
+      if (courtIdx < 0) return resolve(program.then, state, ctx, trace, depth);
+      const courtName = state.shared.court[courtIdx]!.card.kind.name;
+      const removedCourt = removeFromZone(state, courtAddr, courtCid);
+      if (!removedCourt.ok) return resolve(program.then, state, ctx, trace, depth);
+      const insertedHand = insertIntoZone(removedCourt.value.state, handZone, removedCourt.value.card);
+      const s1 = insertedHand.ok ? insertedHand.value : removedCourt.value.state;
+      const removedHand = removeFromZone(s1, handZone, handCid);
+      if (!removedHand.ok) return resolve(program.then, s1, ctx, trace, depth);
+      const handName = removedHand.value.card.kind.name;
+      const insertedCourt = insertIntoZone(
+        removedHand.value.state,
+        courtAddr,
+        removedHand.value.card,
+        { insertAt: courtIdx },
+      );
+      const s2 = insertedCourt.ok ? insertedCourt.value : removedHand.value.state;
+      emitRaw(trace, depth, "swapWithCourt", `Swapped ${courtName} (court position ${courtIdx}) with ${handName}.`);
+      return resolve(program.then, s2, ctx, trace, depth);
+    }
+
     case "withFirstCardIn": {
       const zone = resolveZone(program.zone, ctx);
       const cards = readZone(state, zone);
@@ -1096,7 +1122,11 @@ const resolveReactionChain = (
         if (shouldSkipKHWindow(s, ctx)) {
           return resolve(effectiveOnReacted, s, ctx, trace, depth + 1);
         }
-        const khOpponents = opponentsInPlayOrder(s, ctx);
+        const reactorCtx: EffectContext = {
+          ...ctx,
+          activePlayer: reactor.player,
+        };
+        const khOpponents = opponentsInPlayOrder(s, reactorCtx);
         return resolveKHCounterReaction(
           khOpponents, 0, s, ctx,
           reactor, effectiveOnReacted, continuation,

@@ -1,6 +1,8 @@
 import type { PlayerId } from "@imposter-zero/types";
 import { ok, err, unwrap, type Result } from "@imposter-zero/types";
 
+export type SelectableKingFacet = "masterTactician" | "charismatic";
+
 export interface IKCrownAction {
   readonly kind: "crown";
   readonly firstPlayer: PlayerId;
@@ -45,16 +47,30 @@ export interface IKRecommissionAction {
   readonly recoverFromExhaustId: number;
 }
 
+export interface IKSelectKingAction {
+  readonly kind: "select_king";
+  readonly facet: SelectableKingFacet;
+}
+
 export interface IKEndMusteringAction {
   readonly kind: "end_mustering";
 }
 
-export type IKMusteringAction = IKBeginRecruitAction | IKRecruitAction | IKRecommissionAction | IKEndMusteringAction;
+export type IKMusteringAction =
+  | IKBeginRecruitAction
+  | IKRecruitAction
+  | IKRecommissionAction
+  | IKSelectKingAction
+  | IKEndMusteringAction;
 export type IKPlayAction = IKPlayCardAction | IKDisgraceAction;
 export type IKAction = IKCrownAction | IKSetupAction | IKPlayAction | IKEffectChoiceAction | IKMusteringAction;
 
 export const isMusteringAction = (a: IKAction): a is IKMusteringAction =>
-  a.kind === "begin_recruit" || a.kind === "recruit" || a.kind === "recommission" || a.kind === "end_mustering";
+  a.kind === "begin_recruit" ||
+  a.kind === "recruit" ||
+  a.kind === "recommission" ||
+  a.kind === "select_king" ||
+  a.kind === "end_mustering";
 
 export interface ActionCodecConfig {
   readonly maxCardId: number;

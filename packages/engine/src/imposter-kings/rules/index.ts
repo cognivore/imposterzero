@@ -52,7 +52,13 @@ export const applySafe = (state: IKState, action: IKAction): Result<TransitionEr
   }
 
   if (state.phase === "mustering") {
-    if (action.kind !== "begin_recruit" && action.kind !== "recruit" && action.kind !== "recommission" && action.kind !== "end_mustering") {
+    if (
+      action.kind !== "begin_recruit" &&
+      action.kind !== "recruit" &&
+      action.kind !== "recommission" &&
+      action.kind !== "select_king" &&
+      action.kind !== "end_mustering"
+    ) {
       return err({ kind: "phase_mismatch", phase: "mustering", actionKind: action.kind });
     }
     return applyMusteringSafe(state, action);

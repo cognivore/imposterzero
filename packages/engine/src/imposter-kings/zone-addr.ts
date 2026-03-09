@@ -332,6 +332,7 @@ export interface InsertOptions {
   readonly face?: FaceState;
   readonly playedBy?: PlayerId;
   readonly knownBy?: ReadonlyArray<PlayerId>;
+  readonly insertAt?: number;
 }
 
 const insertIntoPlayerZone = (
@@ -455,9 +456,13 @@ const insertIntoSharedZone = (
         face: (opts.face ?? "up") as FaceState,
         playedBy: opts.playedBy ?? state.activePlayer,
       };
+      const nextCourt =
+        opts.insertAt !== undefined && opts.insertAt >= 0 && opts.insertAt <= shared.court.length
+          ? [...shared.court.slice(0, opts.insertAt), entry, ...shared.court.slice(opts.insertAt)]
+          : [...shared.court, entry];
       return ok({
         ...state,
-        shared: { ...shared, court: [...shared.court, entry] },
+        shared: { ...shared, court: nextCourt },
       });
     }
     case "accused":

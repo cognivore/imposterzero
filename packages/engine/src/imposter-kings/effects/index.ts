@@ -33,6 +33,7 @@ export {
   addRoundModifier,
   forcePlay,
   condemn,
+  swapWithCourt,
   withFirstCardIn,
   chooseCard,
   choosePlayer,
