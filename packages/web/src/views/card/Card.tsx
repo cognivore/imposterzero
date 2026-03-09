@@ -5,10 +5,12 @@ import { CardFront } from "./CardFront.js";
 import { CardBack } from "./CardBack.js";
 import { usePreviewStore, type PreviewSource } from "../../stores/preview.js";
 
+type CardSize = "large" | "medium" | "small";
+
 interface CardProps {
   readonly visual: CardVisual;
   readonly orientation: CardOrientation;
-  readonly size?: "normal" | "small" | "micro";
+  readonly size?: CardSize;
   readonly interactive?: boolean;
   readonly selected?: boolean;
   readonly dimmed?: boolean;
@@ -22,7 +24,7 @@ interface CardProps {
 export const Card: React.FC<CardProps> = ({
   visual,
   orientation,
-  size = "normal",
+  size = "medium",
   interactive = false,
   selected = false,
   dimmed = false,
@@ -69,7 +71,7 @@ export const Card: React.FC<CardProps> = ({
   const perspectiveClass = [
     "card-perspective",
     size === "small" && "card-perspective--small",
-    size === "micro" && "card-perspective--micro",
+    size === "large" && "card-perspective--large",
     dimmed && "card-perspective--dimmed",
     veiled && "card-perspective--veiled",
     selected && "card-perspective--selected",
@@ -113,7 +115,7 @@ export const Card: React.FC<CardProps> = ({
           tier={visual.front.tier}
           shortText={visual.front.shortText}
           artwork={visual.front.artwork}
-          showContent={size === "normal"}
+          showContent={size !== "small"}
           alt={`${visual.front.name}, value ${visual.front.value}`}
         />
         <CardBack design={visual.back.design} />

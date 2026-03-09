@@ -220,11 +220,10 @@ export const createExpansionRound = (
 ): IKState => {
   const deck = shuffle(createDeck(config.deck), rng);
   const numPlayers = playerArmies.length;
-  const reserved = numPlayers === 4 ? 1 : 2;
+  const reserved = numPlayers === 2 ? 2 : 1;
 
-  const accused =
-    numPlayers === 4 ? deck[deck.length - 1]! : deck[deck.length - 2]!;
-  const forgottenCard = numPlayers === 4 ? null : deck[deck.length - 1]!;
+  const accused = deck[deck.length - reserved]!;
+  const forgottenCard = reserved === 2 ? deck[deck.length - 1]! : null;
   const playableDeck = deck.slice(0, deck.length - reserved);
 
   const hands = Array.from({ length: numPlayers }, () => [] as IKCard[]);
@@ -233,8 +232,11 @@ export const createExpansionRound = (
   });
 
   let nextId = deck.length;
-  const createArmyCards = (kinds: ReadonlyArray<IKCardKind>): IKCard[] =>
-    kinds.map((kind) => ({ id: nextId++, kind }));
+  const createArmyCards = (
+    kinds: ReadonlyArray<IKCardKind>,
+    owner: PlayerId,
+  ): IKCard[] =>
+    kinds.map((kind) => ({ id: nextId++, kind, armyOwner: owner }));
 
   const kingIdBase = nextId;
   nextId += numPlayers;
@@ -253,8 +255,8 @@ export const createExpansionRound = (
       squire: null,
       antechamber: [],
       parting: [],
-      army: createArmyCards(army.available),
-      exhausted: createArmyCards(army.exhausted),
+      army: createArmyCards(army.available, player as PlayerId),
+      exhausted: createArmyCards(army.exhausted, player as PlayerId),
       recruitDiscard: [],
     };
   });
@@ -291,20 +293,37 @@ export const createExpansionRound = (
 // End-of-round Army exhaustion: recruited/rallied cards return to exhausted
 // ---------------------------------------------------------------------------
 
-const findCardNameById = (state: IKState, cardId: number): CardName | null => {
-  for (const p of state.players) {
-    for (const c of p.hand) if (c.id === cardId) return c.kind.name;
-    if (p.king.card.id === cardId) return p.king.card.kind.name;
-    if (p.successor?.card.id === cardId) return p.successor.card.kind.name;
-    if (p.dungeon?.card.id === cardId) return p.dungeon.card.kind.name;
-    for (const c of [...p.antechamber, ...p.parting, ...p.army, ...p.exhausted, ...p.recruitDiscard])
-      if (c.id === cardId) return c.kind.name;
+const collectArmyOwnerKinds = (
+  state: IKState,
+  owner: PlayerId,
+): { readonly available: IKCardKind[]; readonly exhausted: IKCardKind[] } => {
+  const available: IKCardKind[] = [];
+  const exhausted: IKCardKind[] = [];
+  const record = (card: IKCard, isAvailable: boolean): void => {
+    if (card.armyOwner !== owner) return;
+    (isAvailable ? available : exhausted).push(card.kind);
+  };
+
+  for (const [player, p] of state.players.entries()) {
+    const isOwnerArmyZone = (player as PlayerId) === owner;
+    for (const card of p.hand) record(card, false);
+    record(p.king.card, false);
+    if (p.successor) record(p.successor.card, false);
+    if (p.dungeon) record(p.dungeon.card, false);
+    if (p.squire) record(p.squire.card, false);
+    for (const card of p.antechamber) record(card, false);
+    for (const card of p.parting) record(card, false);
+    for (const card of p.army) record(card, isOwnerArmyZone);
+    for (const card of p.exhausted) record(card, false);
+    for (const card of p.recruitDiscard) record(card, false);
   }
-  for (const e of state.shared.court) if (e.card.id === cardId) return e.card.kind.name;
-  if (state.shared.accused?.id === cardId) return state.shared.accused.kind.name;
-  if (state.shared.forgotten?.card.id === cardId) return state.shared.forgotten.card.kind.name;
-  for (const e of state.shared.condemned) if (e.card.id === cardId) return e.card.kind.name;
-  return null;
+
+  for (const entry of state.shared.court) record(entry.card, false);
+  if (state.shared.accused) record(state.shared.accused, false);
+  if (state.shared.forgotten) record(state.shared.forgotten.card, false);
+  for (const entry of state.shared.condemned) record(entry.card, false);
+
+  return { available, exhausted };
 };
 
 export const exhaustArmyCardsPostRound = (
@@ -312,41 +331,13 @@ export const exhaustArmyCardsPostRound = (
   prevArmies: ReadonlyArray<PlayerArmy>,
 ): ReadonlyArray<PlayerArmy> =>
   prevArmies.map((army, player) => {
-    const pz = finalState.players[player]!;
-    const allKinds = [...army.available, ...army.exhausted];
-
-    const roundExhaustedNames = new Set(pz.exhausted.map((c) => c.kind.name));
-    for (const id of finalState.armyRecruitedIds) {
-      const name = findCardNameById(finalState, id);
-      if (name) roundExhaustedNames.add(name);
+    const next = collectArmyOwnerKinds(finalState, player as PlayerId);
+    const expectedCount = army.available.length + army.exhausted.length;
+    const actualCount = next.available.length + next.exhausted.length;
+    if (actualCount !== expectedCount) {
+      return army;
     }
-
-    const roundArmyNames = new Set(pz.army.map((c) => c.kind.name));
-    for (const k of army.exhausted) {
-      if (!roundArmyNames.has(k.name)) {
-        roundExhaustedNames.add(k.name);
-      }
-    }
-
-    const findKind = (name: CardName): IKCardKind | undefined =>
-      allKinds.find((k) => k.name === name);
-
-    const available: IKCardKind[] = [];
-    const exhausted: IKCardKind[] = [];
-    const usedNames = new Set<string>();
-
-    for (const kind of allKinds) {
-      const key = `${kind.name}-${usedNames.has(kind.name) ? "dup" : "first"}`;
-      if (usedNames.has(kind.name)) continue;
-      usedNames.add(kind.name);
-      if (roundExhaustedNames.has(kind.name)) {
-        exhausted.push(kind);
-      } else {
-        available.push(kind);
-      }
-    }
-
-    return { available, exhausted };
+    return next;
   });
 
 // ---------------------------------------------------------------------------

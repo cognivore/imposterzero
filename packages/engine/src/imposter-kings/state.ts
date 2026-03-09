@@ -1,5 +1,6 @@
 import type { PlayerId } from "@imposter-zero/types";
 
+import type { CardName } from "./card.js";
 import type { IKSharedZones, IKPlayerZones, CourtEntry } from "./zones.js";
 import type { ChoiceOption, ModifierSpec } from "./effects/program.js";
 
@@ -10,14 +11,22 @@ export type PendingEffectSource =
   | { readonly kind: "disgrace"; readonly throneCardId: number }
   | { readonly kind: "antechamberPlay"; readonly cardId: number };
 
+export interface PendingEffectContext {
+  readonly playedFrom: "hand" | "antechamber" | null;
+  readonly playedOnValue?: number;
+  readonly copiedName?: CardName;
+}
+
 export interface PendingResolution {
   readonly source: PendingEffectSource;
   readonly effectPlayer: PlayerId;
+  readonly effectContext: PendingEffectContext;
   readonly choicesMade: ReadonlyArray<number>;
   readonly currentOptions: ReadonlyArray<ChoiceOption>;
   readonly choosingPlayer: PlayerId;
   readonly stateBeforeEffect: IKState;
   readonly isReactionWindow: boolean;
+  readonly reactionWindowKind?: "kings_hand" | "king_flip";
 }
 
 export interface ActiveModifier {

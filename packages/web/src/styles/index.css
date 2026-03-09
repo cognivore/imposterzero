@@ -27,18 +27,26 @@
   --card-border:     #c4b67d;
   --card-radius:     8px;
 
-  /* ── Card scale: fluid, viewport-driven ── */
+  /* ── Card 3-tier scale: Large / Medium / Small ── */
   --card-aspect: 1.4;
-  --card-width:  clamp(80px, 5.5vw + 24px, 128px);
-  --card-height: calc(var(--card-width) * var(--card-aspect));
 
-  --card-small-ratio:   0.65;
-  --card-small-width:   calc(var(--card-width) * var(--card-small-ratio));
-  --card-small-height:  calc(var(--card-small-width) * var(--card-aspect));
+  --card-md:     clamp(80px, 5.5vw + 24px, 128px);
+  --card-md-h:   calc(var(--card-md) * var(--card-aspect));
 
-  --card-preview-ratio: 2.5;
-  --card-preview-width:  clamp(180px, calc(var(--card-width) * var(--card-preview-ratio)), 280px);
-  --card-preview-height: calc(var(--card-preview-width) * var(--card-aspect));
+  --card-sm-ratio: 0.65;
+  --card-sm:     calc(var(--card-md) * var(--card-sm-ratio));
+  --card-sm-h:   calc(var(--card-sm) * var(--card-aspect));
+
+  --card-lg:     clamp(180px, calc(var(--card-md) * 2.2), 260px);
+  --card-lg-h:   calc(var(--card-lg) * var(--card-aspect));
+
+  /* Legacy aliases (backward compat) */
+  --card-width:  var(--card-md);
+  --card-height: var(--card-md-h);
+  --card-small-width:  var(--card-sm);
+  --card-small-height: var(--card-sm-h);
+  --card-preview-width:  var(--card-lg);
+  --card-preview-height: var(--card-lg-h);
 
   /* ── Card typography: scales with card width ── */
   --card-font-value:  clamp(1.2rem, calc(var(--card-width) * 0.25), 2rem);
@@ -78,10 +86,10 @@
   --radius:    8px;
   --radius-lg: 12px;
 
-  /* ── Card micro scale (opponent zones, inline choice thumbnails) ── */
+  /* ── Card micro scale (deprecated → use small) ── */
   --card-micro-ratio: 0.4;
-  --card-micro-width:  calc(var(--card-width) * var(--card-micro-ratio));
-  --card-micro-height: calc(var(--card-micro-width) * var(--card-aspect));
+  --card-micro-width:  var(--card-sm);
+  --card-micro-height: var(--card-sm-h);
 
   /* ── Game layout rails ── */
   --rail-width: clamp(180px, 14vw, 260px);
@@ -226,6 +234,11 @@ body {
 .card-perspective--small {
   width: var(--card-small-width);
   height: var(--card-small-height);
+}
+
+.card-perspective--large {
+  width: var(--card-lg);
+  height: var(--card-lg-h);
 }
 
 .card-perspective--interactive {
@@ -2784,6 +2797,41 @@ body {
   opacity: 0.8;
 }
 
+.card-action-btn {
+  display: block;
+  width: 100%;
+  margin-top: 3px;
+  padding: 2px 6px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--bg-deep);
+  background: var(--gold);
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.card-action-btn:hover {
+  background: var(--gold-bright, #f0c040);
+  transform: scale(1.05);
+}
+
+.card-action-btn:active {
+  transform: scale(0.97);
+}
+
+.mustering-card-slot--active {
+  outline: 1px dashed rgba(212, 168, 67, 0.3);
+  outline-offset: 1px;
+}
+
+.mustering-card-slot--active:hover {
+  outline-color: var(--gold);
+}
+
 .empty-zone {
   color: var(--text-muted);
   font-size: 0.85rem;
@@ -2912,4 +2960,482 @@ body {
 .draft-actions {
   display: flex;
   gap: var(--space-sm);
+}
+
+/* =========================================================================
+   Tabletop Layout — Unified persistent game surface (SRS-001)
+   ========================================================================= */
+
+.tabletop {
+  display: grid;
+  grid-template-columns: var(--rail-width) 1fr clamp(180px, 15vw, 250px);
+  grid-template-rows: 1fr auto;
+  grid-template-areas:
+    "left  center  right"
+    "left  hand    right";
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  padding: var(--space-sm);
+  gap: var(--space-sm);
+}
+
+/* ── Left Column ── */
+
+.tabletop__left-col {
+  grid-area: left;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tt-section-header {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  padding: var(--space-xs) var(--space-sm);
+  flex-shrink: 0;
+}
+
+.tt-match-log {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  flex: 0 0 auto;
+  max-height: 18%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tt-match-log__entries {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 var(--space-sm) var(--space-sm);
+  font-size: 0.72rem;
+}
+
+.tt-match-log__entry {
+  padding: var(--space-xs) 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.tt-card-preview {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: var(--space-sm);
+}
+
+.tt-card-preview .preview-card {
+  margin: 0 auto;
+  max-width: 100%;
+  box-shadow: none;
+}
+
+.tt-game-log {
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tt-game-log__entries {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 var(--space-sm) var(--space-sm);
+  min-height: 0;
+}
+
+/* ── Center Stage ── */
+
+.tabletop__center {
+  grid-area: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.tabletop__timer {
+  display: flex;
+  justify-content: center;
+  padding: 0 var(--space-md);
+  flex-shrink: 0;
+}
+
+.tt-court {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: radial-gradient(ellipse at 50% 40%, rgba(212, 168, 67, 0.03) 0%, transparent 70%);
+  border-radius: var(--radius-lg);
+  flex-shrink: 0;
+  min-height: calc(var(--card-small-height) + var(--space-xl));
+}
+
+.tt-court__active-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.tabletop__primary-dialog {
+  flex-shrink: 0;
+  min-height: 0;
+}
+
+.tabletop__lower-dialogs {
+  display: flex;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+  min-height: 0;
+}
+
+.tabletop__lower-dialogs--no-tertiary .tabletop__secondary-dialog {
+  flex: 1;
+}
+
+.tabletop__secondary-dialog {
+  flex: 2;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.tabletop__tertiary-dialog {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.tt-hero-ante,
+.tt-hero-parting {
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.tt-card-row {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+/* ── Dialog content shared styles ── */
+
+.tt-dialog-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+}
+
+.tt-dialog-content--minimal {
+  padding: var(--space-xs) var(--space-md);
+}
+
+.tt-phase-title {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: var(--gold);
+  text-align: center;
+}
+
+.tt-phase-subtitle {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.tt-turn-indicator {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.tt-turn-indicator--mine {
+  color: var(--gold);
+}
+
+.tt-turn-indicator--waiting {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.tt-empty-zone {
+  color: var(--text-dim);
+  font-style: italic;
+  font-size: 0.8rem;
+  text-align: center;
+  padding: var(--space-md);
+}
+
+.tt-empty-zone--preview {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Right Column ── */
+
+.tabletop__right-col {
+  grid-area: right;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  min-height: 0;
+  padding: var(--space-xs) 0;
+}
+
+.tt-opponents {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tt-opponent-ante-parting {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.tt-opponent-subzone {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tt-opponent-counts {
+  display: flex;
+  gap: 4px;
+  margin-top: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.tt-shared-zones {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  padding: var(--space-sm);
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  min-height: 40px;
+}
+
+.tt-shared-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.tt-hero-zones {
+  padding: var(--space-xs) 0;
+}
+
+.tt-hero-zones__header,
+.opponent-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+}
+
+.tt-player-counts {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.tt-facet-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--gold);
+  background: rgba(212, 168, 67, 0.12);
+  border: 1px solid rgba(212, 168, 67, 0.22);
+  border-radius: 999px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+
+.tt-zone-stack {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-start;
+  justify-content: center;
+  min-width: var(--card-small-width);
+  min-height: var(--card-small-height);
+}
+
+.tt-zone-stack__base {
+  position: relative;
+  z-index: 1;
+}
+
+.tt-zone-stack__overlay {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  z-index: 2;
+  transform: scale(0.72);
+  transform-origin: top right;
+}
+
+.tt-zone-stack__overlay-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  font-size: 0.52rem;
+  font-weight: 800;
+  line-height: 1;
+  color: #111;
+  background: var(--gold);
+  border-radius: 999px;
+  padding: 2px 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.tabletop__right-col .opponent-panel {
+  padding: 8px;
+  min-width: 0;
+}
+
+.tabletop__right-col .opponent-panel__name {
+  margin-bottom: 0;
+  font-size: 0.72rem;
+}
+
+.tabletop__right-col .opponent-panel__zones {
+  gap: 6px;
+}
+
+.tabletop__right-col .opponent-panel__hand {
+  margin-top: 6px;
+  padding-top: 6px;
+  gap: 6px;
+}
+
+.tabletop__right-col .player-zones {
+  padding: 8px;
+  gap: 6px;
+  justify-content: space-between;
+}
+
+.tabletop__right-col .player-zone-slot,
+.tabletop__right-col .opponent-panel__zone {
+  gap: 2px;
+}
+
+.tabletop__right-col .tt-shared-zones {
+  padding: 8px;
+  gap: 6px;
+}
+
+.tabletop__right-col .zone-label {
+  font-size: 0.58rem;
+  margin-bottom: 0;
+}
+
+.tabletop__right-col .army-count-badge {
+  font-size: 0.62rem;
+  padding: 2px 5px;
+}
+
+/* ── Hand Strip ── */
+
+.tt-hand {
+  grid-area: hand;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  max-height: 28vh;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.15);
+}
+
+.tt-hand .hand-zone__cards {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.tt-hand .hand-zone__actions {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* ── Phase transition animation ── */
+
+@keyframes tt-phase-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.tabletop__primary-dialog > *,
+.tabletop__secondary-dialog > *,
+.tabletop__tertiary-dialog > * {
+  animation: tt-phase-fade 0.15s ease-out;
+}
+
+/* ── Phase indicator label ── */
+
+@keyframes tt-phase-indicator-anim {
+  0% { opacity: 0; transform: translateY(-8px) scale(0.95); }
+  10% { opacity: 1; transform: translateY(0) scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.tt-phase-indicator {
+  position: absolute;
+  top: var(--space-md);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.85rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--gold);
+  background: rgba(30, 30, 46, 0.85);
+  backdrop-filter: blur(8px);
+  padding: var(--space-xs) var(--space-lg);
+  border-radius: var(--radius);
+  border: 1px solid rgba(212, 168, 67, 0.2);
+  z-index: 10;
+  pointer-events: none;
+  animation: tt-phase-indicator-anim 2s ease-out forwards;
 }

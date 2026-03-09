@@ -1,4 +1,4 @@
-import type { CardInstance, CardKind } from "@imposter-zero/types";
+import type { PlayerId, CardInstance, CardKind } from "@imposter-zero/types";
 
 import type { CardEffect } from "./effects/program.js";
 import {
@@ -106,7 +106,10 @@ export interface IKCardProps extends Record<string, unknown> {
 }
 
 export type IKCardKind = CardKind<IKCardProps> & { readonly name: CardName };
-export type IKCard = CardInstance<IKCardProps> & { readonly kind: IKCardKind };
+export type IKCard = CardInstance<IKCardProps> & {
+  readonly kind: IKCardKind;
+  readonly armyOwner?: PlayerId;
+};
 
 export const ikCardOps: CardOps<IKCard> = {
   value: (card) => card.kind.props.value,

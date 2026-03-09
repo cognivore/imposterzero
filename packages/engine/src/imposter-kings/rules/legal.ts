@@ -55,7 +55,7 @@ export const canPlayCard = (
         return (
           top !== null &&
           top.face === "up" &&
-          top.card.kind.props.value > ikCardOps.value(card) &&
+          effectiveValue(state, top.card) > effectiveValue(state, card) &&
           hand.length >= 2
         );
       }
@@ -84,19 +84,49 @@ export const legalActions = (state: IKState): ReadonlyArray<IKAction> => {
     if (pending.isReactionWindow) {
       const chooser = pending.choosingPlayer;
       const hand = playerZones(state, chooser).hand;
-      const hasKH = hand.some((c) => c.kind.name === "King's Hand");
       const courtTop = state.shared.court.length > 0
         ? state.shared.court[state.shared.court.length - 1]!
         : null;
-      const courtHasKH = state.shared.court.some(
-        (e) =>
-          e.face === "up" &&
-          e.card.kind.name === "King's Hand" &&
-          e.card.id !== courtTop?.card.id,
-      );
+      const reactionKind = pending.reactionWindowKind;
+      const canCopyFromCourt = (() => {
+        switch (reactionKind) {
+          case "kings_hand":
+            return state.shared.court.some(
+              (e) =>
+                e.face === "up" &&
+                e.card.kind.name === "King's Hand" &&
+                e.card.id !== courtTop?.card.id,
+            );
+          case "king_flip":
+            return state.shared.court.some(
+              (e) =>
+                e.face === "up" &&
+                e.card.id !== courtTop?.card.id &&
+                e.card.kind.props.effects.some(
+                  (effect) => effect.tag === "reaction" && effect.trigger === "king_flip",
+                ),
+            );
+          default:
+            return false;
+        }
+      })();
+      const hasLiveReactionCard = (() => {
+        switch (reactionKind) {
+          case "kings_hand":
+            return hand.some((c) => c.kind.name === "King's Hand");
+          case "king_flip":
+            return hand.some((c) =>
+              c.kind.props.effects.some(
+                (effect) => effect.tag === "reaction" && effect.trigger === "king_flip",
+              ),
+            );
+          default:
+            return false;
+        }
+      })();
       const strangerCanReact =
-        courtHasKH && hand.some((c) => c.kind.name === "Stranger");
-      if (!hasKH && !strangerCanReact) {
+        canCopyFromCourt && hand.some((c) => c.kind.name === "Stranger");
+      if (!hasLiveReactionCard && !strangerCanReact) {
         return [{ kind: "effect_choice" as const, choice: 0 }];
       }
     }

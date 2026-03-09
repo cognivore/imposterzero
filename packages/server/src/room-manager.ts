@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { GameDef, RoomSummary } from "@imposter-zero/types";
-import type { IKState, IKAction, GameConfig, PlayerArmy, CardName } from "@imposter-zero/engine";
-import { REGULATION_2P_EXPANSION, buildPlayerArmies } from "@imposter-zero/engine";
+import type { IKState, IKAction, CardName } from "@imposter-zero/engine";
+import { buildPlayerArmies, expansionConfigForPlayers } from "@imposter-zero/engine";
 import {
   type Room,
   type OutboundMessage,
@@ -123,20 +123,18 @@ export const updateManagedRoomTargetScore = (managed: ManagedRoom, targetScore: 
   };
 };
 
-const DEFAULT_SIGNATURES: ReadonlyArray<ReadonlyArray<CardName>> = [
-  ["Aegis", "Exile", "Ancestor"],
-  ["Aegis", "Exile", "Ancestor"],
-];
+const DEFAULT_SIGNATURES: ReadonlyArray<CardName> = ["Aegis", "Exile", "Ancestor"];
 
 export const updateManagedRoomExpansion = (managed: ManagedRoom, expansion: boolean): void => {
   if (managed.room.phase !== "lobby") return;
   if (expansion) {
     const numPlayers = managed.maxPlayers;
-    const sigs = DEFAULT_SIGNATURES.slice(0, numPlayers);
-    const armies = buildPlayerArmies(REGULATION_2P_EXPANSION, sigs);
+    const config = expansionConfigForPlayers(numPlayers);
+    const sigs = Array.from({ length: numPlayers }, () => DEFAULT_SIGNATURES);
+    const armies = buildPlayerArmies(config, sigs);
     managed.room = {
       ...managed.room,
-      expansionState: { config: REGULATION_2P_EXPANSION, playerArmies: armies },
+      expansionState: { config, playerArmies: armies },
     };
   } else {
     managed.room = {

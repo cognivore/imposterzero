@@ -18,7 +18,7 @@ import {
   playExpandedMatch,
   type PlayerArmy,
 } from "../expansion-match.js";
-import { REGULATION_2P_EXPANSION } from "../config.js";
+import { REGULATION_2P_EXPANSION, expansionConfigForPlayers } from "../config.js";
 
 const seededRng = (seed: number) => {
   let s = seed;
@@ -50,6 +50,19 @@ describe("Expansion Round (2p with Army)", () => {
     expect(state.players[0]!.army.length).toBe(8);
     expect(state.players[1]!.army.length).toBe(8);
     expect(state.phase).toBe("crown");
+  });
+
+  it("uses the 3-player deck when configured for 3 players", () => {
+    const config = expansionConfigForPlayers(3);
+    const armies: ReadonlyArray<PlayerArmy> = [
+      { available: BASE_ARMY_KINDS.slice(0, 3), exhausted: [] },
+      { available: BASE_ARMY_KINDS.slice(0, 3), exhausted: [] },
+      { available: BASE_ARMY_KINDS.slice(0, 3), exhausted: [] },
+    ];
+    const state = createExpansionRound(config, armies, 0, seededRng(42));
+
+    expect(state.players.every((player) => player.hand.length === 8)).toBe(true);
+    expect(state.shared.forgotten).toBeNull();
   });
 
   it("random play with army completes without errors (5 games)", () => {

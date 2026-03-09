@@ -5,16 +5,11 @@ import { useGameLogStore } from "./stores/game-log.js";
 import { useDisgracedTracker } from "./stores/disgraced-tracker.js";
 import { useSeenCardsTracker } from "./stores/seen-cards.js";
 import { traceResolution, type TraceEntry } from "@imposter-zero/engine";
+import type { PlayerId } from "@imposter-zero/types";
 import { useOrientation } from "./hooks/useOrientation.js";
 import { BrowserView } from "./views/BrowserView.js";
 import { LobbyView } from "./views/LobbyView.js";
-import { CrownView } from "./views/CrownView.js";
-import { SetupView } from "./views/SetupView.js";
-import { GameLayout } from "./views/GameLayout.js";
-import { MusteringView } from "./views/MusteringView.js";
-import { DraftView } from "./views/DraftView.js";
-import { ScoringView } from "./views/ScoringView.js";
-import { MatchOverView } from "./views/MatchOverView.js";
+import { TabletopLayout } from "./views/TabletopLayout.js";
 import { LandscapeOverlay } from "./views/LandscapeOverlay.js";
 
 const wsUrl: string = __WS_URL__;
@@ -37,28 +32,14 @@ const renderPhase = (
     case "lobby":
       return <LobbyView phase={phase} send={send} />;
     case "drafting":
-      return (
-        <DraftView
-          signaturePool={phase.signaturePool}
-          mySelections={phase.mySelections}
-          selectionsNeeded={phase.selectionsNeeded}
-          allReady={phase.allReady}
-          playerNames={[...phase.playerNames]}
-          send={send}
-        />
-      );
     case "crown":
-      return <CrownView phase={phase} send={send} />;
     case "mustering":
-      return <MusteringView phase={phase} send={send} />;
     case "setup":
     case "play":
     case "resolving":
-      return <GameLayout phase={phase} send={send} />;
     case "scoring":
-      return <ScoringView phase={phase} send={send} />;
     case "finished":
-      return <MatchOverView phase={phase} send={send} />;
+      return <TabletopLayout phase={phase} send={send} />;
     default:
       return absurd(phase);
   }
@@ -66,14 +47,38 @@ const renderPhase = (
 
 const DEPTH_INDENT = "\u2003";
 
+const localizeTracePlayers = (
+  description: string,
+  playerNames: readonly string[],
+): string =>
+  description.replace(/\bPlayer (\d+)\b/g, (_match, rawIndex: string) => {
+    const playerIndex = Number(rawIndex);
+    return Number.isInteger(playerIndex) && playerIndex >= 0 && playerIndex < playerNames.length
+      ? (playerNames[playerIndex] ?? `Player ${rawIndex}`)
+      : `Player ${rawIndex}`;
+  });
+
+const visibleTraceDescription = (
+  entry: TraceEntry,
+  viewer: PlayerId,
+): string =>
+  entry.privateToPlayer !== undefined && entry.privateToPlayer !== viewer
+    ? (entry.redactedDescription ?? entry.description)
+    : entry.description;
+
 const traceEntryToLogEntry = (
   entry: TraceEntry,
   turnNumber: number,
+  viewer: PlayerId,
+  playerNames: readonly string[],
 ): Omit<import("./stores/game-log.js").GameLogEntry, "id"> => ({
   turnNumber,
   playerName: "",
   playerIndex: -1,
-  description: DEPTH_INDENT.repeat(entry.depth) + (entry.tag === "choice" ? "→ " : "") + entry.description,
+  description:
+    DEPTH_INDENT.repeat(entry.depth) +
+    (entry.tag === "choice" ? "→ " : "") +
+    localizeTracePlayers(visibleTraceDescription(entry, viewer), playerNames),
   timestamp: Date.now(),
   kind: "trace",
 });
@@ -111,7 +116,7 @@ const useGameLogSync = (phase: ClientPhase): void => {
         const newEntries = fullTrace.slice(traceCountRef.current);
         const turn = prevGameState.turnCount;
         for (const entry of newEntries) {
-          store.addEntry(traceEntryToLogEntry(entry, turn));
+          store.addEntry(traceEntryToLogEntry(entry, turn, prev.myIndex, prev.playerNames));
         }
         traceCountRef.current = 0;
       } else if (phase._tag === "resolving" && gameState?.pendingResolution) {
@@ -119,7 +124,7 @@ const useGameLogSync = (phase: ClientPhase): void => {
         const newEntries = currentTrace.slice(traceCountRef.current);
         const turn = gameState.turnCount;
         for (const entry of newEntries) {
-          store.addEntry(traceEntryToLogEntry(entry, turn));
+          store.addEntry(traceEntryToLogEntry(entry, turn, phase.myIndex, phase.playerNames));
         }
         traceCountRef.current = currentTrace.length;
       }

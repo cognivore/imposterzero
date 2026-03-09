@@ -170,6 +170,7 @@ export type Resolution =
       readonly options: ReadonlyArray<ChoiceOption>;
       readonly resume: (choice: number) => Resolution;
       readonly isReactionWindow?: boolean;
+      readonly reactionWindowKind?: "kings_hand" | "king_flip";
     };
 
 // ---------------------------------------------------------------------------
@@ -181,6 +182,7 @@ export interface EffectContext {
   readonly activePlayer: PlayerId;
   readonly numPlayers: number;
   readonly playedFrom: "hand" | "antechamber" | null;
+  readonly playedOnValue?: number;
   readonly copiedName?: CardName;
 }
 

@@ -16,6 +16,7 @@ import {
   isMatchOver,
   matchWinners,
   roundScore,
+  expansionConfigForPlayers,
   regulationDeck,
   deal,
   SIGNATURE_CARD_NAMES,
@@ -298,7 +299,7 @@ const handleGameAction = (
       match: newMatch,
       lastRoundScores: scores,
       lastState: terminalState,
-      loser: terminalState.activePlayer,
+      loser: terminalState.forcedLoser ?? terminalState.activePlayer,
       game: room.game,
       turnDuration: room.turnDuration,
       targetScore: room.targetScore,
@@ -380,7 +381,7 @@ const handleTimeout = (
         match: newMatch,
         lastRoundScores: scores,
         lastState: terminalState,
-        loser: terminalState.activePlayer,
+        loser: terminalState.forcedLoser ?? terminalState.activePlayer,
         game: room.game,
         turnDuration: room.turnDuration,
         targetScore: room.targetScore,
@@ -411,7 +412,10 @@ const startDraftPhase = (
 ): RoomTransitionResult => {
   const numPlayers = room.lobby.players.length;
   const newMatch = createMatch(numPlayers, room.targetScore);
-  const expansion = room.expansionState!;
+  const expansion = {
+    ...room.expansionState!,
+    config: expansionConfigForPlayers(numPlayers),
+  };
   const pool = SIGNATURE_CARD_NAMES as ReadonlyArray<string>;
 
   const draftingRoom: DraftingRoom = {

@@ -168,6 +168,18 @@ describe("roundScore", () => {
       const terminal = playToTerminal(3, 42);
       expect(roundScore(terminal)).toHaveLength(3);
     });
+
+    it("awards second place to the last eliminated player", () => {
+      const base = toPlayPhase(3, 42);
+      const terminal: IKState = {
+        ...base,
+        forcedLoser: 2 as PlayerId,
+        eliminatedPlayers: [1 as PlayerId],
+      };
+
+      const scores = roundScore(terminal);
+      expect(scores[1]).toBe(1);
+    });
   });
 
   describe("4-player scoring (2v2)", () => {

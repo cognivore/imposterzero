@@ -515,12 +515,43 @@ export const useGameReducer = () => {
 // ---------------------------------------------------------------------------
 
 export interface GameLogEvent {
-  readonly kind: "play" | "disgrace" | "round_start" | "round_end" | "mustering";
+  readonly kind: "play" | "disgrace" | "round_start" | "round_end" | "mustering" | "commit";
   readonly turnNumber: number;
   readonly playerName: string;
   readonly playerIndex: number;
   readonly description: string;
 }
+
+const kingFacetLabel = (
+  facet: import("@imposter-zero/engine").IKPlayerZones["king"]["facet"],
+): string => {
+  switch (facet) {
+    case "charismatic":
+      return "Charismatic Leader";
+    case "masterTactician":
+      return "Master Tactician";
+    default:
+      return "King";
+  }
+};
+
+const describeSetupCommit = (
+  zones: import("@imposter-zero/engine").IKPlayerZones,
+  revealCards: boolean,
+): string => {
+  if (revealCards) {
+    const roles = [
+      zones.successor ? `${zones.successor.card.kind.name} as Successor` : null,
+      zones.dungeon ? `${zones.dungeon.card.kind.name} as Dungeon` : null,
+      zones.squire ? `${zones.squire.card.kind.name} as Squire` : null,
+    ].filter((role): role is string => role !== null);
+    return `committed setup: ${roles.join(", ")}`;
+  }
+
+  return zones.squire !== null
+    ? "committed setup: chose a Successor, a Dungeon, and a Squire"
+    : "committed setup: chose a Successor and a Dungeon";
+};
 
 export const detectLogEvents = (
   prev: ClientPhase,
@@ -590,37 +621,70 @@ export const detectLogEvents = (
           playerIndex: actor,
           description: "finished mustering",
         });
-      } else if (nextZones.exhausted.length > prevZones.exhausted.length && nextZones.army.length < prevZones.army.length && nextZones.recruitDiscard.length === prevZones.recruitDiscard.length) {
-        const exhausted = nextZones.exhausted.find((c) => !prevZones.exhausted.some((pc) => pc.id === c.id));
+      } else if (prevZones.king.facet !== nextZones.king.facet && nextZones.king.facet !== "default") {
         events.push({
           kind: "mustering",
           turnNumber: 0,
           playerName: actorName,
           playerIndex: actor,
-          description: `exhausted ${exhausted?.kind.name ?? "a card"} to begin recruiting`,
+          description: `selected ${kingFacetLabel(nextZones.king.facet)}`,
         });
       } else if (nextZones.recruitDiscard.length > prevZones.recruitDiscard.length) {
         const discarded = nextZones.recruitDiscard.find((c) => !prevZones.recruitDiscard.some((pc) => pc.id === c.id));
-        const recruited = nextZones.hand.find((c) => !prevZones.hand.some((pc) => pc.id === c.id));
         events.push({
           kind: "mustering",
           turnNumber: 0,
           playerName: actorName,
           playerIndex: actor,
-          description: `recruited ${recruited?.kind.name ?? "a card"} (discarded ${discarded?.kind.name ?? "a card"})`,
+          description: `discarded ${discarded?.kind.name ?? "a card"} to recruit`,
         });
-      } else if (nextZones.exhausted.length > prevZones.exhausted.length && nextZones.army.length !== prevZones.army.length) {
+      } else {
         const recovered = nextZones.army.find((c) => !prevZones.army.some((pc) => pc.id === c.id));
         const newlyExhausted = nextZones.exhausted.filter((c) => !prevZones.exhausted.some((pc) => pc.id === c.id));
-        const exhaustedNames = newlyExhausted.map((c) => c.kind.name).join(" + ");
-        events.push({
-          kind: "mustering",
-          turnNumber: 0,
-          playerName: actorName,
-          playerIndex: actor,
-          description: `recommissioned: recovered ${recovered?.kind.name ?? "?"}, exhausted ${exhaustedNames}`,
-        });
+
+        if (recovered !== undefined && newlyExhausted.length >= 2) {
+          const exhaustedNames = newlyExhausted.map((c) => c.kind.name).join(" + ");
+          events.push({
+            kind: "mustering",
+            turnNumber: 0,
+            playerName: actorName,
+            playerIndex: actor,
+            description: `recommissioned: recovered ${recovered.kind.name}, exhausted ${exhaustedNames}`,
+          });
+        } else if (recovered === undefined && newlyExhausted.length === 1) {
+          events.push({
+            kind: "mustering",
+            turnNumber: 0,
+            playerName: actorName,
+            playerIndex: actor,
+            description: `exhausted ${newlyExhausted[0]!.kind.name} to begin recruiting`,
+          });
+        }
       }
+    }
+  }
+
+  if (prev._tag === "setup" && next._tag === "setup") {
+    const actor = prev.activePlayer;
+    const actorName = prev.playerNames[actor] ?? `Player ${actor}`;
+    const prevZones = prev.gameState.players[actor];
+    const nextZones = next.gameState.players[actor];
+
+    if (
+      prevZones &&
+      nextZones &&
+      prevZones.successor === null &&
+      prevZones.dungeon === null &&
+      nextZones.successor !== null &&
+      nextZones.dungeon !== null
+    ) {
+      events.push({
+        kind: "commit",
+        turnNumber: prev.gameState.turnCount,
+        playerName: actorName,
+        playerIndex: actor,
+        description: describeSetupCommit(nextZones, actor === next.myIndex),
+      });
     }
   }
 

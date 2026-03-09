@@ -1,12 +1,13 @@
 /**
- * King's Hand reaction window tests.
+ * Reaction-window information hiding tests.
  *
  * Covers:
  *   1. KH holder reacts to Inquisitor — both cards condemned, effect prevented
- *   2. Player without KH is still prompted but can only pass (greyed-out react)
+ *   2. Hidden KH elsewhere still prompts with pass-only legal actions
  *   3. 3-player priority order — players prompted in turn order after active
  *   4. allKHPubliclyLocated skip — KH in court means no reaction window
- *   5. immune_to_kings_hand — Oathbound's forced-play doesn't trigger window
+ *   5. Assassin king-flip prompts obey the same knowledge rules
+ *   6. immune_to_kings_hand — Oathbound's forced-play doesn't trigger window
  */
 
 import { describe, it, expect } from "vitest";
@@ -19,6 +20,7 @@ import {
   apply,
   applySafe,
   playerZones,
+  traceResolution,
   type IKState,
 } from "../index.js";
 import type { PlayerId } from "@imposter-zero/types";
@@ -123,6 +125,51 @@ const setupThreePlayerGame = (
   return state;
 };
 
+const moveHandCardToPublicCondemned = (
+  state: IKState,
+  player: PlayerId,
+  name: string,
+): IKState => {
+  const card = playerZones(state, player).hand.find((entry) => entry.kind.name === name);
+  if (!card) throw new Error(`Missing ${name} in player ${player} hand`);
+  return {
+    ...state,
+    players: state.players.map((zones, idx) =>
+      idx === player
+        ? { ...zones, hand: zones.hand.filter((entry) => entry.id !== card.id) }
+        : zones,
+    ),
+    shared: {
+      ...state.shared,
+      condemned: [
+        ...state.shared.condemned,
+        { card, face: "down" as const, knownBy: [0, 1] as const },
+      ],
+    },
+  };
+};
+
+const moveHandCardToCourt = (
+  state: IKState,
+  player: PlayerId,
+  name: string,
+): IKState => {
+  const card = playerZones(state, player).hand.find((entry) => entry.kind.name === name);
+  if (!card) throw new Error(`Missing ${name} in player ${player} hand`);
+  return {
+    ...state,
+    players: state.players.map((zones, idx) =>
+      idx === player
+        ? { ...zones, hand: zones.hand.filter((entry) => entry.id !== card.id) }
+        : zones,
+    ),
+    shared: {
+      ...state.shared,
+      court: [{ card, face: "up" as const, playedBy: player }],
+    },
+  };
+};
+
 describe("King's Hand reaction windows", () => {
   it("KH holder reacts to Inquisitor: both cards condemned, effect prevented", () => {
     // P0 hand (after setup): Inquisitor, + fillers
@@ -189,11 +236,10 @@ describe("King's Hand reaction windows", () => {
     expect(state.activePlayer).toBe(0);
   });
 
-  it("player without KH is prompted but can only pass (react greyed out)", () => {
+  it("hidden KH in the active player's hand still prompts the opponent with pass only", () => {
     // P0 hand: Inquisitor, King's Hand, + fillers (P0 holds KH, not P1)
     // P1 hand: Fool, + fillers (no KH)
-    // KH is in P0's hand → from P1's perspective it's hidden → window fires
-    // But P1 doesn't have KH → legalActions only allows pass
+    // Even though P0 knows where KH is, P1 does not, so the window must still open.
     let state = setupTwoPlayerGame(
       ["Elder", "Zealot", "Inquisitor", "King's Hand", "Soldier"],
       ["Elder", "Oathbound", "Fool", "Oathbound", "Soldier"],
@@ -213,25 +259,23 @@ describe("King's Hand reaction windows", () => {
     opts = state.pendingResolution!.currentOptions;
     state = chooseEffect(state, opts.findIndex((o) => o.kind === "cardName" && o.name === "Fool"));
 
-    // --- KH REACTION WINDOW for P1 ---
+    // The prompt must still appear for information hiding.
     expect(state.phase).toBe("resolving");
     expect(state.pendingResolution!.isReactionWindow).toBe(true);
     expect(state.pendingResolution!.choosingPlayer).toBe(1);
 
-    // currentOptions still shows [pass, proceed] for information hiding
     opts = state.pendingResolution!.currentOptions;
     expect(opts).toHaveLength(2);
+    expect(opts[0]!.kind).toBe("pass");
+    expect(opts[1]!.kind).toBe("proceed");
 
-    // But legalActions restricts to pass only (choice 0)
     const legal = legalActions(state);
     expect(legal).toHaveLength(1);
     expect(legal[0]!).toEqual({ kind: "effect_choice", choice: 0 });
 
-    // P1 passes (only legal option)
     state = chooseEffect(state, 0);
 
-    // Effect proceeds: Fool moved to P1's antechamber (or resolving continues)
-    // The forEachOpponent fires — P1 has Fool which matches "Fool"
+    // The effect proceeds directly and should still move Fool to P1's antechamber.
     if (state.phase === "resolving" && state.pendingResolution) {
       const cardOpts = state.pendingResolution.currentOptions;
       if (cardOpts.length > 0 && cardOpts[0]!.kind === "card") {
@@ -254,22 +298,13 @@ describe("King's Hand reaction windows", () => {
     expect(state.shared.court.some((e) => e.card.kind.name === "Inquisitor")).toBe(true);
   });
 
-  it("allKHPubliclyLocated: KH in court skips reaction window entirely", () => {
-    // Place KH into the court (publicly visible), P1 doesn't hold it
+  it("skips the KH reaction window only when all KH copies are publicly located", () => {
     let state = setupTwoPlayerGame(
-      ["Elder", "Zealot", "Inquisitor", "Soldier", "Soldier"],
+      ["Elder", "Zealot", "Inquisitor", "King's Hand", "Soldier"],
       ["Elder", "Oathbound", "Fool", "Oathbound", "Warden"],
     );
 
-    // Move KH to condemned so it's publicly accounted for
-    const kh = createDeck(regulationDeck(2)).find((c) => c.kind.name === "King's Hand")!;
-    state = {
-      ...state,
-      shared: {
-        ...state.shared,
-        condemned: [...state.shared.condemned, { card: kh, face: "down" as const, knownBy: [0, 1] as const }],
-      },
-    };
+    state = moveHandCardToPublicCondemned(state, 0 as PlayerId, "King's Hand");
 
     const inq = playerZones(state, 0).hand.find((c) => c.kind.name === "Inquisitor")!;
     state = apply(state, { kind: "play", cardId: inq.id });
@@ -284,6 +319,39 @@ describe("King's Hand reaction windows", () => {
 
     // NO reaction window — should go straight to forEachOpponent/card choice
     // (either done or card choice, NOT a pass/proceed reaction window)
+    if (state.phase === "resolving" && state.pendingResolution) {
+      expect(state.pendingResolution.isReactionWindow).toBe(false);
+    }
+  });
+
+  it("hidden Assassin in the active player's hand still prompts a king-flip reaction window", () => {
+    let state = setupTwoPlayerGame(
+      ["Elder", "Zealot", "Assassin", "Soldier", "Soldier"],
+      ["Elder", "Oathbound", "Inquisitor", "Fool", "Soldier"],
+    );
+
+    state = moveHandCardToCourt(state, 1 as PlayerId, "Inquisitor");
+    state = apply(state, { kind: "disgrace" });
+
+    expect(state.phase).toBe("resolving");
+    expect(state.pendingResolution!.isReactionWindow).toBe(true);
+    expect(state.pendingResolution!.choosingPlayer).toBe(1);
+
+    const legal = legalActions(state);
+    expect(legal).toHaveLength(1);
+    expect(legal[0]!).toEqual({ kind: "effect_choice", choice: 0 });
+  });
+
+  it("skips the Assassin king-flip prompt only when all Assassins are publicly located", () => {
+    let state = setupTwoPlayerGame(
+      ["Elder", "Zealot", "Assassin", "Soldier", "Soldier"],
+      ["Elder", "Oathbound", "Inquisitor", "Fool", "Soldier"],
+    );
+
+    state = moveHandCardToPublicCondemned(state, 0 as PlayerId, "Assassin");
+    state = moveHandCardToCourt(state, 1 as PlayerId, "Inquisitor");
+    state = apply(state, { kind: "disgrace" });
+
     if (state.phase === "resolving" && state.pendingResolution) {
       expect(state.pendingResolution.isReactionWindow).toBe(false);
     }
@@ -336,6 +404,56 @@ describe("King's Hand reaction windows", () => {
 
     // Reaction window complete, effect continues
     expect(state.pendingResolution?.isReactionWindow ?? false).toBe(false);
+  });
+
+  it("trace redacts hidden 3-player Assassin picks for non-choosers", () => {
+    let state = setupThreePlayerGame(
+      ["Elder", "Zealot", "Soldier", "Inquisitor", "Fool"],
+      ["Elder", "Oathbound", "Warden", "Mystic", "Spy"],
+      ["Executioner", "Bard", "Assassin", "Bard", "Herald"],
+    );
+
+    const throneCard = playerZones(state, 1).hand.find((card) => card.kind.name === "Warden")!;
+    state = {
+      ...state,
+      players: state.players.map((zones, idx) =>
+        idx === 1 ? { ...zones, hand: zones.hand.filter((card) => card.id !== throneCard.id) } : zones,
+      ),
+      shared: {
+        ...state.shared,
+        court: [{ card: throneCard, face: "up" as const, playedBy: 1 as PlayerId }],
+      },
+      activePlayer: 0 as PlayerId,
+      phase: "play" as const,
+    };
+
+    state = apply(state, { kind: "disgrace" });
+
+    expect(state.phase).toBe("resolving");
+    expect(state.pendingResolution?.isReactionWindow).toBe(true);
+    expect(state.pendingResolution?.choosingPlayer).toBe(1 as PlayerId);
+
+    state = chooseEffect(state, 0);
+
+    expect(state.phase).toBe("resolving");
+    expect(state.pendingResolution?.isReactionWindow).toBe(true);
+    expect(state.pendingResolution?.choosingPlayer).toBe(2 as PlayerId);
+
+    const proceedIdx = state.pendingResolution!.currentOptions.findIndex((option) => option.kind === "proceed");
+    state = chooseEffect(state, proceedIdx);
+
+    expect(state.phase).toBe("resolving");
+    expect(state.pendingResolution?.isReactionWindow).toBe(false);
+    expect(state.pendingResolution!.currentOptions.every((option) => option.kind === "card")).toBe(true);
+
+    const trace = traceResolution(state, true);
+    const hiddenPick = [...trace].reverse().find((entry) =>
+      entry.tag === "choice" && entry.privateToPlayer === (2 as PlayerId),
+    );
+
+    expect(hiddenPick?.description).toMatch(/^Player 2 chose /);
+    expect(hiddenPick?.redactedDescription).toBe("Player 2 chose a card.");
+    expect(hiddenPick?.description.includes("Player Player")).toBe(false);
   });
 
   it("immune_to_kings_hand: Oathbound's effect skips reaction window", () => {

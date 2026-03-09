@@ -141,6 +141,7 @@ const applyAntechamberPlayDirect = (
     activePlayer,
     numPlayers: state.numPlayers,
     playedFrom: "antechamber",
+    playedOnValue: throneValue(state),
   };
   const resolution = resolve(onPlayEffect.effect, moved.value, ctx);
 
@@ -153,6 +154,7 @@ const applyAntechamberPlayDirect = (
     moved.value,
     { kind: "antechamberPlay", cardId: card.id },
     activePlayer,
+    ctx,
   );
 };
 
@@ -165,15 +167,22 @@ const enterResolving = (
   stateBeforeEffect: IKState,
   source: PendingEffectSource,
   effectPlayer: number,
+  effectContext: EffectContext,
 ): IKState => {
   const pending: PendingResolution = {
     source,
     effectPlayer: effectPlayer,
+    effectContext: {
+      playedFrom: effectContext.playedFrom,
+      playedOnValue: effectContext.playedOnValue,
+      copiedName: effectContext.copiedName,
+    },
     choicesMade: [],
     currentOptions: resolution.options,
     choosingPlayer: resolution.player,
     stateBeforeEffect,
     isReactionWindow: resolution.isReactionWindow ?? false,
+    reactionWindowKind: resolution.reactionWindowKind,
   };
   return {
     ...resolution.state,
@@ -438,6 +447,7 @@ export const applyPlaySafe = (
     activePlayer,
     numPlayers: state.numPlayers,
     playedFrom: sourceSlot,
+    playedOnValue: throneValue(state),
   };
   const resolution = resolve(onPlayEffect.effect, moved.value, ctx);
 
@@ -455,7 +465,13 @@ export const applyPlaySafe = (
   }
 
   return ok(
-    enterResolving(resolution, moved.value, { kind: "cardPlay", cardId: card.id }, activePlayer),
+    enterResolving(
+      resolution,
+      moved.value,
+      { kind: "cardPlay", cardId: card.id },
+      activePlayer,
+      ctx,
+    ),
   );
 };
 
@@ -489,7 +505,9 @@ export const applyEffectChoiceSafe = (
     playedCard: contextEntry.card,
     activePlayer: pending.effectPlayer,
     numPlayers: state.numPlayers,
-    playedFrom: null,
+    playedFrom: pending.effectContext.playedFrom,
+    playedOnValue: pending.effectContext.playedOnValue,
+    copiedName: pending.effectContext.copiedName,
   };
 
   const nextChoices = [...pending.choicesMade, choice];
@@ -497,13 +515,17 @@ export const applyEffectChoiceSafe = (
 
   if (resolution.tag === "done") {
     if (resolution.state.khPrevented) {
-      return ok(refreshModifiers(flushAllParting({
+      const flushed = refreshModifiers(flushAllParting({
         ...resolution.state,
         phase: "play",
         activePlayer: pending.effectPlayer,
         pendingResolution: null,
         khPrevented: undefined,
-      })));
+      }));
+      if (pending.source.kind === "disgrace") {
+        return ok(endOfTurn(flushed, pending.stateBeforeEffect));
+      }
+      return ok(flushed);
     }
     return ok(endOfTurn(resolution.state, pending.stateBeforeEffect));
   }
@@ -514,6 +536,7 @@ export const applyEffectChoiceSafe = (
     currentOptions: resolution.options,
     choosingPlayer: resolution.player,
     isReactionWindow: resolution.isReactionWindow ?? false,
+    reactionWindowKind: resolution.reactionWindowKind,
   };
   return ok({
     ...resolution.state,
@@ -588,6 +611,7 @@ export const applyDisgraceSafe = (
       state,
       { kind: "disgrace", throneCardId: top.card.id },
       activePlayer,
+      ctx,
     ),
   );
 };

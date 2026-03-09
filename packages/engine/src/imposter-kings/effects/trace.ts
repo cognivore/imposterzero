@@ -22,6 +22,8 @@ export interface TraceEntry {
   readonly depth: number;
   readonly tag: EffectProgram["tag"] | "choice";
   readonly description: string;
+  readonly redactedDescription?: string;
+  readonly privateToPlayer?: PlayerId;
 }
 
 export type TraceSink = (entry: TraceEntry) => void;
@@ -243,6 +245,54 @@ export const describeChoice = (
   }
 };
 
+const isCardPubliclyKnown = (
+  state: IKState,
+  cardId: number,
+): boolean => {
+  for (const entry of state.shared.court) {
+    if (entry.card.id === cardId) return entry.face === "up";
+  }
+
+  for (const [player, zones] of state.players.entries()) {
+    if (zones.hand.some((card) => card.id === cardId)) return false;
+    if (zones.king.card.id === cardId) return true;
+    if (zones.successor?.card.id === cardId) {
+      return state.revealedSuccessors.includes(player as PlayerId);
+    }
+    if (zones.dungeon?.card.id === cardId) return false;
+    if (zones.squire?.card.id === cardId) return false;
+    if (zones.antechamber.some((card) => card.id === cardId)) return true;
+    if (zones.parting.some((card) => card.id === cardId)) return true;
+    if (zones.army.some((card) => card.id === cardId)) return false;
+    if (zones.exhausted.some((card) => card.id === cardId)) return true;
+    if (zones.recruitDiscard.some((card) => card.id === cardId)) return true;
+  }
+
+  if (state.shared.accused?.id === cardId) return true;
+  if (state.shared.forgotten?.card.id === cardId) return false;
+
+  const condemned = state.shared.condemned.find((entry) => entry.card.id === cardId);
+  if (condemned) return condemned.knownBy.length === state.numPlayers;
+
+  return false;
+};
+
+export const describeChoiceTrace = (
+  option: ChoiceOption,
+  state: IKState,
+  player: PlayerId,
+): Pick<TraceEntry, "description" | "redactedDescription" | "privateToPlayer"> => {
+  const description = describeChoice(option, state, player);
+  if (option.kind === "card" && !isCardPubliclyKnown(state, option.cardId)) {
+    return {
+      description,
+      redactedDescription: `Player ${player} chose a card.`,
+      privateToPlayer: player,
+    };
+  }
+  return { description };
+};
+
 // ---------------------------------------------------------------------------
 // The type class — one description function per EffectProgram tag
 // ---------------------------------------------------------------------------
@@ -358,7 +408,7 @@ export const describeStep: DescribeStep = {
     `Player ${ctx.activePlayer} copies a card's effects from ${describeZoneRef(node.zone, ctx)}.`,
 
   assassinate3p: (node, ctx) =>
-    `Player ${describePlayerRef(node.assassin, ctx)} assassinates Player ${describePlayerRef(node.victim, ctx)}.`,
+    `${describePlayerRef(node.assassin, ctx)} assassinates ${describePlayerRef(node.victim, ctx)}.`,
 };
 
 // ---------------------------------------------------------------------------

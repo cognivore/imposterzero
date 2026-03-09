@@ -2,6 +2,7 @@ import type { PlayerId } from "@imposter-zero/types";
 
 import type { IKState } from "../state.js";
 import { playerZones, throne } from "../state.js";
+import { effectiveValue } from "./modifiers.js";
 import type { EffectContext, PlayerRef } from "./program.js";
 
 // ---------------------------------------------------------------------------
@@ -69,11 +70,14 @@ export const evaluate = (
     }
     case "playedOnHigherValue": {
       if (ctx.playedFrom === "antechamber") return false;
+      if (ctx.playedOnValue !== undefined) {
+        return ctx.playedOnValue > effectiveValue(state, ctx.playedCard);
+      }
       const court = state.shared.court;
       const idx = court.findIndex((e) => e.card.id === ctx.playedCard.id);
       if (idx <= 0) return false;
       const below = court[idx - 1]!;
-      return below.face === "up" && below.card.kind.props.value > ctx.playedCard.kind.props.value;
+      return below.face === "up" && effectiveValue(state, below.card) > effectiveValue(state, ctx.playedCard);
     }
     case "cardIsOnThrone": {
       const top = throne(state);

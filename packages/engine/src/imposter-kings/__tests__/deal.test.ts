@@ -139,10 +139,10 @@ describe("deal", () => {
       expect(state.shared.forgotten).not.toBeNull();
     });
 
-    it("reserves accused + forgotten for 3 players", () => {
+    it("reserves only accused for 3 players (no forgotten)", () => {
       const state = deal(regulationDeck(3), 3, seededRandom(1));
       expect(state.shared.accused).not.toBeNull();
-      expect(state.shared.forgotten).not.toBeNull();
+      expect(state.shared.forgotten).toBeNull();
     });
 
     it("reserves only accused for 4 players (no forgotten)", () => {
@@ -159,6 +159,13 @@ describe("deal", () => {
       const deckSize = kinds.length;
       const kingCount = n;
       expect(totalCards(state)).toBe(deckSize + kingCount);
+    });
+  });
+
+  describe("3-player dealing", () => {
+    it("deals 8 cards to each player", () => {
+      const state = deal(regulationDeck(3), 3, seededRandom(1));
+      expect(state.players.every((player) => player.hand.length === 8)).toBe(true);
     });
   });
 

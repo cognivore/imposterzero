@@ -25,6 +25,12 @@ const makeArmies = (): ReadonlyArray<PlayerArmy> => [
   { available: BASE_ARMY_KINDS.slice(0, 3), exhausted: [] },
 ];
 
+const makeThreePlayerArmies = (): ReadonlyArray<PlayerArmy> => [
+  { available: BASE_ARMY_KINDS.slice(0, 3), exhausted: [] },
+  { available: BASE_ARMY_KINDS.slice(0, 3), exhausted: [] },
+  { available: BASE_ARMY_KINDS.slice(0, 3), exhausted: [] },
+];
+
 describe("Mustering Phase", () => {
   it("crown transitions to mustering when players have army cards", () => {
     const armies = makeArmies();
@@ -71,6 +77,27 @@ describe("Mustering Phase", () => {
 
     s = apply(s, { kind: "end_mustering" });
     expect(s.phase).toBe("setup");
+  });
+
+  it("3-player mustering proceeds in reverse play order", () => {
+    const armies = makeThreePlayerArmies();
+    const state = createExpansionRound(REGULATION_2P_EXPANSION, armies, 0, seededRng(42));
+
+    let s = apply(state, { kind: "crown", firstPlayer: 1 });
+    expect(s.phase).toBe("mustering");
+    expect(s.activePlayer).toBe(0);
+
+    s = apply(s, { kind: "end_mustering" });
+    expect(s.phase).toBe("mustering");
+    expect(s.activePlayer).toBe(2);
+
+    s = apply(s, { kind: "end_mustering" });
+    expect(s.phase).toBe("mustering");
+    expect(s.activePlayer).toBe(1);
+
+    s = apply(s, { kind: "end_mustering" });
+    expect(s.phase).toBe("setup");
+    expect(s.activePlayer).toBe(1);
   });
 
   it("offers optional king selection during mustering", () => {

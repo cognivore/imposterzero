@@ -152,7 +152,7 @@ describe("play phase", () => {
       const { state } = found!;
       const player = state.activePlayer;
       expect(isKingFaceUp(state, player)).toBe(true);
-      const next = apply(state, { kind: "disgrace" });
+      const next = resolveEffects(apply(state, { kind: "disgrace" }));
       expect(isKingFaceUp(next, player)).toBe(false);
     });
 
@@ -163,7 +163,7 @@ describe("play phase", () => {
       const top = throne(state);
       expect(top).not.toBeNull();
       expect(top!.face).toBe("up");
-      const next = apply(state, { kind: "disgrace" });
+      const next = resolveEffects(apply(state, { kind: "disgrace" }));
       const newTop = throne(next);
       expect(newTop!.face).toBe("down");
     });
@@ -172,7 +172,7 @@ describe("play phase", () => {
       const found = findDisgraceState();
       expect(found).not.toBeNull();
       const { state } = found!;
-      const next = apply(state, { kind: "disgrace" });
+      const next = resolveEffects(apply(state, { kind: "disgrace" }));
       expect(next.activePlayer).not.toBe(state.activePlayer);
     });
 
@@ -183,7 +183,7 @@ describe("play phase", () => {
       const zones = playerZones(state, state.activePlayer);
       const hasSuccessor = zones.successor !== null;
       const handBefore = zones.hand.length;
-      const next = apply(state, { kind: "disgrace" });
+      const next = resolveEffects(apply(state, { kind: "disgrace" }));
       const nextZones = playerZones(next, state.activePlayer);
       expect(nextZones.successor).toBeNull();
       expect(nextZones.hand.length).toBe(handBefore + (hasSuccessor ? 1 : 0));

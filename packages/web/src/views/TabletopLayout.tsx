@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, type Dispatch, type SetStateAction, type ReactNode } from "react";
 import type { PlayerId } from "@imposter-zero/types";
 import type {
   IKPlayAction,
@@ -66,6 +66,40 @@ const PLAYER_COLORS = [
   "var(--player-2)",
   "var(--player-3)",
 ];
+
+const kingFacetTitle = (facet: IKPlayerZones["king"]["facet"]): string | null => {
+  switch (facet) {
+    case "charismatic":
+      return "Charismatic";
+    case "masterTactician":
+      return "Tactician";
+    default:
+      return null;
+  }
+};
+
+const StackedZone: React.FC<{
+  readonly label: string;
+  readonly base: ReactNode;
+  readonly overlay?: ReactNode | undefined;
+  readonly overlayLabel?: string | undefined;
+  readonly className?: string | undefined;
+}> = ({ label, base, overlay, overlayLabel, className = "" }) => (
+  <div className={`player-zone-slot ${className}`.trim()}>
+    <div className="tt-zone-stack">
+      <div className="tt-zone-stack__base">{base}</div>
+      {overlay !== undefined && overlay !== null && (
+        <div className="tt-zone-stack__overlay">
+          {overlay}
+          {overlayLabel && (
+            <span className="tt-zone-stack__overlay-badge">{overlayLabel}</span>
+          )}
+        </div>
+      )}
+    </div>
+    <span className="zone-label">{label}</span>
+  </div>
+);
 
 const hasGameState = (
   phase: InGamePhase,
@@ -475,18 +509,33 @@ const CrownContent: React.FC<{
   );
 };
 
+interface MusteringSelection {
+  readonly selectedHandCard: number | null;
+  readonly selectedArmyCard: number | null;
+  readonly recommExhaust1: number | null;
+  readonly recommExhaust2: number | null;
+  readonly recommRecover: number | null;
+}
+
+const EMPTY_MUSTERING_SELECTION: MusteringSelection = {
+  selectedHandCard: null,
+  selectedArmyCard: null,
+  recommExhaust1: null,
+  recommExhaust2: null,
+  recommRecover: null,
+};
+
 const MusteringContent: React.FC<{
   readonly phase: Extract<InGamePhase, { readonly _tag: "mustering" }>;
   readonly send: (msg: IKClientMessage) => void;
-}> = ({ phase, send }) => {
+  readonly selection: MusteringSelection;
+  readonly setSelection: Dispatch<SetStateAction<MusteringSelection>>;
+}> = ({ phase, send, selection, setSelection }) => {
   const { gameState, legalActions, activePlayer, myIndex, playerNames } = phase;
   const isMyTurn = activePlayer === myIndex;
-  const myZones = gameState.players[myIndex]!;
   const hasBegunRecruiting = gameState.hasExhaustedThisMustering;
 
-  const canBeginRecruit = legalActions.some((a) => a.kind === "begin_recruit");
   const canRecruit = legalActions.some((a) => a.kind === "recruit");
-  const canRecommission = legalActions.some((a) => a.kind === "recommission");
   const canSelectCharismatic = legalActions.some(
     (a) => a.kind === "select_king" && a.facet === "charismatic",
   );
@@ -494,15 +543,13 @@ const MusteringContent: React.FC<{
     (a) => a.kind === "select_king" && a.facet === "masterTactician",
   );
 
-  const [selectedHandCard, setSelectedHandCard] = useState<number | null>(null);
-  const [selectedArmyCard, setSelectedArmyCard] = useState<number | null>(null);
-  const [recommExhaust1, setRecommExhaust1] = useState<number | null>(null);
-  const [recommExhaust2, setRecommExhaust2] = useState<number | null>(null);
-  const [recommRecover, setRecommRecover] = useState<number | null>(null);
-
-  const handleBeginRecruit = useCallback((exhaustCardId: number) => {
-    send({ type: "action", action: { kind: "begin_recruit", exhaustCardId } });
-  }, [send]);
+  const {
+    selectedHandCard,
+    selectedArmyCard,
+    recommExhaust1,
+    recommExhaust2,
+    recommRecover,
+  } = selection;
 
   const handleRecruit = useCallback(() => {
     if (selectedHandCard === null || selectedArmyCard === null) return;
@@ -514,9 +561,12 @@ const MusteringContent: React.FC<{
     );
     if (!action) return;
     send({ type: "action", action });
-    setSelectedHandCard(null);
-    setSelectedArmyCard(null);
-  }, [selectedHandCard, selectedArmyCard, legalActions, send]);
+    setSelection((prev) => ({
+      ...prev,
+      selectedHandCard: null,
+      selectedArmyCard: null,
+    }));
+  }, [selectedHandCard, selectedArmyCard, legalActions, send, setSelection]);
 
   const handleRecommission = useCallback(() => {
     if (recommExhaust1 === null || recommExhaust2 === null || recommRecover === null) return;
@@ -529,10 +579,13 @@ const MusteringContent: React.FC<{
     );
     if (!action) return;
     send({ type: "action", action });
-    setRecommExhaust1(null);
-    setRecommExhaust2(null);
-    setRecommRecover(null);
-  }, [recommExhaust1, recommExhaust2, recommRecover, legalActions, send]);
+    setSelection((prev) => ({
+      ...prev,
+      recommExhaust1: null,
+      recommExhaust2: null,
+      recommRecover: null,
+    }));
+  }, [recommExhaust1, recommExhaust2, recommRecover, legalActions, send, setSelection]);
 
   const handleEndMustering = useCallback(() => {
     send({ type: "action", action: { kind: "end_mustering" } });
@@ -614,7 +667,9 @@ const MusteringContent: React.FC<{
 const MusteringSecondary: React.FC<{
   readonly phase: Extract<InGamePhase, { readonly _tag: "mustering" }>;
   readonly send: (msg: IKClientMessage) => void;
-}> = ({ phase, send }) => {
+  readonly selection: MusteringSelection;
+  readonly setSelection: Dispatch<SetStateAction<MusteringSelection>>;
+}> = ({ phase, send, selection, setSelection }) => {
   const { gameState, legalActions, activePlayer, myIndex } = phase;
   const isMyTurn = activePlayer === myIndex;
   const myZones = gameState.players[myIndex]!;
@@ -624,18 +679,143 @@ const MusteringSecondary: React.FC<{
   const canRecruit = legalActions.some((a) => a.kind === "recruit");
   const canRecommission = legalActions.some((a) => a.kind === "recommission");
 
+  const toggleRecommissionArmy = useCallback((cardId: number) => {
+    setSelection((prev) => {
+      if (prev.recommExhaust1 === cardId) {
+        return {
+          ...prev,
+          selectedHandCard: null,
+          selectedArmyCard: null,
+          recommExhaust1: prev.recommExhaust2,
+          recommExhaust2: null,
+        };
+      }
+      if (prev.recommExhaust2 === cardId) {
+        return {
+          ...prev,
+          selectedHandCard: null,
+          selectedArmyCard: null,
+          recommExhaust2: null,
+        };
+      }
+      if (prev.recommExhaust1 === null) {
+        return {
+          ...prev,
+          selectedHandCard: null,
+          selectedArmyCard: null,
+          recommExhaust1: cardId,
+        };
+      }
+      if (prev.recommExhaust2 === null) {
+        return {
+          ...prev,
+          selectedHandCard: null,
+          selectedArmyCard: null,
+          recommExhaust2: cardId,
+        };
+      }
+      return {
+        ...prev,
+        selectedHandCard: null,
+        selectedArmyCard: null,
+        recommExhaust1: cardId,
+        recommExhaust2: null,
+      };
+    });
+  }, [setSelection]);
+
+  const handleArmyClick = useCallback((cardId: number) => {
+    if (!isMyTurn) return;
+
+    if (canBeginRecruit && !hasBegunRecruiting) {
+      send({ type: "action", action: { kind: "begin_recruit", exhaustCardId: cardId } });
+      return;
+    }
+
+    if (
+      selection.recommRecover !== null ||
+      selection.recommExhaust1 !== null ||
+      selection.recommExhaust2 !== null
+    ) {
+      if (!canRecommission) return;
+      toggleRecommissionArmy(cardId);
+      return;
+    }
+
+    if (canRecruit) {
+      setSelection((prev) => ({
+        ...prev,
+        recommExhaust1: null,
+        recommExhaust2: null,
+        recommRecover: null,
+        selectedArmyCard: prev.selectedArmyCard === cardId ? null : cardId,
+      }));
+      return;
+    }
+
+    if (canRecommission) {
+      toggleRecommissionArmy(cardId);
+    }
+  }, [
+    canBeginRecruit,
+    canRecruit,
+    canRecommission,
+    hasBegunRecruiting,
+    isMyTurn,
+    selection.recommExhaust1,
+    selection.recommExhaust2,
+    selection.recommRecover,
+    send,
+    setSelection,
+    toggleRecommissionArmy,
+  ]);
+
+  const interactive = isMyTurn && (canBeginRecruit || canRecruit || canRecommission);
+
   return (
     <div>
       <span className="zone-label">Your Army ({armyCards.length})</span>
       <div className="mustering-cards">
-        {armyCards.map((card) => (
-          <div key={card.id} className="mustering-card-slot">
-            <Card visual={toCardVisual(card)} orientation="front" size="small" previewSource="hand" />
-            {canBeginRecruit && !hasBegunRecruiting && isMyTurn && (
-              <div className="card-action-hint">Exhaust to recruit</div>
-            )}
-          </div>
-        ))}
+        {armyCards.map((card) => {
+          const selectedClass =
+            selection.selectedArmyCard === card.id
+              ? "selected-recruit"
+              : selection.recommExhaust1 === card.id || selection.recommExhaust2 === card.id
+                ? "selected-recomm"
+                : "";
+          return (
+            <div
+              key={card.id}
+              className={`mustering-card-slot ${selectedClass} ${interactive ? "mustering-card-slot--active" : "mustering-card-slot--readonly"}`.trim()}
+              onClick={interactive ? () => handleArmyClick(card.id) : undefined}
+              role={interactive ? "button" : undefined}
+              tabIndex={interactive ? 0 : undefined}
+              onKeyDown={interactive ? (e) => {
+                if (e.key === "Enter" || e.key === " ") handleArmyClick(card.id);
+              } : undefined}
+            >
+              <Card
+                visual={toCardVisual(card)}
+                orientation="front"
+                size="small"
+                previewSource="hand"
+                interactive={interactive}
+                selected={selectedClass !== ""}
+              />
+              {canBeginRecruit && !hasBegunRecruiting && isMyTurn && (
+                <button
+                  className="card-action-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleArmyClick(card.id);
+                  }}
+                >
+                  Exhaust
+                </button>
+              )}
+            </div>
+          );
+        })}
         {armyCards.length === 0 && <div className="empty-zone">No cards</div>}
       </div>
     </div>
@@ -644,22 +824,51 @@ const MusteringSecondary: React.FC<{
 
 const MusteringTertiary: React.FC<{
   readonly phase: Extract<InGamePhase, { readonly _tag: "mustering" }>;
-}> = ({ phase }) => {
-  const { gameState, myIndex } = phase;
+  readonly selection: MusteringSelection;
+  readonly setSelection: Dispatch<SetStateAction<MusteringSelection>>;
+}> = ({ phase, selection, setSelection }) => {
+  const { gameState, myIndex, activePlayer, legalActions } = phase;
   const myZones = gameState.players[myIndex]!;
   const exhaustedCards = myZones.exhausted;
+  const isMyTurn = activePlayer === myIndex;
+  const canRecommission = legalActions.some((a) => a.kind === "recommission");
 
   if (exhaustedCards.length === 0) return null;
+
+  const interactive = isMyTurn && canRecommission;
 
   return (
     <div>
       <span className="zone-label">Exhausted ({exhaustedCards.length})</span>
       <div className="mustering-cards">
-        {exhaustedCards.map((card) => (
-          <div key={card.id} className="mustering-card-slot mustering-card-slot--readonly">
-            <Card visual={toCardVisual(card)} orientation="front" size="small" previewSource="hand" />
-          </div>
-        ))}
+        {exhaustedCards.map((card) => {
+          const selected = selection.recommRecover === card.id;
+          return (
+            <div
+              key={card.id}
+              className={`mustering-card-slot ${selected ? "selected-recover" : ""} ${interactive ? "mustering-card-slot--active" : "mustering-card-slot--readonly"}`.trim()}
+              onClick={interactive ? () => {
+                setSelection((prev) => ({
+                  ...prev,
+                  selectedHandCard: null,
+                  selectedArmyCard: null,
+                  recommRecover: prev.recommRecover === card.id ? null : card.id,
+                }));
+              } : undefined}
+              role={interactive ? "button" : undefined}
+              tabIndex={interactive ? 0 : undefined}
+            >
+              <Card
+                visual={toCardVisual(card)}
+                orientation="front"
+                size="small"
+                previewSource="hand"
+                interactive={interactive}
+                selected={selected}
+              />
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1040,14 +1249,23 @@ const PrimaryDialog: React.FC<{
   readonly phase: InGamePhase;
   readonly send: (msg: IKClientMessage) => void;
   readonly setupSelection: SetupSelection;
-}> = ({ phase, send, setupSelection }) => {
+  readonly musteringSelection: MusteringSelection;
+  readonly setMusteringSelection: Dispatch<SetStateAction<MusteringSelection>>;
+}> = ({ phase, send, setupSelection, musteringSelection, setMusteringSelection }) => {
   switch (phase._tag) {
     case "drafting":
       return <DraftContent phase={phase} send={send} />;
     case "crown":
       return <CrownContent phase={phase} send={send} />;
     case "mustering":
-      return <MusteringContent phase={phase} send={send} />;
+      return (
+        <MusteringContent
+          phase={phase}
+          send={send}
+          selection={musteringSelection}
+          setSelection={setMusteringSelection}
+        />
+      );
     case "setup":
       return <SetupContent phase={phase} setupSelection={setupSelection} />;
     case "play":
@@ -1068,10 +1286,19 @@ const PrimaryDialog: React.FC<{
 const SecondaryDialog: React.FC<{
   readonly phase: InGamePhase;
   readonly send: (msg: IKClientMessage) => void;
-}> = ({ phase, send }) => {
+  readonly musteringSelection: MusteringSelection;
+  readonly setMusteringSelection: Dispatch<SetStateAction<MusteringSelection>>;
+}> = ({ phase, send, musteringSelection, setMusteringSelection }) => {
   switch (phase._tag) {
     case "mustering":
-      return <MusteringSecondary phase={phase} send={send} />;
+      return (
+        <MusteringSecondary
+          phase={phase}
+          send={send}
+          selection={musteringSelection}
+          setSelection={setMusteringSelection}
+        />
+      );
     case "scoring":
       return <ScoringSecondary phase={phase} />;
     default:
@@ -1083,10 +1310,20 @@ const SecondaryDialog: React.FC<{
 // TertiaryDialog
 // ---------------------------------------------------------------------------
 
-const TertiaryDialog: React.FC<{ readonly phase: InGamePhase }> = ({ phase }) => {
+const TertiaryDialog: React.FC<{
+  readonly phase: InGamePhase;
+  readonly musteringSelection: MusteringSelection;
+  readonly setMusteringSelection: Dispatch<SetStateAction<MusteringSelection>>;
+}> = ({ phase, musteringSelection, setMusteringSelection }) => {
   switch (phase._tag) {
     case "mustering":
-      return <MusteringTertiary phase={phase} />;
+      return (
+        <MusteringTertiary
+          phase={phase}
+          selection={musteringSelection}
+          setSelection={setMusteringSelection}
+        />
+      );
     case "scoring":
       return <ScoringTertiary phase={phase} />;
     default:
@@ -1139,96 +1376,104 @@ const SingleOpponent: React.FC<{
   readonly name: string;
   readonly isActive: boolean;
   readonly handHelperCards: readonly string[] | null;
-}> = ({ opIdx, zones, name, isActive, handHelperCards }) => (
-  <div
-    className={`opponent-panel ${isActive ? "opponent-panel--active" : ""}`}
-    aria-label={`${name}'s zones`}
-  >
-    <div className="opponent-panel__name">
-      {name}
-      {isActive && <span className="opponent-panel__acting"> (acting)</span>}
-    </div>
+}> = ({ opIdx, zones, name, isActive, handHelperCards }) => {
+  const facet = kingFacetTitle(zones.king.facet);
 
-    {(zones.parting.length > 0 || zones.antechamber.length > 0) && (
-      <div className="tt-opponent-ante-parting">
-        {zones.parting.length > 0 && (
-          <div className="tt-opponent-subzone">
-            <span className="zone-label">Parting</span>
-            <div className="tt-card-row">
-              {zones.parting.map((c) => (
-                <Card key={c.id} visual={toCardVisual(c)} orientation="front" size="small" previewSource="opponent" />
-              ))}
-            </div>
-          </div>
-        )}
-        {zones.antechamber.length > 0 && (
-          <div className="tt-opponent-subzone">
-            <span className="zone-label">Antechamber</span>
-            <div className="tt-card-row">
-              {zones.antechamber.map((c) => (
-                <Card key={c.id} visual={toCardVisual(c)} orientation="front" size="small" previewSource="opponent" />
-              ))}
-            </div>
-          </div>
-        )}
+  return (
+    <div
+      className={`opponent-panel ${isActive ? "opponent-panel--active" : ""}`}
+      aria-label={`${name}'s zones`}
+    >
+      <div className="opponent-panel__header">
+        <div className="opponent-panel__name">
+          {name}
+          {isActive && <span className="opponent-panel__acting"> (acting)</span>}
+        </div>
+        {facet && <span className="tt-facet-badge">{facet}</span>}
       </div>
-    )}
 
-    <div className="opponent-panel__zones">
-      <div className="opponent-panel__zone">
-        <span className="zone-label">K</span>
-        <Card
-          visual={toCardVisual(zones.king.card)}
-          orientation={zones.king.face === "up" ? "front" : "back"}
-          size="small"
-          previewSource="opponent"
-        />
-      </div>
-      <div className="opponent-panel__zone">
-        <span className="zone-label">S</span>
-        {zones.successor !== null ? (
-          <Card visual={ANONYMOUS_CARD} orientation="back" size="small" />
-        ) : (
-          <div className="player-zone-slot__placeholder" />
-        )}
-      </div>
-      {zones.squire !== null && (
-        <div className="opponent-panel__zone">
-          <span className="zone-label">Sq</span>
-          <Card visual={ANONYMOUS_CARD} orientation="back" size="small" />
+      {(zones.parting.length > 0 || zones.antechamber.length > 0) && (
+        <div className="tt-opponent-ante-parting">
+          {zones.parting.length > 0 && (
+            <div className="tt-opponent-subzone">
+              <span className="zone-label">Parting</span>
+              <div className="tt-card-row">
+                {zones.parting.map((c) => (
+                  <Card key={c.id} visual={toCardVisual(c)} orientation="front" size="small" previewSource="opponent" />
+                ))}
+              </div>
+            </div>
+          )}
+          {zones.antechamber.length > 0 && (
+            <div className="tt-opponent-subzone">
+              <span className="zone-label">Antechamber</span>
+              <div className="tt-card-row">
+                {zones.antechamber.map((c) => (
+                  <Card key={c.id} visual={toCardVisual(c)} orientation="front" size="small" previewSource="opponent" />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
-      <div className="opponent-panel__zone">
-        <span className="zone-label">D</span>
-        {zones.dungeon !== null ? (
-          <Card visual={ANONYMOUS_CARD} orientation="back" size="small" />
+
+      <div className="opponent-panel__zones">
+        <div className="opponent-panel__zone">
+          <span className="zone-label">K</span>
+          <Card
+            visual={toCardVisual(zones.king.card)}
+            orientation={zones.king.face === "up" ? "front" : "back"}
+            size="small"
+            previewSource="opponent"
+          />
+        </div>
+        <div className="opponent-panel__zone">
+          <span className="zone-label">S</span>
+          {zones.successor !== null ? (
+            <Card visual={ANONYMOUS_CARD} orientation="back" size="small" />
+          ) : (
+            <div className="player-zone-slot__placeholder" />
+          )}
+        </div>
+        <StackedZone
+          label="D"
+          className="opponent-panel__zone"
+          base={
+            zones.dungeon !== null
+              ? <Card visual={ANONYMOUS_CARD} orientation="back" size="small" />
+              : <div className="player-zone-slot__placeholder" />
+          }
+          overlay={
+            zones.squire !== null
+              ? <Card visual={ANONYMOUS_CARD} orientation="back" size="small" />
+              : undefined
+          }
+          overlayLabel={zones.squire !== null ? "Sq" : undefined}
+        />
+      </div>
+
+      <div className="opponent-panel__hand">
+        {handHelperCards == null ? (
+          <>
+            <Card visual={ANONYMOUS_CARD} orientation="back" size="small" />
+            {zones.hand.length > 0 && (
+              <span className="opponent-panel__hand-count">{zones.hand.length}</span>
+            )}
+          </>
         ) : (
-          <div className="player-zone-slot__placeholder" />
+          <HandHelperInline count={zones.hand.length} possibleCards={handHelperCards} />
         )}
       </div>
-    </div>
 
-    <div className="opponent-panel__hand">
-      {handHelperCards == null ? (
-        <>
-          <Card visual={ANONYMOUS_CARD} orientation="back" size="small" />
-          {zones.hand.length > 0 && (
-            <span className="opponent-panel__hand-count">{zones.hand.length}</span>
-          )}
-        </>
-      ) : (
-        <HandHelperInline count={zones.hand.length} possibleCards={handHelperCards} />
+      {(zones.army.length > 0 || zones.exhausted.length > 0) && (
+        <div className="tt-opponent-counts">
+          <span className="army-count-badge">Army: {zones.army.length}</span>
+          <span className="army-count-badge">Exh: {zones.exhausted.length}</span>
+        </div>
       )}
     </div>
-
-    {(zones.army.length > 0 || zones.exhausted.length > 0) && (
-      <div className="tt-opponent-counts">
-        <span className="army-count-badge">Army: {zones.army.length}</span>
-        <span className="army-count-badge">Exh: {zones.exhausted.length}</span>
-      </div>
-    )}
-  </div>
-);
+  );
+};
 
 const OpponentZones: React.FC<{
   readonly phase: InGamePhase;
@@ -1332,10 +1577,14 @@ const HeroZones: React.FC<{
 
   const pendingSuccessor = setupSelection.successorVisual;
   const pendingDungeon = setupSelection.dungeonVisual;
+  const facet = kingFacetTitle(myZones.king.facet);
 
   return (
     <div className="tt-hero-zones">
-      <span className="zone-label">Your Zones</span>
+      <div className="tt-hero-zones__header">
+        <span className="zone-label">Your Zones</span>
+        {facet && <span className="tt-facet-badge">{facet}</span>}
+      </div>
       <div className="player-zones">
         <div className="player-zone-slot">
           <Card
@@ -1365,52 +1614,45 @@ const HeroZones: React.FC<{
           )}
           <span className="zone-label">Successor</span>
         </div>
-
-        {myZones.squire !== null && (
-          <div className="player-zone-slot">
-            <Card
-              visual={toCardVisual(myZones.squire.card)}
-              orientation="back"
-              size="small"
-              previewSource="hand"
-              forcePreview
-            />
-            <span className="zone-label">Squire</span>
-          </div>
-        )}
-
-        <div className="player-zone-slot">
-          {myZones.dungeon !== null ? (
-            <Card
-              visual={toCardVisual(myZones.dungeon.card)}
-              orientation="back"
-              size="small"
-              previewSource="hand"
-              forcePreview
-            />
-          ) : pendingDungeon ? (
-            <div className="player-zone-slot__pending player-zone-slot__pending--dungeon">
-              <Card visual={pendingDungeon} orientation="front" size="small" previewSource="hand" />
-            </div>
-          ) : (
-            <div className={`player-zone-slot__placeholder ${phase._tag === "setup" ? "player-zone-slot__placeholder--awaiting player-zone-slot__placeholder--dungeon" : ""}`} />
-          )}
-          <span className="zone-label">Dungeon</span>
-        </div>
-
-        {(myZones.army.length > 0 || myZones.exhausted.length > 0) && (
-          <>
-            <div className="player-zone-slot">
-              <div className="army-count-badge">Army: {myZones.army.length}</div>
-              <span className="zone-label">Army</span>
-            </div>
-            <div className="player-zone-slot">
-              <div className="army-count-badge">Exh: {myZones.exhausted.length}</div>
-              <span className="zone-label">Exhausted</span>
-            </div>
-          </>
-        )}
+        <StackedZone
+          label="Dungeon"
+          base={
+            myZones.dungeon !== null ? (
+              <Card
+                visual={toCardVisual(myZones.dungeon.card)}
+                orientation="back"
+                size="small"
+                previewSource="hand"
+                forcePreview
+              />
+            ) : pendingDungeon ? (
+              <div className="player-zone-slot__pending player-zone-slot__pending--dungeon">
+                <Card visual={pendingDungeon} orientation="front" size="small" previewSource="hand" />
+              </div>
+            ) : (
+              <div className={`player-zone-slot__placeholder ${phase._tag === "setup" ? "player-zone-slot__placeholder--awaiting player-zone-slot__placeholder--dungeon" : ""}`} />
+            )
+          }
+          overlay={
+            myZones.squire !== null ? (
+              <Card
+                visual={toCardVisual(myZones.squire.card)}
+                orientation="back"
+                size="small"
+                previewSource="hand"
+                forcePreview
+              />
+            ) : undefined
+          }
+          overlayLabel={myZones.squire !== null ? "Sq" : undefined}
+        />
       </div>
+      {(myZones.army.length > 0 || myZones.exhausted.length > 0) && (
+        <div className="tt-player-counts">
+          <span className="army-count-badge">Army: {myZones.army.length}</span>
+          <span className="army-count-badge">Exh: {myZones.exhausted.length}</span>
+        </div>
+      )}
     </div>
   );
 };
@@ -1439,7 +1681,17 @@ const HeroHand: React.FC<{
   readonly setupSelection: SetupSelection;
   readonly onSetupCardClick: (cardId: number) => void;
   readonly onCommitSetup: (() => void) | undefined;
-}> = ({ phase, send, setupSelection, onSetupCardClick, onCommitSetup }) => {
+  readonly musteringSelection: MusteringSelection;
+  readonly setMusteringSelection: Dispatch<SetStateAction<MusteringSelection>>;
+}> = ({
+  phase,
+  send,
+  setupSelection,
+  onSetupCardClick,
+  onCommitSetup,
+  musteringSelection,
+  setMusteringSelection,
+}) => {
   const mi = safeMyIndex(phase);
   const gameState = hasGameState(phase) ? phase.gameState : null;
   const myZones = gameState?.players[mi];
@@ -1529,6 +1781,9 @@ const HeroHand: React.FC<{
           }
 
           if (isMusteringHand) {
+            const musteringPhase = phase;
+            const canSelect = musteringPhase.activePlayer === mi;
+            const isSelected = musteringSelection.selectedHandCard === card.id;
             return (
               <animated.div
                 key={card.id}
@@ -1540,7 +1795,26 @@ const HeroHand: React.FC<{
                   ),
                 }}
               >
-                <Card visual={visual} orientation="front" previewSource="hand" />
+                <Card
+                  visual={visual}
+                  orientation="front"
+                  previewSource="hand"
+                  interactive={canSelect}
+                  selected={isSelected}
+                  {...(canSelect
+                    ? {
+                        onClick: () => {
+                          setMusteringSelection((prev) => ({
+                            ...prev,
+                            recommExhaust1: null,
+                            recommExhaust2: null,
+                            recommRecover: null,
+                            selectedHandCard: prev.selectedHandCard === card.id ? null : card.id,
+                          }));
+                        },
+                      }
+                    : {})}
+                />
               </animated.div>
             );
           }
@@ -1667,14 +1941,30 @@ export const TabletopLayout: React.FC<Props> = ({ phase, send }) => {
 
   // ── Setup selection state ──
   const isSetup = phase._tag === "setup";
+  const isMustering = phase._tag === "mustering";
   const [setupSel, setSetupSel] = useState<{ successorId: number | null; dungeonId: number | null }>({
     successorId: null,
     dungeonId: null,
   });
+  const [musteringSelection, setMusteringSelection] = useState<MusteringSelection>(
+    EMPTY_MUSTERING_SELECTION,
+  );
 
   useEffect(() => {
     if (!isSetup) setSetupSel({ successorId: null, dungeonId: null });
   }, [isSetup]);
+
+  useEffect(() => {
+    if (!isMustering) {
+      setMusteringSelection(EMPTY_MUSTERING_SELECTION);
+    }
+  }, [isMustering]);
+
+  useEffect(() => {
+    if (phase._tag === "mustering" && phase.activePlayer !== mi) {
+      setMusteringSelection(EMPTY_MUSTERING_SELECTION);
+    }
+  }, [phase, mi]);
 
   const handleSetupCardClick = useCallback((cardId: number) => {
     setSetupSel((prev) => {
@@ -1772,17 +2062,32 @@ export const TabletopLayout: React.FC<Props> = ({ phase, send }) => {
         )}
         <CourtArea phase={phase} />
         <div className="tabletop__primary-dialog">
-          <PrimaryDialog phase={phase} send={send} setupSelection={setupSelection} />
+          <PrimaryDialog
+            phase={phase}
+            send={send}
+            setupSelection={setupSelection}
+            musteringSelection={musteringSelection}
+            setMusteringSelection={setMusteringSelection}
+          />
         </div>
         <div className={`tabletop__lower-dialogs ${hasTertiary ? "" : "tabletop__lower-dialogs--no-tertiary"}`}>
           <div className="tabletop__secondary-dialog">
-            <SecondaryDialog phase={phase} send={send} />
+            <SecondaryDialog
+              phase={phase}
+              send={send}
+              musteringSelection={musteringSelection}
+              setMusteringSelection={setMusteringSelection}
+            />
           </div>
           <HeroAntechamber phase={phase} />
           <HeroPartingZone phase={phase} />
           {hasTertiary && (
             <div className="tabletop__tertiary-dialog">
-              <TertiaryDialog phase={phase} />
+              <TertiaryDialog
+                phase={phase}
+                musteringSelection={musteringSelection}
+                setMusteringSelection={setMusteringSelection}
+              />
             </div>
           )}
         </div>
@@ -1802,6 +2107,8 @@ export const TabletopLayout: React.FC<Props> = ({ phase, send }) => {
         setupSelection={setupSelection}
         onSetupCardClick={handleSetupCardClick}
         onCommitSetup={canCommitSetup ? handleCommitSetup : undefined}
+        musteringSelection={musteringSelection}
+        setMusteringSelection={setMusteringSelection}
       />
     </div>
   );

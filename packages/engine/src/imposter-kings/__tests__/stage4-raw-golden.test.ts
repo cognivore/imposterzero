@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   flattenTranscript,
+  Stage4TranscriptAtomicParseError,
+  Stage4TranscriptStructureError,
   parseStage4Transcript,
   parseStage4TranscriptDocuments,
 } from "./stage4-transcript-parser.js";
@@ -28,14 +30,16 @@ const GOOSE_WILL_STAGE4_GOLDEN = parseStage4Transcript(
   "1v1 Stage 4 - Goose vs Will",
 );
 
-const replayMismatchMessage = (label: string, transcript: Parameters<typeof replayStage4Transcript>[0]): string => {
+const expectReplayParity = (
+  label: string,
+  transcript: Parameters<typeof replayStage4Transcript>[0],
+): void => {
   try {
     replayStage4Transcript(transcript);
-    throw new Error(`${label}: expected replay mismatch but replay succeeded`);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.info(`[stage4-test] ${label} mismatch\n${message}`);
-    return message;
+    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    console.info(`[stage4-test] ${label} parity failure\n${message}`);
+    throw error;
   }
 };
 
@@ -67,13 +71,44 @@ describe("Stage 4 golden parity", () => {
     expect(CALM_KATTO_STAGE4_GOLDEN.finalScoreTranscriptOrder).toBe("reverse");
   });
 
-  it("advances Goose vs Will replay past the Sentry court-position and squireId=0 fixes", () => {
-    const message = replayMismatchMessage("Goose/Will", GOOSE_WILL_STAGE4_GOLDEN);
-    expect(message).toMatch(/round [4-7]/);
+  it("reports atomic parse failures with line numbers", () => {
+    const malformed = GOOSE_WILL_STAGE4_TRANSCRIPT.replace(
+      'Will played Judge and said card name "Princess".',
+      'Will played Judge and said card title "Princess".',
+    );
+
+    let caught: unknown;
+    try {
+      parseStage4Transcript(malformed, "malformed Stage 4 transcript");
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Stage4TranscriptAtomicParseError);
+    expect((caught as Stage4TranscriptAtomicParseError).lineNumber).toBeGreaterThan(0);
+    expect((caught as Error).message).toMatch(/line/i);
   });
 
-  it("advances Calm vs katto replay past the accused-tracking and KH-counter fixes", () => {
-    const message = replayMismatchMessage("Calm/katto", CALM_KATTO_STAGE4_GOLDEN);
-    expect(message).toMatch(/round 1/i);
+  it("reports structural transcript failures with context", () => {
+    const malformed = `${GOOSE_WILL_STAGE4_TRANSCRIPT}\nGoose ended muster.`;
+
+    let caught: unknown;
+    try {
+      parseStage4Transcript(malformed, "malformed Stage 4 transcript");
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Stage4TranscriptStructureError);
+    expect((caught as Stage4TranscriptStructureError).lineNumber).toBeGreaterThan(0);
+    expect((caught as Error).message).toMatch(/final score line must be the last line/i);
+  });
+
+  it("replays Goose vs Will at full parity", () => {
+    expectReplayParity("Goose/Will", GOOSE_WILL_STAGE4_GOLDEN);
+  });
+
+  it("replays Calm vs katto at full parity", () => {
+    expectReplayParity("Calm/katto", CALM_KATTO_STAGE4_GOLDEN);
   });
 });

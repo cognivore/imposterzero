@@ -1,6 +1,6 @@
 import type { PlayerId } from "@imposter-zero/types";
 
-import type { CardName } from "../card.js";
+import type { CardName, IKCard } from "../card.js";
 import type { IKState } from "../state.js";
 import { nextPlayer } from "../state.js";
 import {
@@ -23,10 +23,10 @@ import type {
   ChoiceOption,
 } from "./program.js";
 import { evaluate } from "./predicates.js";
-import { crystallizeStickyModifiers } from "./modifiers.js";
+import { crystallizeStickyModifiers, effectiveValue } from "./modifiers.js";
 import {
   describeProgram,
-  describeChoice,
+  describeChoiceTrace,
   findCardName,
   type TraceSink,
 } from "./trace.js";
@@ -118,7 +118,7 @@ const emitChoice = (
   if (!trace) return;
   const option = options[choiceIdx];
   if (!option) return;
-  trace({ depth, tag: "choice", description: describeChoice(option, state, player) });
+  trace({ depth, tag: "choice", ...describeChoiceTrace(option, state, player) });
 };
 
 const emitRaw = (
@@ -304,6 +304,13 @@ export const resolve = (
     case "forcePlay": {
       const cid = resolveCard(program.card, ctx, state);
       const from = resolveZone(program.from, ctx);
+      const priorThrone = state.shared.court[state.shared.court.length - 1];
+      const playedOnValue =
+        priorThrone === undefined
+          ? 0
+          : priorThrone.face === "down"
+            ? 1
+            : effectiveValue(state, priorThrone.card);
       const result = zoneMove(state, cid, from, { scope: "shared", slot: "court" });
       if (!result.ok) return { tag: "done", state };
       let s = crystallizeStickyModifiers(result.value, cid, ctx.activePlayer);
@@ -317,6 +324,7 @@ export const resolve = (
         activePlayer: ctx.activePlayer,
         numPlayers: ctx.numPlayers,
         playedFrom: "hand",
+        playedOnValue,
       }, trace, depth + 1);
     }
 
@@ -516,13 +524,14 @@ export const resolve = (
     }
 
     case "triggerReaction": {
-      const reactors = findPotentialReactors(state, ctx, program.trigger);
-      if (reactors.length === 0) {
-        emitRaw(trace, depth, "triggerReaction", "No reactors found.");
+      if (shouldSkipTriggerReactionWindow(state, ctx, program.trigger)) {
+        emitRaw(trace, depth, "triggerReaction", "All reactions publicly accounted for — skipping.");
         return resolve(program.continuation, state, ctx, trace, depth);
       }
+      const opponents = opponentsInPlayOrder(state, ctx);
       return resolveReactionChain(
-        reactors, 0, state, ctx,
+        opponents, 0, state, ctx,
+        program.trigger,
         program.continuation, program.onReacted,
         trace, depth,
       );
@@ -893,6 +902,74 @@ const findCardInState = (state: IKState, cardId: number): import("../card.js").I
   return null;
 };
 
+const hasReactionTrigger = (
+  card: IKCard,
+  trigger: TriggerKind,
+): boolean =>
+  card.kind.props.effects.some(
+    (effect) => effect.tag === "reaction" && effect.trigger === trigger,
+  );
+
+const isKnownToAllPlayers = (
+  state: IKState,
+  knownBy: ReadonlyArray<PlayerId>,
+): boolean =>
+  Array.from({ length: state.numPlayers }, (_, i) => i as PlayerId)
+    .every((player) => knownBy.includes(player));
+
+const countMatchingCards = (
+  state: IKState,
+  predicate: (card: IKCard) => boolean,
+): { readonly total: number; readonly publicKnown: number } => {
+  let total = 0;
+  let publicKnown = 0;
+  const publiclyTrackedKH = state.publiclyTrackedKH ?? [];
+  const revealedSuccessors = state.revealedSuccessors ?? [];
+  const record = (card: IKCard, isPublic: boolean): void => {
+    if (!predicate(card)) return;
+    total += 1;
+    if (isPublic) publicKnown += 1;
+  };
+
+  for (const [player, zones] of state.players.entries()) {
+    const playerId = player as PlayerId;
+    for (const card of zones.hand) {
+      record(
+        card,
+        card.kind.name === "King's Hand" && publiclyTrackedKH.includes(card.id),
+      );
+    }
+    record(zones.king.card, zones.king.face === "up");
+    if (zones.successor) {
+      record(zones.successor.card, revealedSuccessors.includes(playerId));
+    }
+    if (zones.dungeon) record(zones.dungeon.card, false);
+    if (zones.squire) record(zones.squire.card, false);
+    for (const card of zones.antechamber) record(card, true);
+    for (const card of zones.parting) record(card, true);
+    for (const card of zones.army) record(card, true);
+    for (const card of zones.exhausted) record(card, true);
+    for (const card of zones.recruitDiscard) record(card, true);
+  }
+
+  for (const entry of state.shared.court) record(entry.card, true);
+  if (state.shared.accused) record(state.shared.accused, true);
+  if (state.shared.forgotten) record(state.shared.forgotten.card, false);
+  for (const entry of state.shared.condemned) {
+    record(entry.card, isKnownToAllPlayers(state, entry.knownBy));
+  }
+
+  return { total, publicKnown };
+};
+
+const allMatchingCardsArePublic = (
+  state: IKState,
+  predicate: (card: IKCard) => boolean,
+): boolean => {
+  const counts = countMatchingCards(state, predicate);
+  return counts.total === counts.publicKnown;
+};
+
 // ---------------------------------------------------------------------------
 // King's Hand reaction window helpers
 // ---------------------------------------------------------------------------
@@ -927,37 +1004,43 @@ const courtHasKHNotOnThrone = (state: IKState): boolean => {
 };
 
 const shouldSkipKHWindow = (state: IKState, ctx: EffectContext): boolean => {
-  if (courtHasKHNotOnThrone(state)) {
-    for (let i = 1; i < ctx.numPlayers; i++) {
-      const player = ((ctx.activePlayer + i) % ctx.numPlayers) as PlayerId;
-      const hand = readZone(state, { scope: "player", player, slot: "hand" });
-      if (hand.some((c) => c.kind.name === "Stranger")) return false;
-    }
-  }
+  const courtHasKH = courtHasKHNotOnThrone(state);
+  const opponents = opponentsInPlayOrder(state, ctx);
+  const opponentCanActuallyReact = opponents.some((player) => {
+    const hand = readZone(state, { scope: "player", player, slot: "hand" });
+    return (
+      hand.some((card) => card.kind.name === "King's Hand") ||
+      (courtHasKH && hand.some((card) => card.kind.name === "Stranger"))
+    );
+  });
+  if (opponentCanActuallyReact) return false;
+  return (
+    allMatchingCardsArePublic(state, (card) => card.kind.name === "King's Hand") &&
+    (!courtHasKH ||
+      allMatchingCardsArePublic(state, (card) => card.kind.name === "Stranger"))
+  );
+};
 
-  const publiclyKnown = new Set<number>();
-  for (const e of state.shared.court) publiclyKnown.add(e.card.id);
-  if (state.shared.accused) publiclyKnown.add(state.shared.accused.id);
-  for (const e of state.shared.condemned) publiclyKnown.add(e.card.id);
-  for (const id of state.publiclyTrackedKH) publiclyKnown.add(id);
-  for (const p of state.players) {
-    for (const c of p.parting) publiclyKnown.add(c.id);
-  }
-
-  const allKHIds: number[] = [];
-  for (const p of state.players) {
-    for (const c of p.hand) if (c.kind.name === "King's Hand") allKHIds.push(c.id);
-    if (p.successor?.card.kind.name === "King's Hand") allKHIds.push(p.successor.card.id);
-    if (p.dungeon?.card.kind.name === "King's Hand") allKHIds.push(p.dungeon.card.id);
-    for (const c of p.antechamber) if (c.kind.name === "King's Hand") allKHIds.push(c.id);
-    for (const c of p.parting) if (c.kind.name === "King's Hand") allKHIds.push(c.id);
-  }
-  for (const e of state.shared.court) if (e.card.kind.name === "King's Hand") allKHIds.push(e.card.id);
-  if (state.shared.accused?.kind.name === "King's Hand") allKHIds.push(state.shared.accused.id);
-  for (const e of state.shared.condemned) if (e.card.kind.name === "King's Hand") allKHIds.push(e.card.id);
-  if (state.shared.forgotten?.card.kind.name === "King's Hand") allKHIds.push(state.shared.forgotten.card.id);
-
-  return allKHIds.every((id) => publiclyKnown.has(id));
+const shouldSkipTriggerReactionWindow = (
+  state: IKState,
+  ctx: EffectContext,
+  trigger: TriggerKind,
+): boolean => {
+  const courtHasTrigger = courtHasReactionNotOnThrone(state, trigger);
+  const opponents = opponentsInPlayOrder(state, ctx);
+  const opponentCanActuallyReact = opponents.some((player) => {
+    const hand = readZone(state, { scope: "player", player, slot: "hand" });
+    return (
+      hand.some((card) => hasReactionTrigger(card, trigger)) ||
+      (courtHasTrigger && hand.some((card) => card.kind.name === "Stranger"))
+    );
+  });
+  if (opponentCanActuallyReact) return false;
+  return (
+    allMatchingCardsArePublic(state, (card) => hasReactionTrigger(card, trigger)) &&
+    (!courtHasTrigger ||
+      allMatchingCardsArePublic(state, (card) => card.kind.name === "Stranger"))
+  );
 };
 
 const opponentsInPlayOrder = (state: IKState, ctx: EffectContext): ReadonlyArray<PlayerId> => {
@@ -1002,6 +1085,7 @@ const resolveKHReactionChain = (
     player: opp,
     options,
     isReactionWindow: true,
+    reactionWindowKind: "kings_hand",
     resume: (choice) => {
       emitChoice(trace, depth, choice, options, state, opp);
       if (choice === 1 && reactorCard) {
@@ -1045,97 +1129,90 @@ const resolveKHReactionChain = (
 // Legacy reaction helpers (Assassin king-flip)
 // ---------------------------------------------------------------------------
 
-const findPotentialReactors = (
+const findReactionCard = (
   state: IKState,
-  ctx: EffectContext,
+  player: PlayerId,
   trigger: TriggerKind,
-): ReadonlyArray<{ readonly player: PlayerId; readonly cardId: number }> => {
-  const strangerCanCopy = courtHasReactionNotOnThrone(state, trigger);
-  const result: Array<{ player: PlayerId; cardId: number }> = [];
-  for (let i = 1; i < ctx.numPlayers; i++) {
-    const player = ((ctx.activePlayer + i) % ctx.numPlayers) as PlayerId;
-    const hand = readZone(state, {
-      scope: "player",
-      player,
-      slot: "hand",
-    });
-    for (const card of hand) {
-      const hasReaction = card.kind.props.effects.some(
-        (e) => e.tag === "reaction" && e.trigger === trigger,
-      );
-      if (hasReaction) {
-        result.push({ player, cardId: card.id });
-      } else if (strangerCanCopy && card.kind.name === "Stranger") {
-        result.push({ player, cardId: card.id });
-      }
-    }
-  }
-  return result;
+): { readonly cardId: number; readonly usedStranger: boolean } | null => {
+  const hand = readZone(state, {
+    scope: "player",
+    player,
+    slot: "hand",
+  });
+  const liveReaction = hand.find((card) => hasReactionTrigger(card, trigger));
+  if (liveReaction) return { cardId: liveReaction.id, usedStranger: false };
+  if (!courtHasReactionNotOnThrone(state, trigger)) return null;
+  const stranger = hand.find((card) => card.kind.name === "Stranger");
+  return stranger ? { cardId: stranger.id, usedStranger: true } : null;
 };
 
 const resolveReactionChain = (
-  reactors: ReadonlyArray<{ readonly player: PlayerId; readonly cardId: number }>,
+  opponents: ReadonlyArray<PlayerId>,
   idx: number,
   state: IKState,
   ctx: EffectContext,
+  trigger: TriggerKind,
   continuation: EffectProgram,
   onReacted: EffectProgram,
   trace?: TraceSink,
   depth = 0,
 ): Resolution => {
-  if (idx >= reactors.length) {
+  if (idx >= opponents.length) {
     return resolve(continuation, state, ctx, trace, depth);
   }
-  const reactor = reactors[idx]!;
+  const reactor = opponents[idx]!;
+  const reactionCard = findReactionCard(state, reactor, trigger);
   emitRaw(
     trace, depth, "triggerReaction",
-    `Player ${reactor.player} may react with ${findCardName(state, reactor.cardId)}.`,
+    `Player ${reactor} may react with ${trigger === "king_flip" ? "Assassin" : "a reaction card"}.`,
   );
   const options: ReadonlyArray<ChoiceOption> = [{ kind: "pass" }, { kind: "proceed" }];
   return {
     tag: "needChoice",
     state,
-    player: reactor.player,
+    player: reactor,
     options,
+    isReactionWindow: true,
+    reactionWindowKind: "king_flip",
     resume: (choice) => {
-      emitChoice(trace, depth, choice, options, state, reactor.player);
-      if (choice === 1) {
+      emitChoice(trace, depth, choice, options, state, reactor);
+      if (choice === 1 && reactionCard) {
         const removed = removeFromZone(
           state,
-          { scope: "player", player: reactor.player, slot: "hand" },
-          reactor.cardId,
+          { scope: "player", player: reactor, slot: "hand" },
+          reactionCard.cardId,
         );
         let s = removed.ok ? removed.value.state : state;
         if (removed.ok) {
           const toParting = insertIntoZone(
             s,
-            { scope: "player", player: reactor.player, slot: "parting" },
+            { scope: "player", player: reactor, slot: "parting" },
             removed.value.card,
           );
           if (toParting.ok) s = toParting.value;
         }
 
         const effectiveOnReacted = ctx.numPlayers > 2
-          ? { tag: "assassinate3p" as const, victim: { kind: "active" as const }, assassin: { kind: "id" as const, player: reactor.player }, assassinCardId: reactor.cardId }
+          ? { tag: "assassinate3p" as const, victim: { kind: "active" as const }, assassin: { kind: "id" as const, player: reactor }, assassinCardId: reactionCard.cardId }
           : onReacted;
 
-        if (shouldSkipKHWindow(s, ctx)) {
-          return resolve(effectiveOnReacted, s, ctx, trace, depth + 1);
-        }
         const reactorCtx: EffectContext = {
           ...ctx,
-          activePlayer: reactor.player,
+          activePlayer: reactor,
         };
+        if (shouldSkipKHWindow(s, reactorCtx)) {
+          return resolve(effectiveOnReacted, s, ctx, trace, depth + 1);
+        }
         const khOpponents = opponentsInPlayOrder(s, reactorCtx);
         return resolveKHCounterReaction(
           khOpponents, 0, s, ctx,
-          reactor, effectiveOnReacted, continuation,
+          { player: reactor, cardId: reactionCard.cardId }, effectiveOnReacted, continuation,
           trace, depth + 1,
         );
       }
       return resolveReactionChain(
-        reactors, idx + 1, state, ctx,
-        continuation, onReacted,
+        opponents, idx + 1, state, ctx,
+        trigger, continuation, onReacted,
         trace, depth,
       );
     },
@@ -1173,6 +1250,7 @@ const resolveKHCounterReaction = (
     player: opp,
     options,
     isReactionWindow: true,
+    reactionWindowKind: "kings_hand",
     resume: (choice) => {
       emitChoice(trace, depth, choice, options, state, opp);
       if (choice === 1 && reactorCard) {
@@ -1191,7 +1269,7 @@ const resolveKHCounterReaction = (
           );
           s = toOppParting.ok ? toOppParting.value : removedReactor.value.state;
         }
-        return resolve(continuation, s, ctx, trace, depth);
+        return withKhPrevented(resolve(continuation, s, ctx, trace, depth));
       }
       return resolveKHCounterReaction(
         opponents, idx + 1, state, ctx,
@@ -1201,6 +1279,20 @@ const resolveKHCounterReaction = (
     },
   };
 };
+
+const withKhPrevented = (resolution: Resolution): Resolution =>
+  resolution.tag === "done"
+    ? {
+        tag: "done",
+        state: {
+          ...resolution.state,
+          khPrevented: true,
+        },
+      }
+    : {
+        ...resolution,
+        resume: (choice) => withKhPrevented(resolution.resume(choice)),
+      };
 
 /**
  * Replays an effect program, feeding in previously-made choices.

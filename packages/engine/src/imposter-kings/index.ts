@@ -125,6 +125,7 @@ export {
   BASE_ARMY_NAMES,
   REGULATION_2P_BASE,
   REGULATION_2P_EXPANSION,
+  expansionConfigForPlayers,
 } from "./config.js";
 
 export {

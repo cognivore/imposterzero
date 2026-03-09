@@ -8,7 +8,7 @@ import { useTouchDevice } from "../../hooks/useTouchDevice.js";
 
 interface Props {
   readonly visual: CardVisual;
-  readonly size?: "normal" | "small" | "micro";
+  readonly size?: "large" | "medium" | "small";
 }
 
 const PEEK_DELAY_MS = 200;
@@ -76,8 +76,8 @@ export const DisgracedCard: React.FC<Props> = ({ visual, size = "small" }) => {
   const sizeClass =
     size === "small"
       ? "card-perspective card-perspective--small"
-      : size === "micro"
-        ? "card-perspective card-perspective--micro"
+      : size === "large"
+        ? "card-perspective card-perspective--large"
         : "card-perspective";
 
   return (
@@ -108,7 +108,7 @@ export const DisgracedCard: React.FC<Props> = ({ visual, size = "small" }) => {
             tier={visual.front.tier}
             shortText={visual.front.shortText}
             artwork={visual.front.artwork}
-            showContent={size === "normal"}
+            showContent={size !== "small"}
           />
           <CardBack design={visual.back.design} />
         </animated.div>

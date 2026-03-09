@@ -16,7 +16,7 @@ export type RandomSource = () => number;
 
 const hidden = (card: IKCard): HiddenCard => ({ card, face: "down" });
 
-const reserveCount = (numPlayers: number): number => (numPlayers === 4 ? 1 : 2);
+const reserveCount = (numPlayers: number): number => (numPlayers === 2 ? 2 : 1);
 
 export const createDeck = (kinds: ReadonlyArray<IKCardKind>): ReadonlyArray<IKCard> =>
   kinds.map((kind, id) => ({ id, kind }));
@@ -68,9 +68,8 @@ export const dealWithDeck = (
     throw new Error("Deck does not contain enough cards for shared zones and player hands");
   }
 
-  const accused =
-    numPlayers === 4 ? orderedDeck[orderedDeck.length - 1]! : orderedDeck[orderedDeck.length - 2]!;
-  const forgottenCard = numPlayers === 4 ? null : orderedDeck[orderedDeck.length - 1]!;
+  const forgottenCard = reserved === 2 ? orderedDeck[orderedDeck.length - 1]! : null;
+  const visibleAccused = orderedDeck[orderedDeck.length - reserved]!;
   const playableDeck = orderedDeck.slice(0, orderedDeck.length - reserved);
   const hands = dealHands(playableDeck, numPlayers);
 
@@ -99,7 +98,7 @@ export const dealWithDeck = (
     players,
     shared: {
       court: [],
-      accused,
+      accused: visibleAccused,
       forgotten: forgottenCard === null ? null : hidden(forgottenCard),
       condemned: [],
     },
@@ -143,9 +142,8 @@ export const deal = (
     throw new Error("Deck does not contain enough cards for shared zones and player hands");
   }
 
-  const accused =
-    numPlayers === 4 ? deck[deck.length - 1]! : deck[deck.length - 2]!;
-  const forgottenCard = numPlayers === 4 ? null : deck[deck.length - 1]!;
+  const forgottenCard = reserved === 2 ? deck[deck.length - 1]! : null;
+  const visibleAccused = deck[deck.length - reserved]!;
   const playableDeck = deck.slice(0, deck.length - reserved);
   const hands = dealHands(playableDeck, numPlayers);
 
@@ -178,7 +176,7 @@ export const deal = (
     players,
     shared: {
       court: [],
-      accused,
+      accused: visibleAccused,
       forgotten: forgottenCard === null ? null : hidden(forgottenCard),
       condemned: [],
     },

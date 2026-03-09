@@ -18,6 +18,18 @@ import {
   KING_TACTICIAN_KIND,
 } from "../card.js";
 
+const previousMusteringPlayer = (
+  state: IKState,
+  from: IKState["activePlayer"] = state.activePlayer,
+): IKState["activePlayer"] => {
+  let prev = ((from - 1 + state.numPlayers) % state.numPlayers) as IKState["activePlayer"];
+  for (let i = 0; i < state.numPlayers; i++) {
+    if (!state.eliminatedPlayers.includes(prev)) return prev;
+    prev = ((prev - 1 + state.numPlayers) % state.numPlayers) as IKState["activePlayer"];
+  }
+  return prev;
+};
+
 export const applyBeginRecruitSafe = (
   state: IKState,
   action: IKBeginRecruitAction,
@@ -150,7 +162,7 @@ export const applyEndMusteringSafe = (
   }
   return ok({
     ...state,
-    activePlayer: state.firstPlayer,
+    activePlayer: previousMusteringPlayer(state),
     musteringPlayersDone: done,
     hasExhaustedThisMustering: false,
   });

@@ -40,9 +40,11 @@ const score3p = (state: IKState): ReadonlyArray<number> => {
     }
   }
 
-  const second = [0, 1, 2].find(
-    (p) => p !== winner && p !== stuck && !state.eliminatedPlayers.includes(p as PlayerId),
-  );
+  const second =
+    [...state.eliminatedPlayers]
+      .reverse()
+      .find((player) => player !== winner && player !== stuck) ??
+    [0, 1, 2].find((p) => p !== winner && p !== stuck);
   if (second !== undefined) scores[second] += 1;
 
   return scores;

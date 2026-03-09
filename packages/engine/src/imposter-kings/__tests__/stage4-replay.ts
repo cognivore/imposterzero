@@ -16,6 +16,7 @@ import {
   findCardName,
   describeChoice,
   traceResolution,
+  throneValue,
   type CardName,
   type IKCard,
   type IKCardKind,
@@ -50,6 +51,33 @@ interface AccusedSwapEvent {
   readonly hand: CardName;
 }
 
+type CardZoneName =
+  | "hand"
+  | "antechamber"
+  | "parting"
+  | "army"
+  | "exhausted"
+  | "successor"
+  | "squire"
+  | "dungeon"
+  | "court"
+  | "accused"
+  | "forgotten"
+  | "condemned"
+  | "king";
+
+interface CardLocation {
+  readonly player: PlayerIndex | null;
+  readonly zone: CardZoneName;
+  readonly card: CardName;
+}
+
+interface CardChoiceMatcher {
+  readonly chooser: PlayerIndex;
+  readonly card: CardName;
+  readonly zone?: CardZoneName;
+}
+
 interface ReplayStepContext {
   abilityWanted: boolean | null;
   abilityActivated: boolean;
@@ -65,6 +93,7 @@ interface ReplayStepContext {
   rallies: CardEvent[];
   returnsToArmy: CardEvent[];
   disgraced: CardName[];
+  takeSuccessor: CardEvent | null;
   takeSquire: CardEvent | null;
 }
 
@@ -144,6 +173,25 @@ const debugLog = (fixture: Stage4GoldenFixture, message: string): void => {
   console.info(`[stage4-replay] ${fixture.label}: ${message}`);
 };
 
+const formatCandidate = (candidate: RoundCandidate): string =>
+  JSON.stringify(candidate);
+
+const describeArmies = (armies: ReadonlyArray<PlayerArmy>): string =>
+  armies
+    .map(
+      (army, player) =>
+        `P${player} available=[${army.available.map((kind) => kind.name).join(", ")}] exhausted=[${army.exhausted.map((kind) => kind.name).join(", ")}]`,
+    )
+    .join(" | ");
+
+const describeArmyZones = (state: IKState): string =>
+  state.players
+    .map(
+      (player, idx) =>
+        `P${idx} hand=[${player.hand.map((card) => `${card.kind.name}${card.armyOwner === undefined ? "" : `@${card.armyOwner}`}`).join(", ")}] army=[${player.army.map((card) => `${card.kind.name}${card.armyOwner === undefined ? "" : `@${card.armyOwner}`}`).join(", ")}] exhausted=[${player.exhausted.map((card) => `${card.kind.name}${card.armyOwner === undefined ? "" : `@${card.armyOwner}`}`).join(", ")}]`,
+    )
+    .join(" | ") + ` | court=[${state.shared.court.map((entry) => `${entry.card.kind.name}${entry.card.armyOwner === undefined ? "" : `@${entry.card.armyOwner}`}:${entry.face}`).join(", ")}] | condemned=[${state.shared.condemned.map((entry) => `${entry.card.kind.name}${entry.card.armyOwner === undefined ? "" : `@${entry.card.armyOwner}`}`).join(", ")}]`;
+
 const fail = (message: string): never => {
   throw new Error(message);
 };
@@ -155,6 +203,147 @@ const playerNameFromId = (
 
 const otherPlayerId = (player: PlayerIndex): PlayerIndex =>
   player === GOOSE ? WILL : GOOSE;
+
+const locateCard = (
+  state: IKState,
+  cardId: number,
+): CardLocation | null => {
+  for (const player of [GOOSE, WILL] as const) {
+    const zones = playerZones(state, player);
+    const fromZone = (
+      zone: CardZoneName,
+      cards: ReadonlyArray<IKCard>,
+    ): CardLocation | null => {
+      const card = cards.find((candidate) => candidate.id === cardId);
+      return card
+        ? {
+            player,
+            zone,
+            card: card.kind.name as CardName,
+          }
+        : null;
+    };
+
+    const kingMatch = zones.king.card.id === cardId
+      ? {
+          player,
+          zone: "king" as const,
+          card: zones.king.card.kind.name as CardName,
+        }
+      : null;
+    if (kingMatch) return kingMatch;
+
+    const successorMatch = zones.successor?.card.id === cardId
+      ? {
+          player,
+          zone: "successor" as const,
+          card: zones.successor.card.kind.name as CardName,
+        }
+      : null;
+    if (successorMatch) return successorMatch;
+
+    const dungeonMatch = zones.dungeon?.card.id === cardId
+      ? {
+          player,
+          zone: "dungeon" as const,
+          card: zones.dungeon.card.kind.name as CardName,
+        }
+      : null;
+    if (dungeonMatch) return dungeonMatch;
+
+    const squireMatch = zones.squire?.card.id === cardId
+      ? {
+          player,
+          zone: "squire" as const,
+          card: zones.squire.card.kind.name as CardName,
+        }
+      : null;
+    if (squireMatch) return squireMatch;
+
+    for (const [zone, cards] of [
+      ["hand", zones.hand],
+      ["antechamber", zones.antechamber],
+      ["parting", zones.parting],
+      ["army", zones.army],
+      ["exhausted", zones.exhausted],
+    ] as const) {
+      const match = fromZone(zone, cards);
+      if (match) return match;
+    }
+  }
+
+  const courtMatch = state.shared.court.find((entry) => entry.card.id === cardId);
+  if (courtMatch) {
+    return {
+      player: null,
+      zone: "court",
+      card: courtMatch.card.kind.name as CardName,
+    };
+  }
+  if (state.shared.accused?.id === cardId) {
+    return {
+      player: null,
+      zone: "accused",
+      card: state.shared.accused.kind.name as CardName,
+    };
+  }
+  if (state.shared.forgotten?.card.id === cardId) {
+    return {
+      player: null,
+      zone: "forgotten",
+      card: state.shared.forgotten.card.kind.name as CardName,
+    };
+  }
+  const condemnedMatch = state.shared.condemned.find((entry) => entry.card.id === cardId);
+  if (condemnedMatch) {
+    return {
+      player: null,
+      zone: "condemned",
+      card: condemnedMatch.card.kind.name as CardName,
+    };
+  }
+  return null;
+};
+
+const locateCardOption = (
+  state: IKState,
+  option: ChoiceOption,
+): CardLocation | null =>
+  option.kind === "card" ? locateCard(state, option.cardId) : null;
+
+const findCardChoiceIndex = (
+  state: IKState,
+  options: ReadonlyArray<ChoiceOption>,
+  matcher: CardChoiceMatcher,
+): number => options.findIndex((option) => {
+  const located = locateCardOption(state, option);
+  if (!located) return false;
+  if (located.card !== matcher.card) return false;
+  if (matcher.zone !== undefined && located.zone !== matcher.zone) return false;
+  return located.player === null || located.player === matcher.chooser;
+});
+
+const describeReplayContext = (
+  context: ReplayStepContext,
+): string =>
+  JSON.stringify({
+    abilityWanted: context.abilityWanted,
+    abilityActivated: context.abilityActivated,
+    namedCard: context.namedCard,
+    namedValue: context.namedValue,
+    copiedCard: context.copiedCard,
+    movedToAntechamber: context.movedToAntechamber,
+    pickedFromCourt: context.pickedFromCourt,
+    swapGive: context.swapGive,
+    swapTake: context.swapTake,
+    accusedSwap: context.accusedSwap,
+    recalls: context.recalls,
+    rallies: context.rallies,
+    returnsToArmy: context.returnsToArmy,
+    disgraced: context.disgraced,
+    takeSuccessor: context.takeSuccessor,
+    takeSquire: context.takeSquire,
+  });
 
 const facetFromKingChoice = (
   choice: KingChoice,
@@ -240,6 +429,21 @@ const outcomesOfKind = <K extends StepOutcome["kind"]>(
   outcomes.filter(
     (outcome): outcome is Extract<StepOutcome, { readonly kind: K }> =>
       outcome.kind === kind,
+  );
+
+const hasLaterCardOutcome = (
+  outcomes: ReadonlyArray<StepOutcome>,
+  startIndex: number,
+  kinds: ReadonlyArray<StepOutcome["kind"]>,
+  player: PlayerIndex,
+  card: CardName,
+): boolean =>
+  outcomes.slice(startIndex + 1).some((outcome) =>
+    "player" in outcome &&
+    "card" in outcome &&
+    outcome.player === player &&
+    outcome.card === card &&
+    kinds.includes(outcome.kind),
   );
 
 const extractMovedToAntechamber = (
@@ -630,13 +834,16 @@ const applyAbstractCommitStep = (
 const applyAbstractPlayStep = (
   state: AbstractRoundState,
   step: PlayStep,
+  deferOutcomes: boolean,
 ): void => {
   playCardAbstractly(state, step.player, step.card);
 
   if (step.copiedCard) {
     removeFromMultiset(state.court, step.copiedCard, 1, "stranger copy");
   }
-  applyAbstractOutcomeStep(state, step.outcomes);
+  if (!deferOutcomes) {
+    applyAbstractOutcomeStep(state, step.outcomes);
+  }
 };
 
 const applyAbstractFlipStep = (
@@ -653,7 +860,7 @@ const applyAbstractReactionStep = (
 ): void => {
   consumeHandCard(state, step.player, step.card);
 
-  if (step.card === "King's Hand" && previousStep?.kind === "play") {
+  if (previousStep?.kind === "play") {
     removeFromMultiset(
       state.court,
       previousStep.card,
@@ -679,8 +886,12 @@ const deriveRoundCandidates = (
   }
 
   let previousPlayStep: PlayTranscriptStep | null = null;
-  for (const step of round.play) {
-    if (step.kind === "play") applyAbstractPlayStep(abstractState, step);
+  for (let i = 0; i < round.play.length; i += 1) {
+    const step = round.play[i]!;
+    const nextStep = round.play[i + 1] ?? null;
+    if (step.kind === "play") {
+      applyAbstractPlayStep(abstractState, step, nextStep?.kind === "reaction");
+    }
     if (step.kind === "flip_king") applyAbstractFlipStep(abstractState, step);
     if (step.kind === "resolution") applyAbstractOutcomeStep(abstractState, step.outcomes);
     if (step.kind === "reaction") applyAbstractReactionStep(abstractState, step, previousPlayStep);
@@ -850,15 +1061,18 @@ const injectArmies = (
   );
 
   let nextId = maxExistingId + 1;
-  const createArmyCards = (kinds: ReadonlyArray<IKCardKind>): IKCard[] =>
-    kinds.map((kind) => ({ id: nextId++, kind }));
+  const createArmyCards = (
+    kinds: ReadonlyArray<IKCardKind>,
+    owner: PlayerIndex,
+  ): IKCard[] =>
+    kinds.map((kind) => ({ id: nextId++, kind, armyOwner: owner }));
 
   return {
     ...state,
     players: state.players.map((player, idx) => ({
       ...player,
-      army: createArmyCards(armiesBeforeRound[idx]!.available),
-      exhausted: createArmyCards(armiesBeforeRound[idx]!.exhausted),
+      army: createArmyCards(armiesBeforeRound[idx]!.available, idx as PlayerIndex),
+      exhausted: createArmyCards(armiesBeforeRound[idx]!.exhausted, idx as PlayerIndex),
       recruitDiscard: [],
     })),
   };
@@ -893,6 +1107,27 @@ const describePendingOptions = (state: IKState): string => {
     .join(" | ");
 };
 
+const describePlayerInventory = (
+  state: IKState,
+  player: PlayerIndex,
+): string => {
+  const zones = playerZones(state, player);
+  return [
+    `hand=[${zones.hand.map((card) => card.kind.name).join(", ")}]`,
+    `antechamber=[${zones.antechamber.map((card) => card.kind.name).join(", ")}]`,
+    `parting=[${zones.parting.map((card) => card.kind.name).join(", ")}]`,
+    `army=[${zones.army.map((card) => card.kind.name).join(", ")}]`,
+    `exhausted=[${zones.exhausted.map((card) => card.kind.name).join(", ")}]`,
+    `successor=${zones.successor?.card.kind.name ?? "none"}`,
+    `squire=${zones.squire?.card.kind.name ?? "none"}`,
+  ].join(" ");
+};
+
+const describeCourtState = (state: IKState): string =>
+  `court=[${state.shared.court
+    .map((entry) => `${entry.card.kind.name}:${entry.face}`)
+    .join(", ")}]`;
+
 const chooseEffectStrict = (
   state: IKState,
   choice: number,
@@ -903,39 +1138,72 @@ const chooseEffectStrict = (
   return fail(`${context}: effect_choice(${choice}) failed: ${JSON.stringify(result.error)}`);
 };
 
+const preferredPlayZones = (
+  state: IKState,
+  player: PlayerIndex,
+  name: CardName,
+): ReadonlyArray<CardZoneName> => {
+  const zones = playerZones(state, player);
+  const preferred: CardZoneName[] = [];
+  if (zones.antechamber.some((card) => card.kind.name === name)) preferred.push("antechamber");
+  if (zones.parting.some((card) => card.kind.name === name)) preferred.push("parting");
+  if (zones.hand.some((card) => card.kind.name === name)) preferred.push("hand");
+  return preferred.length > 0 ? preferred : ["antechamber", "parting", "hand"];
+};
+
+const matchesPlayActionByName = (
+  state: IKState,
+  action: ChoiceOption | { readonly kind: "play"; readonly cardId: number },
+  player: PlayerIndex,
+  name: CardName,
+  zones = preferredPlayZones(state, player, name),
+): boolean => {
+  if (action.kind !== "play") return false;
+  const located = locateCard(state, action.cardId);
+  return located !== null &&
+    located.player === player &&
+    located.card === name &&
+    zones.includes(located.zone);
+};
+
 const hasLegalPlayByName = (
   state: IKState,
   player: PlayerIndex,
   name: CardName,
-): boolean =>
-  legalActions(state).some((action) => {
-    if (action.kind !== "play") return false;
-    const zones = playerZones(state, player);
-    return [...zones.hand, ...zones.antechamber, ...zones.parting].some(
-      (card) => card.id === action.cardId && card.kind.name === name,
-    );
-  });
+): boolean => legalActions(state).some((action) => matchesPlayActionByName(state, action, player, name));
 
 const findLegalPlayActionByName = (
   state: IKState,
   player: PlayerIndex,
   name: CardName,
 ): { readonly kind: "play"; readonly cardId: number } => {
-  const action = legalActions(state).find((candidate) => {
-    if (candidate.kind !== "play") return false;
-    const zones = playerZones(state, player);
-    return [...zones.hand, ...zones.antechamber, ...zones.parting].some(
-      (card) => card.id === candidate.cardId && card.kind.name === name,
-    );
-  });
-  if (!action || action.kind !== "play") {
+  const playActions = legalActions(state).filter(
+    (candidate): candidate is { readonly kind: "play"; readonly cardId: number } =>
+      candidate.kind === "play",
+  );
+  const action = playActions.find((candidate) =>
+    matchesPlayActionByName(state, candidate, player, name),
+  );
+  if (action) return action;
+
+  const legalDescriptions = playActions
+    .map((candidate) => {
+      const located = locateCard(state, candidate.cardId);
+      return located
+        ? `${located.card}@${located.zone}${located.player === null ? "" : `:P${located.player}`}`
+        : `unknown#${candidate.cardId}`;
+    })
+    .join(", ");
+  if (playActions.length === 0) {
     fail(
       `No legal play for ${name}; legal=${legalActions(state)
         .map((candidate) => candidate.kind)
         .join(", ")}`,
     );
   }
-  return action as { kind: "play"; cardId: number };
+  fail(
+    `No legal play for ${name}; legal plays=${legalDescriptions}; throneValue=${throneValue(state)}; ${describeCourtState(state)}; handValues=[${playerZones(state, player).hand.map((card) => `${card.kind.name}:${card.kind.props.value}`).join(", ")}]; ${describePlayerInventory(state, player)}`,
+  );
 };
 
 const isPassProceedOptions = (
@@ -943,6 +1211,25 @@ const isPassProceedOptions = (
 ): boolean =>
   options.length > 0 &&
   options.every((option) => option.kind === "pass" || option.kind === "proceed");
+
+const findCardChoiceByMatchers = (
+  state: IKState,
+  options: ReadonlyArray<ChoiceOption>,
+  matchers: ReadonlyArray<CardChoiceMatcher>,
+): number => {
+  for (const matcher of matchers) {
+    const idx = findCardChoiceIndex(state, options, matcher);
+    if (idx >= 0) return idx;
+  }
+  for (const matcher of matchers) {
+    const idx = findCardChoiceIndex(state, options, {
+      chooser: matcher.chooser,
+      card: matcher.card,
+    });
+    if (idx >= 0) return idx;
+  }
+  return -1;
+};
 
 const hasRemainingTargets = (context: ReplayStepContext): boolean =>
   context.namedCard !== null ||
@@ -957,7 +1244,30 @@ const hasRemainingTargets = (context: ReplayStepContext): boolean =>
   context.rallies.length > 0 ||
   context.returnsToArmy.length > 0 ||
   context.disgraced.length > 0 ||
+  context.takeSuccessor !== null ||
   context.takeSquire !== null;
+
+const wantsYesNoChoice = (
+  state: IKState,
+  step: PlayTranscriptStep,
+  context: ReplayStepContext,
+): boolean => {
+  const chooser = state.pendingResolution?.choosingPlayer as PlayerIndex | undefined;
+  if (chooser === undefined) return context.rallies.length > 0;
+  const facet = playerZones(state, chooser).king.facet;
+  const recalls = step.kind === "flip_king" || step.kind === "resolution" ? extractRecalls(step) : [];
+  const rallies = step.kind === "flip_king" || step.kind === "resolution" ? extractRallies(step) : [];
+  const takeSuccessor =
+    step.kind === "flip_king" || step.kind === "resolution" ? extractSuccessorTake(step) : null;
+  const takeSquire =
+    step.kind === "flip_king" || step.kind === "resolution" ? extractSquireTake(step) : null;
+  if (facet === "charismatic") return rallies.length > 0;
+  if (facet === "masterTactician") {
+    if (recalls.length > 0) return rallies.length > 0;
+    return takeSuccessor !== null && takeSquire === null;
+  }
+  return context.rallies.length > 0;
+};
 
 const createReplayStepContext = (
   step: PlayTranscriptStep,
@@ -978,6 +1288,7 @@ const createReplayStepContext = (
       rallies: [],
       returnsToArmy: [],
       disgraced: [],
+      takeSuccessor: null,
       takeSquire: null,
     };
   }
@@ -998,6 +1309,7 @@ const createReplayStepContext = (
       rallies: [...extractRallies(step)],
       returnsToArmy: [...extractReturnsToArmy(step)],
       disgraced: [],
+      takeSuccessor: extractSuccessorTake(step),
       takeSquire: extractSquireTake(step),
     };
   }
@@ -1010,6 +1322,7 @@ const createReplayStepContext = (
     const genericSwap = step.outcomes.find((outcome) => outcome.kind === "swap");
     const accusedSwap = step.outcomes.find((outcome) => outcome.kind === "swap_accused");
     const disgrace = step.outcomes.find((outcome) => outcome.kind === "disgrace");
+    const takeSuccessor = step.outcomes.find((outcome) => outcome.kind === "take_successor");
     const takeSquire = step.outcomes.find((outcome) => outcome.kind === "take_squire");
     return {
       abilityWanted: null,
@@ -1057,6 +1370,13 @@ const createReplayStepContext = (
         card: outcome.card,
       })),
       disgraced: disgrace && disgrace.kind === "disgrace" ? disgrace.cards : [],
+      takeSuccessor:
+        takeSuccessor && takeSuccessor.kind === "take_successor"
+          ? {
+              player: takeSuccessor.player,
+              card: takeSuccessor.card,
+            }
+          : null,
       takeSquire:
         takeSquire && takeSquire.kind === "take_squire"
           ? {
@@ -1096,6 +1416,7 @@ const createReplayStepContext = (
     rallies: [...extractRallies(step)],
     returnsToArmy: [...extractReturnsToArmy(step)],
     disgraced: [...(extractDisgracedCards(step) ?? [])],
+    takeSuccessor: null,
     takeSquire: null,
   };
 };
@@ -1108,8 +1429,11 @@ const updateReplayContext = (
 ): void => {
   if (step.kind === "reaction") return;
 
-  if (choice.kind === "proceed" && step.kind === "play") {
+  if (step.kind === "play" && choice.kind !== "pass") {
     context.abilityActivated = true;
+  }
+
+  if (choice.kind === "proceed" && step.kind === "play") {
     return;
   }
 
@@ -1129,69 +1453,89 @@ const updateReplayContext = (
 
   const chooser = state.pendingResolution.choosingPlayer as PlayerIndex;
   const chosenName = findCardName(state, choice.cardId) as CardName;
+  const chosenLocation = locateCard(state, choice.cardId);
 
-  if (context.copiedCard === chosenName) {
+  if (context.copiedCard === chosenName && chosenLocation?.zone === "court") {
     context.copiedCard = null;
     return;
   }
 
-  context.movedToAntechamber = removeMatchingCardEvent(
-    context.movedToAntechamber,
-    chooser,
-    chosenName,
-  );
+  switch (chosenLocation?.zone) {
+    case "hand":
+      context.movedToAntechamber = removeMatchingCardEvent(
+        context.movedToAntechamber,
+        chooser,
+        chosenName,
+      );
+      if (
+        context.accusedSwap &&
+        context.accusedSwap.player === chooser &&
+        context.accusedSwap.hand === chosenName
+      ) {
+        context.accusedSwap = null;
+        return;
+      }
+      if (
+        context.swapGive &&
+        context.swapGive.player === chooser &&
+        context.swapGive.card === chosenName
+      ) {
+        context.swapGive = null;
+        return;
+      }
+      if (
+        context.swapTake &&
+        context.swapTake.player === chooser &&
+        context.swapTake.card === chosenName
+      ) {
+        context.swapTake = null;
+        return;
+      }
+      context.returnsToArmy = removeMatchingCardEvent(
+        context.returnsToArmy,
+        chooser,
+        chosenName,
+      );
+      return;
+    case "court": {
+      const remainingPickCount = context.pickedFromCourt.length;
+      context.pickedFromCourt = removeMatchingCardEvent(
+        context.pickedFromCourt,
+        chooser,
+        chosenName,
+      );
+      if (remainingPickCount !== context.pickedFromCourt.length) return;
 
-  const remainingPickCount = context.pickedFromCourt.length;
-  context.pickedFromCourt = removeMatchingCardEvent(
-    context.pickedFromCourt,
-    chooser,
-    chosenName,
-  );
-  if (remainingPickCount !== context.pickedFromCourt.length) return;
-
-  if (
-    context.accusedSwap &&
-    context.accusedSwap.player === chooser &&
-    context.accusedSwap.hand === chosenName
-  ) {
-    context.accusedSwap = null;
-    return;
-  }
-
-  if (
-    context.swapGive &&
-    context.swapGive.player === chooser &&
-    context.swapGive.card === chosenName
-  ) {
-    context.swapGive = null;
-    return;
-  }
-
-  if (
-    context.swapTake &&
-    context.swapTake.player === chooser &&
-    context.swapTake.card === chosenName
-  ) {
-    context.swapTake = null;
-    return;
-  }
-
-  if (
-    context.takeSquire &&
-    context.takeSquire.player === chooser &&
-    context.takeSquire.card === chosenName
-  ) {
-    context.takeSquire = null;
-    return;
-  }
-
-  context.recalls = removeMatchingCardEvent(context.recalls, chooser, chosenName);
-  context.rallies = removeMatchingCardEvent(context.rallies, chooser, chosenName);
-  context.returnsToArmy = removeMatchingCardEvent(context.returnsToArmy, chooser, chosenName);
-
-  const disgraceIdx = context.disgraced.findIndex((card) => card === chosenName);
-  if (disgraceIdx >= 0) {
-    context.disgraced = context.disgraced.filter((_, idx) => idx !== disgraceIdx);
+      const disgraceIdx = context.disgraced.findIndex((card) => card === chosenName);
+      if (disgraceIdx >= 0) {
+        context.disgraced = context.disgraced.filter((_, idx) => idx !== disgraceIdx);
+      }
+      return;
+    }
+    case "exhausted":
+      context.recalls = removeMatchingCardEvent(context.recalls, chooser, chosenName);
+      return;
+    case "army":
+      context.rallies = removeMatchingCardEvent(context.rallies, chooser, chosenName);
+      return;
+    case "successor":
+      if (
+        context.takeSuccessor &&
+        context.takeSuccessor.player === chooser &&
+        context.takeSuccessor.card === chosenName
+      ) {
+        context.takeSuccessor = null;
+      }
+      return;
+    case "squire":
+      if (
+        context.takeSquire &&
+        context.takeSquire.player === chooser &&
+        context.takeSquire.card === chosenName
+      ) {
+        context.takeSquire = null;
+      }
+      return;
   }
 };
 
@@ -1220,12 +1564,21 @@ const pendingMatchesUpcomingStep = (
   if (upcoming.kind === "play") {
     return (
       chooser === upcoming.player &&
-      options.some(
-        (option) =>
-          option.kind === "card" &&
-          findCardName(state, option.cardId) === upcoming.card,
-      )
+      options.some((option) => {
+        const located = locateCardOption(state, option);
+        return located !== null &&
+          located.player === upcoming.player &&
+          located.card === upcoming.card;
+      })
     );
+  }
+
+  if (upcoming.kind === "resolution") {
+    return inferChoiceForStep(
+      state,
+      upcoming,
+      createReplayStepContext(upcoming),
+    ) !== null;
   }
 
   return false;
@@ -1284,47 +1637,51 @@ const inferChoiceForStep = (
 
     if (options.every((option) => option.kind === "card")) {
       const chooser = state.pendingResolution!.choosingPlayer as PlayerIndex;
-      const priorities: CardName[] = [];
+      const priorities: CardChoiceMatcher[] = [];
 
-      if (context.copiedCard) priorities.push(context.copiedCard);
+      if (context.copiedCard) {
+        priorities.push({ chooser, card: context.copiedCard, zone: "court" });
+      }
       priorities.push(
         ...context.movedToAntechamber
           .filter((event) => event.player === chooser)
-          .map((event) => event.card),
+          .map((event) => ({ chooser, card: event.card, zone: "hand" as const })),
       );
       priorities.push(
         ...context.pickedFromCourt
           .filter((event) => event.player === chooser)
-          .map((event) => event.card),
+          .map((event) => ({ chooser, card: event.card, zone: "court" as const })),
       );
-      if (context.accusedSwap?.player === chooser) priorities.push(context.accusedSwap.hand);
-      if (context.swapGive?.player === chooser) priorities.push(context.swapGive.card);
-      if (context.swapTake?.player === chooser) priorities.push(context.swapTake.card);
+      if (context.accusedSwap?.player === chooser) {
+        priorities.push({ chooser, card: context.accusedSwap.hand, zone: "hand" });
+      }
+      if (context.swapGive?.player === chooser) {
+        priorities.push({ chooser, card: context.swapGive.card, zone: "hand" });
+      }
+      if (context.swapTake?.player === chooser) {
+        priorities.push({ chooser, card: context.swapTake.card, zone: "hand" });
+      }
       priorities.push(
         ...context.recalls
           .filter((event) => event.player === chooser)
-          .map((event) => event.card),
+          .map((event) => ({ chooser, card: event.card, zone: "exhausted" as const })),
       );
       priorities.push(
         ...context.rallies
           .filter((event) => event.player === chooser)
-          .map((event) => event.card),
+          .map((event) => ({ chooser, card: event.card, zone: "army" as const })),
       );
       priorities.push(
         ...context.returnsToArmy
           .filter((event) => event.player === chooser)
-          .map((event) => event.card),
+          .map((event) => ({ chooser, card: event.card, zone: "hand" as const })),
       );
-      priorities.push(...context.disgraced);
+      priorities.push(
+        ...context.disgraced.map((card) => ({ chooser, card, zone: "court" as const })),
+      );
 
-      for (const target of priorities) {
-        const idx = options.findIndex(
-          (option) =>
-            option.kind === "card" &&
-            findCardName(state, option.cardId) === target,
-        );
-        if (idx >= 0) return idx;
-      }
+      const idx = findCardChoiceByMatchers(state, options, priorities);
+      if (idx >= 0) return idx;
     }
   }
 
@@ -1334,32 +1691,31 @@ const inferChoiceForStep = (
     const yesNoIdx = options.findIndex(
       (option) =>
         option.kind === "yesNo" &&
-        option.value === (context.rallies.length > 0),
+        option.value === wantsYesNoChoice(state, step, context),
     );
     if (yesNoIdx >= 0) return yesNoIdx;
 
     if (options.every((option) => option.kind === "card")) {
       const chooser = state.pendingResolution!.choosingPlayer as PlayerIndex;
-      const priorities = [
+      const priorities: CardChoiceMatcher[] = [
         ...context.recalls
           .filter((event) => event.player === chooser)
-          .map((event) => event.card),
+          .map((event) => ({ chooser, card: event.card, zone: "exhausted" as const })),
         ...context.rallies
           .filter((event) => event.player === chooser)
-          .map((event) => event.card),
+          .map((event) => ({ chooser, card: event.card, zone: "army" as const })),
         ...context.returnsToArmy
           .filter((event) => event.player === chooser)
-          .map((event) => event.card),
-        ...(context.takeSquire?.player === chooser ? [context.takeSquire.card] : []),
+          .map((event) => ({ chooser, card: event.card, zone: "hand" as const })),
+        ...(context.takeSuccessor?.player === chooser
+          ? [{ chooser, card: context.takeSuccessor.card, zone: "successor" as const }]
+          : []),
+        ...(context.takeSquire?.player === chooser
+          ? [{ chooser, card: context.takeSquire.card, zone: "squire" as const }]
+          : []),
       ];
-      for (const target of priorities) {
-        const idx = options.findIndex(
-          (option) =>
-            option.kind === "card" &&
-            findCardName(state, option.cardId) === target,
-        );
-        if (idx >= 0) return idx;
-      }
+      const idx = findCardChoiceByMatchers(state, options, priorities);
+      if (idx >= 0) return idx;
     }
   }
 
@@ -1515,12 +1871,19 @@ const enterObservedStep = (
 
   if (state.phase === "resolving") {
     const options = currentOptionsOrThrow(state, `forced play ${step.card}`);
-    const idx = options.findIndex(
-      (option) =>
-        option.kind === "card" &&
-        findCardName(state, option.cardId) === step.card,
+    const idx = findCardChoiceByMatchers(
+      state,
+      options,
+      preferredPlayZones(state, step.player, step.card).map((zone) => ({
+        chooser: step.player,
+        card: step.card,
+        zone,
+      })),
     );
     if (idx < 0) {
+      if (options.length === 1) {
+        return chooseEffectStrict(state, 0, `forced-play:${step.card}:single-option`);
+      }
       fail(
         `Could not match resolving card choice for ${step.card}; options=${describePendingOptions(state)}`,
       );
@@ -1577,51 +1940,59 @@ const assertOutcomeSet = (
   }
 
   for (const taken of outcomesOfKind(outcomes, "take_from_dungeon")) {
-    expect(
-      playerZones(state, taken.player).hand.some(
-        (card) => card.kind.name === taken.card,
-      ),
-    ).toBe(true);
+    if (!playerZones(state, taken.player).hand.some((card) => card.kind.name === taken.card)) {
+      fail(
+        `Expected ${taken.card} from dungeon in player ${taken.player} hand after "${transcript.join(" ")}"; ${describePlayerInventory(state, taken.player)}`,
+      );
+    }
   }
 
   for (const taken of outcomesOfKind(outcomes, "take_successor")) {
-    expect(
-      playerZones(state, taken.player).hand.some(
-        (card) => card.kind.name === taken.card,
-      ),
-    ).toBe(true);
+    if (!playerZones(state, taken.player).hand.some((card) => card.kind.name === taken.card)) {
+      fail(
+        `Expected successor ${taken.card} in player ${taken.player} hand after "${transcript.join(" ")}"; ${describePlayerInventory(state, taken.player)}`,
+      );
+    }
   }
 
   for (const taken of outcomesOfKind(outcomes, "take_squire")) {
-    expect(
-      playerZones(state, taken.player).hand.some(
-        (card) => card.kind.name === taken.card,
-      ),
-    ).toBe(true);
+    if (!playerZones(state, taken.player).hand.some((card) => card.kind.name === taken.card)) {
+      fail(
+        `Expected squire ${taken.card} in player ${taken.player} hand after "${transcript.join(" ")}"; ${describePlayerInventory(state, taken.player)}`,
+      );
+    }
   }
 
-  for (const recalled of outcomesOfKind(outcomes, "recall")) {
-    expect(
-      playerZones(state, recalled.player).army.some(
-        (card) => card.kind.name === recalled.card,
-      ),
-    ).toBe(true);
+  for (const [index, recalled] of outcomes.entries()) {
+    if (recalled.kind !== "recall") continue;
+    if (hasLaterCardOutcome(outcomes, index, ["rally"], recalled.player, recalled.card)) {
+      continue;
+    }
+    if (!playerZones(state, recalled.player).army.some((card) => card.kind.name === recalled.card)) {
+      fail(
+        `Expected recalled ${recalled.card} in player ${recalled.player} army after "${transcript.join(" ")}"; ${describePlayerInventory(state, recalled.player)}`,
+      );
+    }
   }
 
-  for (const rallied of outcomesOfKind(outcomes, "rally")) {
-    expect(
-      playerZones(state, rallied.player).hand.some(
-        (card) => card.kind.name === rallied.card,
-      ),
-    ).toBe(true);
+  for (const [index, rallied] of outcomes.entries()) {
+    if (rallied.kind !== "rally") continue;
+    if (hasLaterCardOutcome(outcomes, index, ["return_to_army"], rallied.player, rallied.card)) {
+      continue;
+    }
+    if (!playerZones(state, rallied.player).hand.some((card) => card.kind.name === rallied.card)) {
+      fail(
+        `Expected rallied ${rallied.card} in player ${rallied.player} hand after "${transcript.join(" ")}"; ${describePlayerInventory(state, rallied.player)}`,
+      );
+    }
   }
 
   for (const returned of outcomesOfKind(outcomes, "return_to_army")) {
-    expect(
-      playerZones(state, returned.player).army.some(
-        (card) => card.kind.name === returned.card,
-      ),
-    ).toBe(true);
+    if (!playerZones(state, returned.player).army.some((card) => card.kind.name === returned.card)) {
+      fail(
+        `Expected returned ${returned.card} in player ${returned.player} army after "${transcript.join(" ")}"; ${describePlayerInventory(state, returned.player)}`,
+      );
+    }
   }
 };
 
@@ -1629,24 +2000,37 @@ const assertObservedOutcome = (
   state: IKState,
   step: PlayTranscriptStep,
   previousStep: PlayTranscriptStep | null,
+  nextStep: PlayTranscriptStep | null,
 ): void => {
   if (step.kind === "play") {
-    expect(state.shared.court.some((entry) => entry.card.kind.name === step.card)).toBe(true);
-    assertOutcomeSet(state, step.outcomes, step.transcript);
+    if (!state.shared.court.some((entry) => entry.card.kind.name === step.card)) {
+      fail(
+        [
+          `Expected played ${step.card} to remain on the court after "${step.transcript.join(" ")}"`,
+          describeCourtState(state),
+          `player ${step.player}: ${describePlayerInventory(state, step.player)}`,
+        ].join("; "),
+      );
+    }
+    if (nextStep?.kind !== "reaction") {
+      assertOutcomeSet(state, step.outcomes, step.transcript);
+    }
   }
 
   if (step.kind === "flip_king") {
     if (step.transcript.length > 1) {
       expect(playerZones(state, step.player).king.face).toBe("down");
     }
-    assertOutcomeSet(state, step.outcomes, step.transcript);
+    if (nextStep?.kind !== "reaction") {
+      assertOutcomeSet(state, step.outcomes, step.transcript);
+    }
   }
 
   if (step.kind === "resolution") {
     assertOutcomeSet(state, step.outcomes, step.transcript);
   }
 
-  if (step.kind === "reaction" && step.card === "King's Hand" && previousStep?.kind === "play") {
+  if (step.kind === "reaction" && previousStep?.kind === "play") {
     expect(
       state.shared.court.some((entry) => entry.card.kind.name === previousStep.card),
     ).toBe(false);
@@ -1703,7 +2087,7 @@ const replayObservedStep = (
     );
   }
 
-  assertObservedOutcome(current, step, previousStep);
+  assertObservedOutcome(current, step, previousStep, nextStep);
   return current;
 };
 
@@ -1873,6 +2257,7 @@ export const replayStage4Transcript = (
 
   for (const round of fixture.rounds) {
     debugLog(fixture, `round ${round.round}: replay start`);
+    debugLog(fixture, `round ${round.round}: armies ${describeArmies(armies)}`);
     const replayed = solveRound(fixture, round, armies);
     const roundResult = toScore(roundScore(replayed.finalState));
     running = addScores(running, roundResult);
@@ -1880,6 +2265,7 @@ export const replayStage4Transcript = (
     expect(roundResult).toEqual(round.roundScore);
     expect(running).toEqual(round.matchScoreAfterRound);
 
+    debugLog(fixture, `round ${round.round}: final army zones ${describeArmyZones(replayed.finalState)}`);
     armies = exhaustArmyCardsPostRound(replayed.finalState, armies);
     roundStates.push(replayed.finalState);
     solvedCandidates.push(replayed.candidate);

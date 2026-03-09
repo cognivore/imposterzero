@@ -3,7 +3,6 @@ import { err, ok, type Result, type PlayerId } from "@imposter-zero/types";
 import type { IKAction, IKCrownAction } from "../actions.js";
 import { type TransitionError, transitionErrorMessage } from "../errors.js";
 import type { IKState } from "../state.js";
-import { nextPlayer } from "../state.js";
 import { applyCommitSafe } from "./setup.js";
 import {
   applyPlaySafe,
@@ -28,14 +27,11 @@ const applyCrownSafe = (
     return err({ kind: "invalid_first_player", player: action.firstPlayer });
   }
   const useMustering = hasArmyCards(state);
-  const secondPlayerIdx = nextPlayer(
-    { ...state, numPlayers: state.numPlayers },
-    action.firstPlayer,
-  );
+  const lastPlayerIdx = ((action.firstPlayer - 1 + state.numPlayers) % state.numPlayers) as PlayerId;
   return ok({
     ...state,
     phase: useMustering ? ("mustering" as const) : ("setup" as const),
-    activePlayer: useMustering ? secondPlayerIdx : action.firstPlayer,
+    activePlayer: useMustering ? lastPlayerIdx : action.firstPlayer,
     firstPlayer: action.firstPlayer,
     turnCount: state.turnCount + 1,
     musteringPlayersDone: 0,

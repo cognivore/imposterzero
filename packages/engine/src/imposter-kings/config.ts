@@ -47,3 +47,8 @@ export const REGULATION_2P_EXPANSION: GameConfig = {
   useMustering: true,
   useMulligans: false,
 };
+
+export const expansionConfigForPlayers = (numPlayers: number): GameConfig => ({
+  ...REGULATION_2P_EXPANSION,
+  deck: regulationDeck(numPlayers),
+});

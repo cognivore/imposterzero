@@ -184,7 +184,7 @@ type ParseFailure = {
 type ParseResult<T> = ParseSuccess<T> | ParseFailure;
 type Parser<T> = (state: ParseState) => ParseResult<T>;
 
-type AtomicLine =
+export type AtomicLine =
   | { readonly kind: "selection"; readonly player: PlayerName; readonly cards: ReadonlyArray<CardName>; readonly transcript: string }
   | { readonly kind: "first_player"; readonly player: PlayerName; readonly firstPlayer: PlayerName; readonly transcript: string }
   | { readonly kind: "select_king"; readonly player: PlayerName; readonly king: KingChoice; readonly transcript: string }
@@ -222,7 +222,7 @@ type AtomicLine =
   | { readonly kind: "round_over"; readonly player: PlayerName; readonly points: number; readonly transcript: string }
   | { readonly kind: "game_over"; readonly score: Score; readonly transcript: string };
 
-type AtomicOutcome =
+export type AtomicOutcome =
   | { readonly kind: "move_to_antechamber"; readonly player: PlayerName; readonly card: CardName }
   | { readonly kind: "pick_from_court"; readonly player: PlayerName; readonly card: CardName }
   | { readonly kind: "swap"; readonly player: PlayerName; readonly give: CardName; readonly take: CardName }
@@ -235,6 +235,37 @@ type AtomicOutcome =
   | { readonly kind: "return_to_army"; readonly player: PlayerName; readonly card: CardName }
   | { readonly kind: "disgrace"; readonly player: PlayerName; readonly cards: ReadonlyArray<CardName> }
   | { readonly kind: "nothing_happened" };
+
+interface AtomicRecord {
+  readonly lineNumber: number;
+  readonly line: AtomicLine;
+}
+
+export class Stage4TranscriptAtomicParseError extends Error {
+  readonly lineNumber: number;
+
+  constructor(lineNumber: number, expected: string, found: string) {
+    super(
+      `Stage 4 transcript atomic parse error at line ${lineNumber}: expected ${expected}, found "${found}"`,
+    );
+    this.name = "Stage4TranscriptAtomicParseError";
+    this.lineNumber = lineNumber;
+  }
+}
+
+export class Stage4TranscriptStructureError extends Error {
+  readonly lineNumber: number | null;
+
+  constructor(message: string, lineNumber: number | null = null) {
+    super(
+      lineNumber === null
+        ? `Stage 4 transcript structure error: ${message}`
+        : `Stage 4 transcript structure error at line ${lineNumber}: ${message}`,
+    );
+    this.name = "Stage4TranscriptStructureError";
+    this.lineNumber = lineNumber;
+  }
+}
 
 const ok = <T>(value: T, state: ParseState): ParseSuccess<T> => ({
   ok: true,
@@ -307,7 +338,13 @@ const satisfyLine = <T>(
 ): Parser<T> => (state) => {
   const line = state.lines[state.index];
   if (line === undefined) return fail(expected, state);
-  const value = project(line);
+  let value: T | null;
+  try {
+    value = project(line);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return fail(`${expected} (${message})`, state);
+  }
   if (value === null) return fail(expected, state);
   return ok(value, { ...state, index: state.index + 1 });
 };
@@ -330,11 +367,19 @@ const parseAll = <T>(
   const result = parser(start);
   if (!result.ok) {
     const found = lines[result.state.index] ?? "EOF";
-    throw new Error(`Stage 4 transcript parse error at line ${result.state.index + 1}: expected ${result.expected}, found "${found}"`);
+    throw new Stage4TranscriptAtomicParseError(
+      result.state.index + 1,
+      result.expected,
+      found,
+    );
   }
   if (result.state.index !== lines.length) {
     const found = lines[result.state.index] ?? "EOF";
-    throw new Error(`Stage 4 transcript parse error at line ${result.state.index + 1}: unexpected trailing input "${found}"`);
+    throw new Stage4TranscriptAtomicParseError(
+      result.state.index + 1,
+      "end of transcript",
+      found,
+    );
   }
   return result.value;
 };
@@ -821,6 +866,26 @@ const scoreForPlayer = (
   points: number,
 ): Score => (player === 0 ? score(points, 0) : score(0, points));
 
+const toAtomicRecords = (
+  atomic: ReadonlyArray<AtomicLine>,
+): ReadonlyArray<AtomicRecord> =>
+  atomic.map((line, index) => ({
+    lineNumber: index + 1,
+    line,
+  }));
+
+const structureError = (
+  message: string,
+  record?: AtomicRecord | null,
+): never => {
+  throw new Stage4TranscriptStructureError(message, record?.lineNumber ?? null);
+};
+
+const formatFoundLine = (record?: AtomicRecord | null): string =>
+  record === undefined || record === null
+    ? "EOF"
+    : `"${record.line.transcript}" (${record.line.kind})`;
+
 const convertOutcome = (
   outcome: AtomicOutcome,
   playerIndexByName: ReadonlyMap<string, PlayerIndex>,
@@ -888,23 +953,106 @@ const isFlipOutcome = (line: AtomicLine): boolean =>
 const isResolutionOutcome = (line: AtomicLine): boolean =>
   isPlayOutcome(line) || isFlipOutcome(line);
 
-const buildFixtureFromAtomic = (
-  label: string | undefined,
-  atomic: ReadonlyArray<AtomicLine>,
-): Stage4GoldenFixture => {
-  if (atomic.length < 4) {
-    throw new Error("Stage 4 transcript is too short");
+const validateStage4Fixture = (
+  fixture: Stage4GoldenFixture,
+): void => {
+  if (fixture.players.length !== 2 || fixture.players[0] === fixture.players[1]) {
+    throw new Stage4TranscriptStructureError(
+      "fixture must contain exactly two distinct players",
+    );
   }
 
-  const firstSelection = atomic[0];
-  const secondSelection = atomic[1];
+  let running = score(0, 0);
+  for (const round of fixture.rounds) {
+    if (round.crown.transcript.length !== 1) {
+      throw new Stage4TranscriptStructureError(
+        `round ${round.round} must contain exactly one crown line`,
+      );
+    }
+    if (round.roundOverTranscript.length !== 1) {
+      throw new Stage4TranscriptStructureError(
+        `round ${round.round} must contain exactly one round-over line`,
+      );
+    }
+
+    const setupCounts = new Map<PlayerIndex, {
+      discard: number;
+      successor: number;
+      squire: number;
+    }>([
+      [0, { discard: 0, successor: 0, squire: 0 }],
+      [1, { discard: 0, successor: 0, squire: 0 }],
+    ]);
+    for (const step of round.setup) {
+      const counts = setupCounts.get(step.player)!;
+      if (step.kind === "setup_discard") counts.discard += 1;
+      if (step.kind === "setup_successor") counts.successor += 1;
+      if (step.kind === "setup_squire") counts.squire += 1;
+    }
+    for (const player of [0, 1] as const) {
+      const counts = setupCounts.get(player)!;
+      if (counts.discard !== 1 || counts.successor !== 1 || counts.squire > 1) {
+        throw new Stage4TranscriptStructureError(
+          `round ${round.round} setup commitment for player ${player} is incomplete: discard=${counts.discard}, successor=${counts.successor}, squire=${counts.squire}`,
+        );
+      }
+    }
+
+    running = addScores(running, round.roundScore);
+    if (
+      running[0] !== round.matchScoreAfterRound[0] ||
+      running[1] !== round.matchScoreAfterRound[1]
+    ) {
+      throw new Stage4TranscriptStructureError(
+        `round ${round.round} cumulative score ${running[0]}:${running[1]} does not match stored round score ${round.matchScoreAfterRound[0]}:${round.matchScoreAfterRound[1]}`,
+      );
+    }
+  }
+
+  if (
+    running[0] !== fixture.finalScore[0] ||
+    running[1] !== fixture.finalScore[1]
+  ) {
+    throw new Stage4TranscriptStructureError(
+      `final score ${fixture.finalScore[0]}:${fixture.finalScore[1]} does not match cumulative round score ${running[0]}:${running[1]}`,
+    );
+  }
+
+  const reportedMatchesPlayers =
+    fixture.reportedFinalScore[0] === fixture.finalScore[0] &&
+    fixture.reportedFinalScore[1] === fixture.finalScore[1];
+  const reportedMatchesReverse =
+    fixture.reportedFinalScore[0] === fixture.finalScore[1] &&
+    fixture.reportedFinalScore[1] === fixture.finalScore[0];
+  if (!reportedMatchesPlayers && !reportedMatchesReverse) {
+    throw new Stage4TranscriptStructureError(
+      `reported final score ${fixture.reportedFinalScore[0]}:${fixture.reportedFinalScore[1]} must match players order ${fixture.finalScore[0]}:${fixture.finalScore[1]} or reverse order ${fixture.finalScore[1]}:${fixture.finalScore[0]}`,
+    );
+  }
+};
+
+const buildFixtureFromAtomic = (
+  label: string | undefined,
+  atomic: ReadonlyArray<AtomicRecord>,
+): Stage4GoldenFixture => {
+  if (atomic.length < 4) {
+    structureError("transcript is too short");
+  }
+
+  const firstSelectionRecord = atomic[0];
+  const secondSelectionRecord = atomic[1];
+  const firstSelection = firstSelectionRecord?.line;
+  const secondSelection = secondSelectionRecord?.line;
   if (firstSelection?.kind !== "selection" || secondSelection?.kind !== "selection") {
-    throw new Error("Stage 4 transcript must begin with two signature-selection lines");
+    structureError(
+      "transcript must begin with two signature-selection lines",
+      firstSelectionRecord ?? secondSelectionRecord,
+    );
   }
 
   const players = [firstSelection.player, secondSelection.player] as const;
   if (players[0] === players[1]) {
-    throw new Error("Stage 4 transcript must contain two distinct player names");
+    structureError("transcript must contain two distinct player names", secondSelectionRecord);
   }
 
   const playerIndexByName = new Map<string, PlayerIndex>([
@@ -912,50 +1060,59 @@ const buildFixtureFromAtomic = (
     [players[1], 1],
   ]);
 
-  const toPlayerIndex = (player: string): PlayerIndex => {
+  const toPlayerIndex = (
+    player: string,
+    record?: AtomicRecord | null,
+  ): PlayerIndex => {
     const index = playerIndexByName.get(player);
     if (index === undefined) {
-      throw new Error(`Unknown player "${player}" in transcript`);
+      structureError(`unknown player "${player}"`, record);
     }
     return index;
   };
 
-  const selections: ReadonlyArray<SelectionStep> = [firstSelection, secondSelection].map(
-    (selection) => ({
-      kind: "selection",
-      player: toPlayerIndex(selection.player),
-      cards: selection.cards,
-      transcript: [selection.transcript],
-    }),
-  );
+  const selections: ReadonlyArray<SelectionStep> = [
+    firstSelectionRecord,
+    secondSelectionRecord,
+  ].map((record) => ({
+    kind: "selection",
+    player: toPlayerIndex(record!.line.player, record),
+    cards: (record!.line as Extract<AtomicLine, { readonly kind: "selection" }>).cards,
+    transcript: [record!.line.transcript],
+  }));
 
   let cursor = 2;
   let roundNumber = 1;
   let runningScore = score(0, 0);
   const rounds: GoldenRound[] = [];
 
-  while (cursor < atomic.length && atomic[cursor]!.kind !== "game_over") {
-    const crownLine = atomic[cursor];
+  while (cursor < atomic.length && atomic[cursor]!.line.kind !== "game_over") {
+    const crownRecord = atomic[cursor];
+    const crownLine = crownRecord?.line;
     if (!crownLine || crownLine.kind !== "first_player") {
-      throw new Error(`Expected first-player line at transcript item ${cursor + 1}`);
+      structureError(
+        `expected first-player line, found ${formatFoundLine(crownRecord)}`,
+        crownRecord,
+      );
     }
     cursor += 1;
 
     const crown: FirstPlayerStep = {
       kind: "first_player",
-      player: toPlayerIndex(crownLine.player),
-      firstPlayer: toPlayerIndex(crownLine.firstPlayer),
+      player: toPlayerIndex(crownLine.player, crownRecord),
+      firstPlayer: toPlayerIndex(crownLine.firstPlayer, crownRecord),
       transcript: [crownLine.transcript],
     };
 
     const mustering: MusteringStep[] = [];
-    while (cursor < atomic.length && isMusteringLead(atomic[cursor]!)) {
-      const line = atomic[cursor]!;
+    while (cursor < atomic.length && isMusteringLead(atomic[cursor]!.line)) {
+      const record = atomic[cursor]!;
+      const line = record.line;
       switch (line.kind) {
         case "select_king":
           mustering.push({
             kind: "select_king",
-            player: toPlayerIndex(line.player),
+            player: toPlayerIndex(line.player, record),
             king: line.king,
             transcript: [line.transcript],
           });
@@ -964,7 +1121,7 @@ const buildFixtureFromAtomic = (
         case "end_muster":
           mustering.push({
             kind: "end_muster",
-            player: toPlayerIndex(line.player),
+            player: toPlayerIndex(line.player, record),
             transcript: [line.transcript],
           });
           cursor += 1;
@@ -973,19 +1130,22 @@ const buildFixtureFromAtomic = (
           const ex1 = atomic[cursor + 1];
           const ex2 = atomic[cursor + 2];
           if (
-            ex1?.kind !== "exhaust" ||
-            ex2?.kind !== "exhaust" ||
-            ex1.player !== line.player ||
-            ex2.player !== line.player
+            ex1?.line.kind !== "exhaust" ||
+            ex2?.line.kind !== "exhaust" ||
+            ex1.line.player !== line.player ||
+            ex2.line.player !== line.player
           ) {
-            throw new Error(`Recommission step for ${line.player} must be followed by two exhaust lines`);
+            structureError(
+              `recommission for ${line.player} must be followed by two matching exhaust lines; found ${formatFoundLine(ex1)} and ${formatFoundLine(ex2)}`,
+              record,
+            );
           }
           mustering.push({
             kind: "recommission",
-            player: toPlayerIndex(line.player),
+            player: toPlayerIndex(line.player, record),
             recover: line.recover,
-            exhaust: [ex1.card, ex2.card],
-            transcript: [line.transcript, ex1.transcript, ex2.transcript],
+            exhaust: [ex1.line.card, ex2.line.card],
+            transcript: [line.transcript, ex1.line.transcript, ex2.line.transcript],
           });
           cursor += 3;
           break;
@@ -993,47 +1153,51 @@ const buildFixtureFromAtomic = (
         case "recruit": {
           const discard = atomic[cursor + 1];
           if (
-            discard?.kind !== "discard" ||
-            discard.player !== line.player
+            discard?.line.kind !== "discard" ||
+            discard.line.player !== line.player
           ) {
-            throw new Error(`Recruit step for ${line.player} must be followed by a discard line`);
+            structureError(
+              `recruit for ${line.player} must be followed by a matching discard line; found ${formatFoundLine(discard)}`,
+              record,
+            );
           }
           const maybeExhaust = atomic[cursor + 2];
           const exhaust =
-            maybeExhaust?.kind === "exhaust" && maybeExhaust.player === line.player
+            maybeExhaust?.line.kind === "exhaust" && maybeExhaust.line.player === line.player
               ? maybeExhaust
               : null;
           mustering.push({
             kind: "recruit",
-            player: toPlayerIndex(line.player),
+            player: toPlayerIndex(line.player, record),
             recruit: line.recruit,
-            discard: discard.card,
-            exhaust: exhaust?.card,
+            discard: discard.line.card,
+            exhaust: exhaust?.line.card,
             transcript: exhaust
-              ? [line.transcript, discard.transcript, exhaust.transcript]
-              : [line.transcript, discard.transcript],
+              ? [line.transcript, discard.line.transcript, exhaust.line.transcript]
+              : [line.transcript, discard.line.transcript],
           });
           cursor += exhaust ? 3 : 2;
           break;
         }
         default:
-          throw new Error(`Unexpected mustering lead ${(line as AtomicLine).kind}`);
+          structureError(`unexpected mustering line kind "${line.kind}"`, record);
       }
     }
 
     const setup: SetupTranscriptStep[] = [];
     while (
       cursor < atomic.length &&
-      (atomic[cursor]!.kind === "discard" ||
-        atomic[cursor]!.kind === "pick_successor" ||
-        atomic[cursor]!.kind === "pick_squire")
+      (atomic[cursor]!.line.kind === "discard" ||
+        atomic[cursor]!.line.kind === "pick_successor" ||
+        atomic[cursor]!.line.kind === "pick_squire")
     ) {
-      const step = atomic[cursor]!;
+      const record = atomic[cursor]!;
+      const step = record.line;
       switch (step.kind) {
         case "discard":
           setup.push({
             kind: "setup_discard",
-            player: toPlayerIndex(step.player),
+            player: toPlayerIndex(step.player, record),
             card: step.card,
             transcript: [step.transcript],
           });
@@ -1041,7 +1205,7 @@ const buildFixtureFromAtomic = (
         case "pick_successor":
           setup.push({
             kind: "setup_successor",
-            player: toPlayerIndex(step.player),
+            player: toPlayerIndex(step.player, record),
             card: step.card,
             transcript: [step.transcript],
           });
@@ -1049,24 +1213,23 @@ const buildFixtureFromAtomic = (
         case "pick_squire":
           setup.push({
             kind: "setup_squire",
-            player: toPlayerIndex(step.player),
+            player: toPlayerIndex(step.player, record),
             card: step.card,
             transcript: [step.transcript],
           });
-          break;
-        default:
           break;
       }
       cursor += 1;
     }
 
     const play: PlayTranscriptStep[] = [];
-    while (cursor < atomic.length && atomic[cursor]!.kind !== "round_over") {
-      const line = atomic[cursor]!;
+    while (cursor < atomic.length && atomic[cursor]!.line.kind !== "round_over") {
+      const record = atomic[cursor]!;
+      const line = record.line;
       if (line.kind === "reaction") {
         play.push({
           kind: "reaction",
-          player: toPlayerIndex(line.player),
+          player: toPlayerIndex(line.player, record),
           card: line.card,
           transcript: [line.transcript],
         });
@@ -1078,15 +1241,15 @@ const buildFixtureFromAtomic = (
         const transcript = [line.transcript];
         const outcomes: StepOutcome[] = [];
         cursor += 1;
-        while (cursor < atomic.length && isFlipOutcome(atomic[cursor]!)) {
+        while (cursor < atomic.length && isFlipOutcome(atomic[cursor]!.line)) {
           const outcome = atomic[cursor]!;
-          transcript.push(outcome.transcript);
-          outcomes.push(convertOutcome(outcome, playerIndexByName));
+          transcript.push(outcome.line.transcript);
+          outcomes.push(convertOutcome(outcome.line, playerIndexByName));
           cursor += 1;
         }
         play.push({
           kind: "flip_king",
-          player: toPlayerIndex(line.player),
+          player: toPlayerIndex(line.player, record),
           outcomes,
           transcript,
         });
@@ -1099,15 +1262,15 @@ const buildFixtureFromAtomic = (
           convertOutcome(outcome, playerIndexByName),
         );
         cursor += 1;
-        while (cursor < atomic.length && isPlayOutcome(atomic[cursor]!)) {
+        while (cursor < atomic.length && isPlayOutcome(atomic[cursor]!.line)) {
           const outcome = atomic[cursor]!;
-          transcript.push(outcome.transcript);
-          outcomes.push(convertOutcome(outcome, playerIndexByName));
+          transcript.push(outcome.line.transcript);
+          outcomes.push(convertOutcome(outcome.line, playerIndexByName));
           cursor += 1;
         }
         play.push({
           kind: "play",
-          player: toPlayerIndex(line.player),
+          player: toPlayerIndex(line.player, record),
           card: line.card,
           namedCard: line.namedCard,
           namedValue: line.namedValue,
@@ -1122,10 +1285,10 @@ const buildFixtureFromAtomic = (
       if (isResolutionOutcome(line)) {
         const transcript: string[] = [];
         const outcomes: StepOutcome[] = [];
-        while (cursor < atomic.length && isResolutionOutcome(atomic[cursor]!)) {
+        while (cursor < atomic.length && isResolutionOutcome(atomic[cursor]!.line)) {
           const outcome = atomic[cursor]!;
-          transcript.push(outcome.transcript);
-          outcomes.push(convertOutcome(outcome, playerIndexByName));
+          transcript.push(outcome.line.transcript);
+          outcomes.push(convertOutcome(outcome.line, playerIndexByName));
           cursor += 1;
         }
         play.push({
@@ -1136,17 +1299,24 @@ const buildFixtureFromAtomic = (
         continue;
       }
 
-      throw new Error(`Unexpected play-phase line kind "${line.kind}"`);
+      structureError(
+        `unexpected play-phase line; found ${formatFoundLine(record)}`,
+        record,
+      );
     }
 
-    const roundOver = atomic[cursor];
+    const roundOverRecord = atomic[cursor];
+    const roundOver = roundOverRecord?.line;
     if (!roundOver || roundOver.kind !== "round_over") {
-      throw new Error(`Expected round-over line at transcript item ${cursor + 1}`);
+      structureError(
+        `expected round-over line, found ${formatFoundLine(roundOverRecord)}`,
+        roundOverRecord,
+      );
     }
     cursor += 1;
 
     const roundScore = scoreForPlayer(
-      toPlayerIndex(roundOver.player),
+      toPlayerIndex(roundOver.player, roundOverRecord),
       roundOver.points,
     );
     runningScore = addScores(runningScore, roundScore);
@@ -1163,9 +1333,16 @@ const buildFixtureFromAtomic = (
     roundNumber += 1;
   }
 
-  const gameOver = atomic[cursor];
+  const gameOverRecord = atomic[cursor];
+  const gameOver = gameOverRecord?.line;
   if (!gameOver || gameOver.kind !== "game_over") {
-    throw new Error("Stage 4 transcript must end with a final score line");
+    structureError("transcript must end with a final score line", gameOverRecord);
+  }
+  if (cursor !== atomic.length - 1) {
+    structureError(
+      `final score line must be the last line; found trailing ${formatFoundLine(atomic[cursor + 1])}`,
+      atomic[cursor + 1],
+    );
   }
 
   const finalScoreTranscriptOrder =
@@ -1176,8 +1353,9 @@ const buildFixtureFromAtomic = (
         : null;
 
   if (!finalScoreTranscriptOrder) {
-    throw new Error(
-      `Reported final score ${gameOver.score[0]}:${gameOver.score[1]} does not match cumulative round score ${runningScore[0]}:${runningScore[1]}`,
+    structureError(
+      `reported final score ${gameOver.score[0]}:${gameOver.score[1]} does not match cumulative round score ${runningScore[0]}:${runningScore[1]}`,
+      gameOverRecord,
     );
   }
 
@@ -1192,6 +1370,8 @@ const buildFixtureFromAtomic = (
     outro: [gameOver.transcript],
   };
 
+  validateStage4Fixture(fixture);
+
   console.info(
     `[stage4-parser] ${fixture.label}: parsed ${fixture.rounds.length} rounds, cumulative ${fixture.finalScore[0]}:${fixture.finalScore[1]}, reported ${fixture.reportedFinalScore[0]}:${fixture.reportedFinalScore[1]} (${fixture.finalScoreTranscriptOrder})`,
   );
@@ -1199,12 +1379,18 @@ const buildFixtureFromAtomic = (
   return fixture;
 };
 
+export const parseStage4AtomicTranscript = (
+  raw: string,
+): ReadonlyArray<AtomicLine> => {
+  const lines = normalizeTranscriptLines(raw);
+  return parseAll(atomicTranscript, lines);
+};
+
 export const parseStage4Transcript = (
   raw: string,
   label?: string,
 ): Stage4GoldenFixture => {
-  const lines = normalizeTranscriptLines(raw);
-  const atomic = parseAll(atomicTranscript, lines);
+  const atomic = toAtomicRecords(parseStage4AtomicTranscript(raw));
   return buildFixtureFromAtomic(label, atomic);
 };
 
