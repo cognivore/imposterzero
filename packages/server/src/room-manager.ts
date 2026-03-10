@@ -27,6 +27,7 @@ export interface ManagedRoom {
   readonly maxPlayers: number;
   readonly targetScore: number;
   readonly turnDuration: number;
+  tournament: boolean;
   room: Room;
   botRegistry: BotRegistry;
   botCounter: number;
@@ -69,7 +70,8 @@ export const createManagedRoom = (
     maxPlayers,
     targetScore,
     turnDuration,
-    room: createRoom(game, maxPlayers, targetScore, turnDuration, expansionState),
+    tournament: true,
+    room: createRoom(game, maxPlayers, targetScore, turnDuration, expansionState, true),
     botRegistry: emptyBotRegistry,
     botCounter: 0,
     turnTimer: null,
@@ -121,6 +123,13 @@ export const updateManagedRoomTargetScore = (managed: ManagedRoom, targetScore: 
     targetScore,
     match: { ...managed.room.match, targetScore },
   };
+};
+
+export const updateManagedRoomTournament = (managed: ManagedRoom, tournament: boolean): void => {
+  managed.tournament = tournament;
+  if (managed.room.phase === "lobby") {
+    managed.room = { ...managed.room, tournament };
+  }
 };
 
 const DEFAULT_SIGNATURES: ReadonlyArray<CardName> = ["Aegis", "Exile", "Ancestor"];

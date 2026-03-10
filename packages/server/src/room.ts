@@ -1,4 +1,4 @@
-import type { GameDef, PlayerId, Result, ServerMessage } from "@imposter-zero/types";
+import type { GameDef, PlayerId, Result, ServerMessage, DraftPhaseView } from "@imposter-zero/types";
 import { ok, err, TERMINAL } from "@imposter-zero/types";
 import {
   type IKState,
@@ -7,11 +7,18 @@ import {
   type GameConfig,
   type PlayerArmy,
   type CardName,
+  type DraftState,
   createMatch,
   createExpansionGame,
   createExpansionRound,
   exhaustArmyCardsPostRound,
   buildPlayerArmies,
+  createDraftState,
+  selectSignature,
+  startTournamentDraft,
+  chooseDraftOrder,
+  draftPick,
+  completeStandardSelection,
   applyRoundResult,
   isMatchOver,
   matchWinners,
@@ -50,6 +57,7 @@ export interface LobbyRoom {
   readonly turnDuration: number;
   readonly targetScore: number;
   readonly expansionState: ExpansionState | null;
+  readonly tournament: boolean;
 }
 
 export interface PlayingRoom {
@@ -86,9 +94,8 @@ export interface DraftingRoom {
   readonly turnDuration: number;
   readonly targetScore: number;
   readonly expansionState: ExpansionState;
-  readonly signaturePool: ReadonlyArray<string>;
-  readonly playerSelections: ReadonlyArray<ReadonlyArray<string>>;
-  readonly selectionsNeeded: number;
+  readonly draftState: DraftState;
+  readonly tournament: boolean;
 }
 
 export interface FinishedRoom {
@@ -110,7 +117,9 @@ export type RoomAction =
   | { readonly kind: "ready"; readonly playerId: string; readonly now: number }
   | { readonly kind: "action"; readonly playerId: string; readonly action: IKAction; readonly now: number }
   | { readonly kind: "timeout"; readonly now: number }
-  | { readonly kind: "draft_select"; readonly playerId: string; readonly cards: ReadonlyArray<string>; readonly now: number };
+  | { readonly kind: "draft_select"; readonly playerId: string; readonly cards: ReadonlyArray<string>; readonly now: number }
+  | { readonly kind: "draft_order"; readonly playerId: string; readonly goFirst: boolean; readonly now: number }
+  | { readonly kind: "draft_pick"; readonly playerId: string; readonly card: string; readonly now: number };
 
 export type OutboundMessage = ServerMessage<IKState, IKAction, LobbyState>;
 
@@ -131,6 +140,7 @@ export const createRoom = (
   targetScore: number = 7,
   turnDuration: number = 30_000,
   expansionState: ExpansionState | null = null,
+  tournament: boolean = true,
 ): LobbyRoom => {
   const max = maxPlayers ?? game.gameType.maxPlayers;
   return {
@@ -141,6 +151,7 @@ export const createRoom = (
     turnDuration,
     targetScore,
     expansionState,
+    tournament,
   };
 };
 
@@ -165,6 +176,48 @@ const buildPlayerMapping = (lobby: LobbyState): ReadonlyMap<string, PlayerId> =>
 
 const playerNamesOf = (room: { readonly lobby: LobbyState }): ReadonlyArray<string> =>
   room.lobby.players.map((p) => p.id);
+
+// ---------------------------------------------------------------------------
+// Draft state → per-player message projection
+// ---------------------------------------------------------------------------
+
+export const draftStateToView = (
+  ds: DraftState,
+  playerIdx: PlayerId,
+  tournament: boolean,
+): DraftPhaseView => {
+  const pool = ds.config.signaturePool.map((k) => k.name);
+  switch (ds.phase.tag) {
+    case "selection": {
+      const mySel = ds.playerSelections[playerIdx] ?? [];
+      const selectionsNeeded = tournament ? 1 : ds.config.signaturesPerPlayer;
+      const submitted = mySel.length >= selectionsNeeded;
+      const allSubmitted = ds.playerSelections.every((s) => s.length >= selectionsNeeded);
+      return { tag: "selection", pool, selectionsNeeded, mySelection: mySel, submitted, allSubmitted };
+    }
+    case "reveal":
+      return { tag: "reveal", playerSelections: ds.phase.selections };
+    case "draft_order": {
+      const nonTrueKing = ((ds.trueKing + 1) % ds.numPlayers) as PlayerId;
+      return { tag: "draft_order", faceUp: ds.phase.faceUp, chooser: nonTrueKing, amChooser: playerIdx === nonTrueKing };
+    }
+    case "drafting":
+      return {
+        tag: "drafting",
+        faceUp: ds.phase.faceUp,
+        currentPicker: ds.phase.pickerOrder[ds.phase.currentPickerIdx]!,
+        amCurrentPicker: ds.phase.pickerOrder[ds.phase.currentPickerIdx] === playerIdx,
+        mySignatures: ds.playerSelections[playerIdx] ?? [],
+        picksRemaining: [...ds.phase.picksRemaining],
+      };
+    case "complete":
+      return { tag: "complete", playerSignatures: ds.phase.playerSignatures };
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Round start
+// ---------------------------------------------------------------------------
 
 const startNewRound = (
   room: LobbyRoom | ScoringRoom,
@@ -223,6 +276,10 @@ const startNewRound = (
     ],
   };
 };
+
+// ---------------------------------------------------------------------------
+// Game action + timeout handlers (unchanged)
+// ---------------------------------------------------------------------------
 
 const handleGameAction = (
   room: PlayingRoom,
@@ -393,17 +450,70 @@ const handleTimeout = (
   };
 };
 
-const startDraftPhase = (
+// ---------------------------------------------------------------------------
+// Draft phase handlers — driven by engine DraftState
+// ---------------------------------------------------------------------------
+
+export const perPlayerDraftMessages = (room: DraftingRoom): ReadonlyArray<OutboundMessage> => {
+  const playerNames = playerNamesOf(room);
+  return room.lobby.players.map((_, i) => ({
+    type: "draft_state" as const,
+    tournament: room.tournament,
+    playerNames,
+    draftPhase: draftStateToView(room.draftState, i as PlayerId, room.tournament),
+  }));
+};
+
+const finishDraft = (
+  room: DraftingRoom,
+  ds: DraftState,
+  now: number,
+): RoomTransitionResult => {
+  if (ds.phase.tag !== "complete") {
+    throw new Error("finishDraft called on non-complete draft");
+  }
+  const armies = buildPlayerArmies(
+    room.expansionState.config,
+    ds.phase.playerSignatures as ReadonlyArray<ReadonlyArray<CardName>>,
+  );
+  const updatedExpansion: ExpansionState = {
+    ...room.expansionState,
+    playerArmies: armies,
+  };
+
+  const lobbyRoom: LobbyRoom = {
+    phase: "lobby",
+    lobby: room.lobby,
+    match: room.match,
+    game: room.game,
+    turnDuration: room.turnDuration,
+    targetScore: room.targetScore,
+    expansionState: updatedExpansion,
+    tournament: room.tournament,
+  };
+
+  const roundResult = startNewRound(lobbyRoom, now);
+
+  return {
+    room: roundResult.room,
+    messages: roundResult.messages,
+  };
+};
+
+export const startDraftPhase = (
   room: LobbyRoom,
+  tournament: boolean,
   now: number,
 ): RoomTransitionResult => {
   const numPlayers = room.lobby.players.length;
+  const effectiveTournament = tournament && numPlayers === 2;
   const newMatch = createMatch(numPlayers, room.targetScore);
   const expansion = {
     ...room.expansionState!,
     config: expansionConfigForPlayers(numPlayers),
   };
-  const pool = SIGNATURE_CARD_NAMES as ReadonlyArray<string>;
+
+  const ds = createDraftState(expansion.config, numPlayers, 0 as PlayerId);
 
   const draftingRoom: DraftingRoom = {
     phase: "drafting",
@@ -413,24 +523,17 @@ const startDraftPhase = (
     turnDuration: room.turnDuration,
     targetScore: room.targetScore,
     expansionState: expansion,
-    signaturePool: pool,
-    playerSelections: Array.from({ length: numPlayers }, () => []),
-    selectionsNeeded: expansion.config.signaturesPerPlayer,
+    draftState: ds,
+    tournament: effectiveTournament,
   };
 
   const playerNames = playerNamesOf(room);
-  const msgs: OutboundMessage[] = pool.map((_, i) => ({
-    type: "draft_state" as const,
-    signaturePool: pool,
-    mySelections: [],
-    selectionsNeeded: expansion.config.signaturesPerPlayer,
-    allReady: false,
-    playerNames,
-  }));
 
   return {
     room: draftingRoom,
-    messages: [{ type: "lobby_state", lobby: room.lobby }, ...msgs],
+    messages: [
+      { type: "lobby_state", lobby: room.lobby },
+    ],
   };
 };
 
@@ -440,85 +543,126 @@ const handleDraftSelect = (
   cards: ReadonlyArray<string>,
   now: number,
 ): Result<RoomError, RoomTransitionResult> => {
+  if (room.draftState.phase.tag !== "selection") {
+    return err({ kind: "action_error", message: "Not in selection phase" });
+  }
+
   const playerMapping = buildPlayerMapping(room.lobby);
   const playerIdx = playerMapping.get(playerId);
   if (playerIdx === undefined) {
     return err({ kind: "unknown_player", playerId });
   }
 
-  if (cards.length !== room.selectionsNeeded) {
-    return err({ kind: "action_error", message: `Must select exactly ${room.selectionsNeeded} cards` });
+  const needed = room.tournament ? 1 : room.draftState.config.signaturesPerPlayer;
+  if (cards.length !== needed) {
+    return err({ kind: "action_error", message: `Must select exactly ${needed} card(s)` });
   }
 
-  const validNames = new Set(room.signaturePool);
+  const validNames = new Set<string>(room.draftState.config.signaturePool.map((k) => k.name));
   for (const card of cards) {
     if (!validNames.has(card)) {
       return err({ kind: "action_error", message: `Invalid signature card: ${card}` });
     }
   }
 
-  const newSelections = room.playerSelections.map((sel, i) =>
-    i === playerIdx ? [...cards] : [...sel],
-  );
+  let ds = selectSignature(room.draftState, playerIdx, cards as unknown as ReadonlyArray<CardName>);
 
-  const allReady = newSelections.every((sel) => sel.length === room.selectionsNeeded);
+  const allSubmitted = ds.playerSelections.every((s) => s.length >= needed);
   const playerNames = playerNamesOf(room);
 
-  if (allReady) {
-    const armies = buildPlayerArmies(
-      room.expansionState.config,
-      newSelections as ReadonlyArray<ReadonlyArray<CardName>>,
-    );
-    const updatedExpansion: ExpansionState = {
-      ...room.expansionState,
-      playerArmies: armies,
-    };
-
-    const lobbyRoom: LobbyRoom = {
-      phase: "lobby",
-      lobby: room.lobby,
-      match: room.match,
-      game: room.game,
-      turnDuration: room.turnDuration,
-      targetScore: room.targetScore,
-      expansionState: updatedExpansion,
-    };
-
-    const roundResult = startNewRound(lobbyRoom, now);
-
-    return ok({
-      room: roundResult.room,
-      messages: [
-        {
-          type: "draft_state",
-          signaturePool: room.signaturePool,
-          mySelections: [],
-          selectionsNeeded: 0,
-          allReady: true,
-          playerNames,
-        },
-        ...roundResult.messages,
-      ],
-    });
+  if (allSubmitted) {
+    if (room.tournament) {
+      ds = startTournamentDraft(ds);
+    } else {
+      ds = completeStandardSelection(ds);
+    }
   }
 
-  const updatedRoom: DraftingRoom = {
-    ...room,
-    playerSelections: newSelections,
-  };
+  if (ds.phase.tag === "complete") {
+    return ok(finishDraft({ ...room, draftState: ds }, ds, now));
+  }
+
+  const updatedRoom: DraftingRoom = { ...room, draftState: ds };
 
   return ok({
     room: updatedRoom,
-    messages: [{
-      type: "draft_state",
-      signaturePool: room.signaturePool,
-      mySelections: [],
-      selectionsNeeded: room.selectionsNeeded,
-      allReady: false,
-      playerNames,
-    }],
+    messages: [],
   });
 };
+
+const handleDraftOrderChoice = (
+  room: DraftingRoom,
+  playerId: string,
+  goFirst: boolean,
+  now: number,
+): Result<RoomError, RoomTransitionResult> => {
+  if (room.draftState.phase.tag !== "draft_order") {
+    return err({ kind: "action_error", message: "Not in draft_order phase" });
+  }
+
+  const playerMapping = buildPlayerMapping(room.lobby);
+  const playerIdx = playerMapping.get(playerId);
+  if (playerIdx === undefined) {
+    return err({ kind: "unknown_player", playerId });
+  }
+
+  const nonTrueKing = ((room.draftState.trueKing + 1) % room.draftState.numPlayers) as PlayerId;
+  if (playerIdx !== nonTrueKing) {
+    return err({ kind: "action_error", message: "Only the non-True King chooses draft order" });
+  }
+
+  const ds = chooseDraftOrder(room.draftState, goFirst);
+  const updatedRoom: DraftingRoom = { ...room, draftState: ds };
+
+  return ok({
+    room: updatedRoom,
+    messages: [],
+  });
+};
+
+const handleDraftPick = (
+  room: DraftingRoom,
+  playerId: string,
+  card: string,
+  now: number,
+): Result<RoomError, RoomTransitionResult> => {
+  if (room.draftState.phase.tag !== "drafting") {
+    return err({ kind: "action_error", message: "Not in drafting phase" });
+  }
+
+  const playerMapping = buildPlayerMapping(room.lobby);
+  const playerIdx = playerMapping.get(playerId);
+  if (playerIdx === undefined) {
+    return err({ kind: "unknown_player", playerId });
+  }
+
+  const currentPicker = room.draftState.phase.pickerOrder[room.draftState.phase.currentPickerIdx]!;
+  if (playerIdx !== currentPicker) {
+    return err({ kind: "action_error", message: "Not your turn to pick" });
+  }
+
+  if (!room.draftState.phase.faceUp.includes(card as CardName)) {
+    return err({ kind: "action_error", message: `Card ${card} is not in the face-up pool` });
+  }
+
+  const ds = draftPick(room.draftState, card as CardName);
+  const playerNames = playerNamesOf(room);
+
+  if (ds.phase.tag === "complete") {
+    return ok(finishDraft({ ...room, draftState: ds }, ds, now));
+  }
+
+  const updatedRoom: DraftingRoom = { ...room, draftState: ds };
+
+  return ok({
+    room: updatedRoom,
+    messages: [],
+  });
+};
+
+// ---------------------------------------------------------------------------
+// Main room transition dispatcher
+// ---------------------------------------------------------------------------
 
 export const roomTransition = (
   room: Room,
@@ -537,6 +681,20 @@ export const roomTransition = (
       return err({ kind: "not_in_game" });
     }
     return handleDraftSelect(room, action.playerId, action.cards, now);
+  }
+
+  if (action.kind === "draft_order") {
+    if (room.phase !== "drafting") {
+      return err({ kind: "not_in_game" });
+    }
+    return handleDraftOrderChoice(room, action.playerId, action.goFirst, now);
+  }
+
+  if (action.kind === "draft_pick") {
+    if (room.phase !== "drafting") {
+      return err({ kind: "not_in_game" });
+    }
+    return handleDraftPick(room, action.playerId, action.card, now);
   }
 
   if (action.kind === "action") {
@@ -597,7 +755,7 @@ export const roomTransition = (
     };
 
     if (lobbyRoom.expansionState) {
-      const draftResult = startDraftPhase(lobbyRoom, now);
+      const draftResult = startDraftPhase(lobbyRoom, lobbyRoom.tournament, now);
       return ok({
         room: draftResult.room,
         messages: [{ type: "lobby_state", lobby: newLobby }, ...draftResult.messages],

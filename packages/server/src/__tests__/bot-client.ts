@@ -240,23 +240,41 @@ export const createBotsInRoom = async (
  * `game_start`. After this call the next message each bot receives will be the
  * initial `state`.
  */
+type DraftView = { tag: string; selectionsNeeded?: number; pool?: string[]; faceUp?: string[]; amChooser?: boolean; amCurrentPicker?: boolean; submitted?: boolean };
+
+const extractDraftPhase = (m: AnyServerMessage): DraftView | null => {
+  if (m.type !== "draft_state") return null;
+  return (m as Record<string, unknown>).draftPhase as DraftView;
+};
+
+const respondToDraft = (bot: BotClient, dp: DraftView, picks: readonly string[]): void => {
+  if (dp.tag === "selection" && dp.selectionsNeeded && !dp.submitted) {
+    const pool = dp.pool ?? picks;
+    bot.fireDraftSelect(pool.slice(0, dp.selectionsNeeded));
+  } else if (dp.tag === "draft_order" && dp.amChooser) {
+    bot.send({ type: "draft_order", goFirst: true });
+  } else if (dp.tag === "drafting" && dp.amCurrentPicker && dp.faceUp && dp.faceUp.length > 0) {
+    bot.send({ type: "draft_pick", card: dp.faceUp[0]! });
+  }
+};
+
 export const readyAllAndDraft = async (
   bots: BotClient[],
   draftPicks: readonly string[] = ["Aegis", "Exile", "Ancestor"],
 ): Promise<void> => {
   for (const bot of bots) bot.fireReady();
 
-  for (const bot of bots) {
-    await bot.drainUntil((m) => m.type === "draft_state");
-  }
+  const draftLoop = async (bot: BotClient): Promise<void> => {
+    for (let step = 0; step < 30; step++) {
+      if (bot.received.some((m) => m.type === "game_start")) return;
+      const msg = await bot.drainUntil((m) => m.type === "game_start" || m.type === "draft_state");
+      if (msg.type === "game_start") return;
+      const dp = extractDraftPhase(msg);
+      if (dp) respondToDraft(bot, dp, draftPicks);
+    }
+  };
 
-  for (const bot of bots) {
-    bot.fireDraftSelect(draftPicks);
-  }
-
-  for (const bot of bots) {
-    await bot.drainUntil((m) => m.type === "game_start");
-  }
+  await Promise.all(bots.map(draftLoop));
 };
 
 export const closeBots = (bots: BotClient[]): void => {

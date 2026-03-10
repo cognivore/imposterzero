@@ -26,6 +26,7 @@ export {
   type Token,
   mkToken,
   type RoomSummary,
+  type DraftPhaseView,
   type ClientMessage,
   type ServerMessage,
   type ServerMessageType,

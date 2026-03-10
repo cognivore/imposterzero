@@ -31,7 +31,10 @@ import {
   pruneEmptyRooms,
   updateManagedRoomTargetScore,
   updateManagedRoomExpansion,
+  updateManagedRoomTournament,
 } from "./room-manager.js";
+import { draftStateToView, perPlayerDraftMessages } from "./room.js";
+import type { DraftingRoom } from "./room.js";
 
 export interface ServerOptions {
   readonly port?: number;
@@ -96,6 +99,24 @@ export const startServer = (
       for (const pid of pids) {
         const ws = wsForPlayer(pid);
         if (ws !== null && ws.readyState === WebSocket.OPEN) ws.send(data);
+      }
+    }
+  };
+
+  const broadcastDraftState = (managed: ManagedRoom): void => {
+    if (managed.room.phase !== "drafting") return;
+    const drafting = managed.room as DraftingRoom;
+    const msgs = perPlayerDraftMessages(drafting);
+    const pids = playersInRoom(store, managed.id);
+    for (let i = 0; i < drafting.lobby.players.length; i++) {
+      const playerName = drafting.lobby.players[i]!.id;
+      const entry = registry.allConnected().find((e) => e.name === playerName);
+      if (!entry) continue;
+      const pid = entry.playerId;
+      if (!pids.includes(pid)) continue;
+      const ws = wsForPlayer(pid);
+      if (ws !== null && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(msgs[i]));
       }
     }
   };
@@ -184,32 +205,47 @@ export const startServer = (
   };
 
   const scheduleBotDraft = (m: ManagedRoom): void => {
-    if (m.room.phase !== "drafting") return;
-    const drafting = m.room as import("./room.js").DraftingRoom;
-    const defaultPicks = ["Aegis", "Exile", "Ancestor"];
-
-    for (const player of drafting.lobby.players) {
-      if (!isBot(m.botRegistry, player.id)) continue;
-      const playerIdx = drafting.lobby.players.findIndex((p) => p.id === player.id);
-      if (playerIdx < 0) continue;
-      if ((drafting.playerSelections[playerIdx]?.length ?? 0) >= drafting.selectionsNeeded) continue;
-
+    for (let guard = 0; guard < 20; guard++) {
+      if (m.room.phase !== "drafting") break;
+      const drafting = m.room as import("./room.js").DraftingRoom;
+      const ds = drafting.draftState;
       const now = Date.now();
-      const result = roomTransition(m.room, {
-        kind: "draft_select",
-        playerId: player.id,
-        cards: defaultPicks.slice(0, drafting.selectionsNeeded),
-        now,
-      }, now);
-      if (result.ok) {
-        m.room = result.value.room;
-        broadcastToRoom(m, result.value.messages);
+      let acted = false;
+
+      if (ds.phase.tag === "selection") {
+        const needed = drafting.tournament ? 1 : ds.config.signaturesPerPlayer;
+        const pool = ds.config.signaturePool.map((k) => k.name);
+        for (const player of drafting.lobby.players) {
+          if (!isBot(m.botRegistry, player.id)) continue;
+          const idx = drafting.lobby.players.findIndex((p) => p.id === player.id);
+          if (idx < 0 || (ds.playerSelections[idx]?.length ?? 0) >= needed) continue;
+          const picks = pool.slice(0, needed);
+          const result = roomTransition(m.room, { kind: "draft_select", playerId: player.id, cards: picks, now }, now);
+          if (result.ok) { m.room = result.value.room; broadcastDraftState(m); broadcastToRoom(m, result.value.messages); acted = true; }
+        }
+      } else if (ds.phase.tag === "draft_order") {
+        const nonTrueKing = ((ds.trueKing + 1) % ds.numPlayers) as PlayerId;
+        const chooserId = drafting.lobby.players[nonTrueKing]?.id;
+        if (chooserId && isBot(m.botRegistry, chooserId)) {
+          const result = roomTransition(m.room, { kind: "draft_order", playerId: chooserId, goFirst: true, now }, now);
+          if (result.ok) { m.room = result.value.room; broadcastDraftState(m); broadcastToRoom(m, result.value.messages); acted = true; }
+        }
+      } else if (ds.phase.tag === "drafting") {
+        const currentPicker = ds.phase.pickerOrder[ds.phase.currentPickerIdx]!;
+        const pickerId = drafting.lobby.players[currentPicker]?.id;
+        if (pickerId && isBot(m.botRegistry, pickerId) && ds.phase.faceUp.length > 0) {
+          const card = ds.phase.faceUp[0]!;
+          const result = roomTransition(m.room, { kind: "draft_pick", playerId: pickerId, card, now }, now);
+          if (result.ok) { m.room = result.value.room; broadcastDraftState(m); broadcastToRoom(m, result.value.messages); acted = true; }
+        }
       }
+
+      if (!acted) break;
     }
 
-    if (m.room.phase === "playing") {
-      const playing = m.room as PlayingRoom;
-      (m.room as { session: typeof playing.session }).session = {
+    if ((m.room as unknown as { phase: string }).phase === "playing") {
+      const playing = m.room as unknown as PlayingRoom;
+      (m.room as unknown as { session: typeof playing.session }).session = {
         ...playing.session,
         turnDeadline: Date.now() + playing.session.turnDuration,
       };
@@ -273,7 +309,7 @@ export const startServer = (
 
   // ---- Room-scoped state snapshot (for reconnect) ----
 
-  const sendStateSnapshot = (ws: WebSocket, m: ManagedRoom): void => {
+  const sendStateSnapshot = (ws: WebSocket, m: ManagedRoom, playerName?: string): void => {
     const playerNames = m.room.lobby.players.map((p) => p.id);
     if (m.room.phase === "playing") {
       const playing = m.room as PlayingRoom;
@@ -299,14 +335,15 @@ export const startServer = (
       }
     } else if (m.room.phase === "drafting") {
       const drafting = m.room as import("./room.js").DraftingRoom;
+      const playerIdx = playerName !== undefined
+        ? drafting.lobby.players.findIndex((p) => p.id === playerName)
+        : -1;
       sendJson(ws, { type: "lobby_state", lobby: m.room.lobby });
       sendJson(ws, {
         type: "draft_state",
-        signaturePool: drafting.signaturePool,
-        mySelections: [],
-        selectionsNeeded: drafting.selectionsNeeded,
-        allReady: false,
+        tournament: drafting.tournament,
         playerNames,
+        draftPhase: draftStateToView(drafting.draftState, (playerIdx >= 0 ? playerIdx : 0) as PlayerId, drafting.tournament),
       });
     } else {
       sendJson(ws, { type: "lobby_state", lobby: m.room.lobby });
@@ -335,6 +372,7 @@ export const startServer = (
     }
     m.room = readyResult.value.room;
     broadcastToRoom(m, readyResult.value.messages);
+    broadcastDraftState(m);
 
     advanceIfScoring(m, now);
     scheduleTurnTimer(m);
@@ -351,8 +389,8 @@ export const startServer = (
     const managed = findRoomOfPlayer(store, entry.playerId);
     if (managed) {
       sendJson(ws, { type: "room_joined", roomId: managed.id });
-      sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy, expansion: true });
-      sendStateSnapshot(ws, managed);
+      sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy, tournament: managed.tournament });
+      sendStateSnapshot(ws, managed, entry.name ?? undefined);
     } else {
       sendRoomListTo(ws);
     }
@@ -433,7 +471,7 @@ export const startServer = (
         addPlayerToRoom(store, playerId, managed.id);
 
         sendJson(ws, { type: "room_created", roomId: managed.id });
-        sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy, expansion: true });
+        sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy, tournament: managed.tournament });
         sendJson(ws, { type: "lobby_state", lobby: managed.room.lobby });
         broadcastRoomListToBrowsers();
         return;
@@ -466,7 +504,7 @@ export const startServer = (
         addPlayerToRoom(store, playerId, managed.id);
 
         sendJson(ws, { type: "room_joined", roomId: managed.id });
-        sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy, expansion: true });
+        sendJson(ws, { type: "room_settings", targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy, tournament: managed.tournament });
         broadcastToRoom(managed, result.value.messages);
         broadcastRoomListToBrowsers();
         return;
@@ -519,7 +557,10 @@ export const startServer = (
           const newTarget = Math.min(99, Math.max(1, Number(msg.targetScore) || 7));
           updateManagedRoomTargetScore(managed, newTarget);
         }
-        const settingsMsg = { type: "room_settings" as const, targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy, expansion: true };
+        if (msg.tournament !== undefined) {
+          updateManagedRoomTournament(managed, msg.tournament === true);
+        }
+        const settingsMsg = { type: "room_settings" as const, targetScore: managed.targetScore, maxPlayers: managed.maxPlayers, hostId: managed.createdBy, tournament: managed.tournament };
         const pids = playersInRoom(store, managed.id);
         for (const pid of pids) {
           const w = wsForPlayer(pid);
@@ -565,6 +606,7 @@ export const startServer = (
         }
         managed.room = result.value.room;
         broadcastToRoom(managed, result.value.messages);
+        broadcastDraftState(managed);
         advanceIfScoring(managed, msgNow);
         scheduleTurnTimer(managed);
         scheduleBotTurn(managed);
@@ -572,18 +614,22 @@ export const startServer = (
         return;
       }
 
-      if (msg.type === "draft_select") {
+      if (msg.type === "draft_select" || msg.type === "draft_order" || msg.type === "draft_pick") {
         if (managed.room.phase !== "drafting") {
           sendJson(ws, { type: "error", message: "not_in_draft" });
           return;
         }
-        const cards = msg.cards as ReadonlyArray<string>;
-        const result = roomTransition(managed.room, { kind: "draft_select", playerId: name, cards, now: msgNow }, msgNow);
+        const action =
+          msg.type === "draft_select" ? { kind: "draft_select" as const, playerId: name, cards: msg.cards as ReadonlyArray<string>, now: msgNow }
+          : msg.type === "draft_order" ? { kind: "draft_order" as const, playerId: name, goFirst: msg.goFirst === true, now: msgNow }
+          : { kind: "draft_pick" as const, playerId: name, card: msg.card as string, now: msgNow };
+        const result = roomTransition(managed.room, action, msgNow);
         if (!result.ok) {
           sendJson(ws, { type: "error", message: result.error.kind });
           return;
         }
         managed.room = result.value.room;
+        broadcastDraftState(managed);
         broadcastToRoom(managed, result.value.messages);
         scheduleTurnTimer(managed);
         scheduleBotTurn(managed);

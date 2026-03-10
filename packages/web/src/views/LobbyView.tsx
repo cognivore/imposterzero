@@ -23,12 +23,9 @@ export const LobbyView: React.FC<Props> = ({ phase, send }) => {
     if (next !== phase.targetScore) send({ type: "update_settings", targetScore: next });
   };
 
-  const handleHandHelperToggle = () => {
-    send({ type: "update_settings", handHelper: !phase.handHelper } as never);
+  const handleTournamentToggle = () => {
+    send({ type: "update_settings", tournament: !phase.tournament });
   };
-
-
-
 
   return (
     <div className="lobby">
@@ -68,17 +65,17 @@ export const LobbyView: React.FC<Props> = ({ phase, send }) => {
               <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer" }}>
                 <input
                   type="checkbox"
-                  checked={phase.handHelper}
-                  onChange={handleHandHelperToggle}
+                  checked={phase.tournament}
+                  onChange={handleTournamentToggle}
                   style={{ width: 16, height: 16 }}
                 />
-                <span className="setting-label">Hand Helper</span>
+                <span className="setting-label">Tournament Draft</span>
               </label>
             </>
           ) : (
             <>
               <span className="setting-pill">First to {phase.targetScore}</span>
-              {phase.handHelper && <span className="setting-pill">Hand Helper</span>}
+              <span className="setting-pill">{phase.tournament ? "Tournament" : "Standard"} Draft</span>
             </>
           )}
         </div>

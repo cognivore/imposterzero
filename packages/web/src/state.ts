@@ -1,5 +1,5 @@
 import { useReducer } from "react";
-import type { PlayerId } from "@imposter-zero/types";
+import type { PlayerId, DraftPhaseView } from "@imposter-zero/types";
 import type { IKState, IKAction, IKCrownAction, IKSetupAction, IKPlayAction, IKEffectChoiceAction, IKMusteringAction } from "@imposter-zero/engine";
 import { isMusteringAction as isMusteringActionEngine } from "@imposter-zero/engine";
 import type { LobbyState, RoomSummary } from "./lobby-types.js";
@@ -30,8 +30,7 @@ export type ClientPhase =
       readonly targetScore: number;
       readonly maxPlayers: number;
       readonly hostId: string;
-      readonly handHelper: boolean;
-      readonly expansion: boolean;
+      readonly tournament: boolean;
     }
   | {
       readonly _tag: "drafting";
@@ -40,11 +39,9 @@ export type ClientPhase =
       readonly myIndex: PlayerId | null;
       readonly token: string;
       readonly roomId: string;
-      readonly signaturePool: ReadonlyArray<string>;
-      readonly mySelections: ReadonlyArray<string>;
-      readonly selectionsNeeded: number;
-      readonly allReady: boolean;
+      readonly tournament: boolean;
       readonly playerNames: readonly string[];
+      readonly draftPhase: DraftPhaseView;
     }
   | {
       readonly _tag: "crown";
@@ -100,7 +97,6 @@ export type ClientPhase =
       readonly activePlayer: PlayerId;
       readonly numPlayers: number;
       readonly playerNames: readonly string[];
-      readonly handHelper: boolean;
       readonly turnDeadline: number;
     }
   | {
@@ -115,7 +111,6 @@ export type ClientPhase =
       readonly activePlayer: PlayerId;
       readonly numPlayers: number;
       readonly playerNames: readonly string[];
-      readonly handHelper: boolean;
       readonly turnDeadline: number;
     }
   | {
@@ -218,16 +213,7 @@ const numPlayersOf = (phase: ClientPhase, fallback: number): number => {
   }
 };
 
-const handHelperOf = (phase: ClientPhase): boolean => {
-  switch (phase._tag) {
-    case "lobby":
-    case "play":
-    case "resolving":
-      return phase.handHelper;
-    default:
-      return false;
-  }
-};
+const handHelperOf = (_phase: ClientPhase): boolean => false;
 
 // ---------------------------------------------------------------------------
 // Action type guards — proper narrowing instead of `as` casts
@@ -299,8 +285,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
         targetScore: 7,
         maxPlayers: 4,
         hostId: "",
-        handHelper: false,
-        expansion: false,
+        tournament: true,
       };
     }
 
@@ -311,8 +296,7 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
           targetScore: msg.targetScore,
           maxPlayers: msg.maxPlayers,
           hostId: msg.hostId,
-          handHelper: (msg as Record<string, unknown>).handHelper === true ? true : phase.handHelper,
-          expansion: msg.expansion === true,
+          tournament: msg.tournament,
         };
       }
       return phase;
@@ -322,8 +306,8 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
       const { me, token, name } = identity(phase);
       const rid = roomIdOf(phase);
       const lobbySettings = phase._tag === "lobby"
-        ? { targetScore: phase.targetScore, maxPlayers: phase.maxPlayers, hostId: phase.hostId, handHelper: phase.handHelper, expansion: phase.expansion }
-        : { targetScore: 7, maxPlayers: 4, hostId: "", handHelper: false, expansion: false };
+        ? { targetScore: phase.targetScore, maxPlayers: phase.maxPlayers, hostId: phase.hostId, tournament: phase.tournament }
+        : { targetScore: 7, maxPlayers: 4, hostId: "", tournament: true };
       return {
         _tag: "lobby",
         me,
@@ -349,11 +333,9 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
         myIndex: phase._tag === "lobby" ? phase.myIndex : (phase._tag === "drafting" ? phase.myIndex : null),
         token,
         roomId: rid,
-        signaturePool: msg.signaturePool,
-        mySelections: msg.mySelections,
-        selectionsNeeded: msg.selectionsNeeded,
-        allReady: msg.allReady,
+        tournament: msg.tournament,
         playerNames: msg.playerNames,
+        draftPhase: msg.draftPhase,
       };
     }
 
@@ -363,7 +345,6 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
       const numPlayers = msg.state.numPlayers;
       const rid = roomIdOf(phase);
       const playerNames = msg.playerNames ?? playerNamesOfPhase(phase, []);
-      const handHelper = handHelperOf(phase);
 
       const turnDeadline = msg.turnDeadline;
 
@@ -431,7 +412,6 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
           activePlayer: msg.activePlayer,
           numPlayers,
           playerNames,
-          handHelper,
           turnDeadline,
         };
       }
@@ -448,7 +428,6 @@ const reduce = (phase: ClientPhase, action: GameAction): ClientPhase => {
         activePlayer: msg.activePlayer,
         numPlayers,
         playerNames,
-        handHelper,
         turnDeadline,
       };
     }

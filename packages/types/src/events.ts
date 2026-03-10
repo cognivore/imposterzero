@@ -38,14 +38,52 @@ export type ClientMessage<A = unknown> =
   | { readonly type: "create_room"; readonly maxPlayers: number; readonly targetScore: number }
   | { readonly type: "join_room"; readonly roomId: string }
   | { readonly type: "leave_room" }
-  | { readonly type: "update_settings"; readonly targetScore?: number; readonly expansion?: boolean }
+  | { readonly type: "update_settings"; readonly targetScore?: number; readonly tournament?: boolean }
   | { readonly type: "draft_select"; readonly cards: ReadonlyArray<string> }
+  | { readonly type: "draft_order"; readonly goFirst: boolean }
+  | { readonly type: "draft_pick"; readonly card: string }
   | { readonly type: "join"; readonly gameId: string }
   | { readonly type: "ready"; readonly ready: boolean }
   | { readonly type: "action"; readonly action: A }
   | { readonly type: "auth"; readonly token?: string; readonly name?: string }
   | { readonly type: "add_bot" }
   | { readonly type: "observe" };
+
+// ---------------------------------------------------------------------------
+// Draft phase views (per-player projections of the engine DraftState)
+// ---------------------------------------------------------------------------
+
+export type DraftPhaseView =
+  | {
+      readonly tag: "selection";
+      readonly pool: ReadonlyArray<string>;
+      readonly selectionsNeeded: number;
+      readonly mySelection: ReadonlyArray<string>;
+      readonly submitted: boolean;
+      readonly allSubmitted: boolean;
+    }
+  | {
+      readonly tag: "reveal";
+      readonly playerSelections: ReadonlyArray<ReadonlyArray<string>>;
+    }
+  | {
+      readonly tag: "draft_order";
+      readonly faceUp: ReadonlyArray<string>;
+      readonly chooser: PlayerId;
+      readonly amChooser: boolean;
+    }
+  | {
+      readonly tag: "drafting";
+      readonly faceUp: ReadonlyArray<string>;
+      readonly currentPicker: PlayerId;
+      readonly amCurrentPicker: boolean;
+      readonly mySignatures: ReadonlyArray<string>;
+      readonly picksRemaining: ReadonlyArray<number>;
+    }
+  | {
+      readonly tag: "complete";
+      readonly playerSignatures: ReadonlyArray<ReadonlyArray<string>>;
+    };
 
 // ---------------------------------------------------------------------------
 // Server -> Client
@@ -57,16 +95,14 @@ export type ServerMessage<S = unknown, A = unknown, L = unknown> =
   | { readonly type: "room_list"; readonly rooms: ReadonlyArray<RoomSummary> }
   | { readonly type: "room_created"; readonly roomId: string }
   | { readonly type: "room_joined"; readonly roomId: string }
-  | { readonly type: "room_settings"; readonly targetScore: number; readonly maxPlayers: number; readonly hostId: string; readonly expansion?: boolean }
+  | { readonly type: "room_settings"; readonly targetScore: number; readonly maxPlayers: number; readonly hostId: string; readonly tournament: boolean }
   | { readonly type: "lobby_state"; readonly lobby: L }
   | { readonly type: "game_start"; readonly numPlayers: number }
   | {
       readonly type: "draft_state";
-      readonly signaturePool: ReadonlyArray<string>;
-      readonly mySelections: ReadonlyArray<string>;
-      readonly selectionsNeeded: number;
-      readonly allReady: boolean;
+      readonly tournament: boolean;
       readonly playerNames: ReadonlyArray<string>;
+      readonly draftPhase: DraftPhaseView;
     }
   | {
       readonly type: "state";

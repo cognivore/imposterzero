@@ -375,89 +375,209 @@ const CourtArea: React.FC<{ readonly phase: InGamePhase }> = ({ phase }) => {
 // PrimaryDialog — phase-specific main interaction area
 // ---------------------------------------------------------------------------
 
+const SIGNATURE_DESCRIPTIONS: Record<string, string> = {
+  Flagbearer: "Value 1. Disgrace self to Recall + Rally twice.",
+  Stranger: "Value 2. Copy Reactions in hand; copy Court card on play.",
+  Aegis: "Value 3. Steadfast. Play on any card; Disgrace in Court.",
+  Ancestor: "Value 4. Play on Royalty; Recall + Rally. Elders gain +3.",
+  Informant: "Value 4. Guess Dungeon card name; take it or Rally.",
+  Nakturn: "Value 4. Bluff game; opponent guesses, Condemn if wrong.",
+  Lockshift: "Value 5. Reveal all Dungeons; return them to hands.",
+  Conspiracist: "Value 6. Steadfast. Grant Steadfast +1 to next plays.",
+  Exile: "Value 8. Steadfast. Mute all on play; weaker vs high Court.",
+};
+
+const DraftCardGrid: React.FC<{
+  readonly cards: ReadonlyArray<string>;
+  readonly selected: ReadonlySet<string>;
+  readonly maxSelections: number;
+  readonly disabled: boolean;
+  readonly onToggle: (name: string) => void;
+}> = ({ cards, selected, maxSelections, disabled, onToggle }) => (
+  <div className="draft-pool">
+    {cards.map((name: string) => {
+      const isSelected = selected.has(name);
+      const canSelect = !disabled && (isSelected || selected.size < maxSelections);
+      return (
+        <div
+          key={name}
+          className={`draft-card ${isSelected ? "draft-card--selected" : ""} ${!canSelect && !isSelected ? "draft-card--disabled" : ""}`}
+          onClick={() => { if (canSelect || isSelected) onToggle(name); }}
+        >
+          <div className="draft-card__name">{name}</div>
+          <div className="draft-card__desc">{SIGNATURE_DESCRIPTIONS[name] ?? ""}</div>
+        </div>
+      );
+    })}
+  </div>
+);
+
 const DraftContent: React.FC<{
   readonly phase: Extract<InGamePhase, { readonly _tag: "drafting" }>;
   readonly send: (msg: IKClientMessage) => void;
 }> = ({ phase, send }) => {
-  const { signaturePool, mySelections, selectionsNeeded, allReady } = phase;
-  const [selected, setSelected] = useState<Set<string>>(new Set(mySelections));
-  const [submitted, setSubmitted] = useState(mySelections.length > 0);
+  const dp = phase.draftPhase;
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(dp.tag === "selection" ? dp.mySelection : []),
+  );
+  const [submitted, setSubmitted] = useState(
+    () => dp.tag === "selection" && dp.submitted,
+  );
 
-  const SIGNATURE_DESCRIPTIONS: Record<string, string> = {
-    Flagbearer: "Value 1. Disgrace self to Recall + Rally twice.",
-    Stranger: "Value 2. Copy Reactions in hand; copy Court card on play.",
-    Aegis: "Value 3. Steadfast. Play on any card; Disgrace in Court.",
-    Ancestor: "Value 4. Play on Royalty; Recall + Rally. Elders gain +3.",
-    Informant: "Value 4. Guess Dungeon card name; take it or Rally.",
-    Nakturn: "Value 4. Bluff game; opponent guesses, Condemn if wrong.",
-    Lockshift: "Value 5. Reveal all Dungeons; return them to hands.",
-    Conspiracist: "Value 6. Steadfast. Grant Steadfast +1 to next plays.",
-    Exile: "Value 8. Steadfast. Mute all on play; weaker vs high Court.",
-  };
+  useEffect(() => {
+    if (dp.tag === "selection") {
+      if (dp.mySelection.length > 0) setSelected(new Set(dp.mySelection));
+      setSubmitted(dp.submitted);
+    }
+  }, [dp]);
 
   const toggleCard = useCallback((name: string) => {
     if (submitted) return;
+    if (dp.tag !== "selection") return;
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(name)) {
-        next.delete(name);
-      } else if (next.size < selectionsNeeded) {
-        next.add(name);
-      }
+      if (next.has(name)) next.delete(name);
+      else if (next.size < dp.selectionsNeeded) next.add(name);
       return next;
     });
-  }, [submitted, selectionsNeeded]);
+  }, [submitted, dp]);
 
   const handleSubmit = useCallback(() => {
-    if (selected.size !== selectionsNeeded) return;
+    if (dp.tag !== "selection") return;
+    if (selected.size !== dp.selectionsNeeded) return;
     send({ type: "draft_select", cards: [...selected] });
     setSubmitted(true);
-  }, [selected, selectionsNeeded, send]);
+  }, [selected, dp, send]);
 
-  if (allReady) {
+  if (dp.tag === "selection") {
+    const title = phase.tournament
+      ? "Choose Your Secret Signature"
+      : "Select Your Signature Cards";
+    const subtitle = submitted
+      ? "Waiting for opponent..."
+      : phase.tournament
+        ? `Pick 1 card to keep secret (${selected.size}/1)`
+        : `Choose ${dp.selectionsNeeded} cards for your Army (${selected.size}/${dp.selectionsNeeded})`;
     return (
       <div className="tt-dialog-content">
-        <h2 className="tt-phase-title">Armies Assembled</h2>
-        <p className="tt-phase-subtitle">Starting the match...</p>
+        <h2 className="tt-phase-title">{title}</h2>
+        <p className="tt-phase-subtitle">{subtitle}</p>
+        <DraftCardGrid
+          cards={[...dp.pool]}
+          selected={selected}
+          maxSelections={dp.selectionsNeeded}
+          disabled={submitted}
+          onToggle={toggleCard}
+        />
+        {!submitted && (
+          <div className="draft-actions" style={{ marginTop: "var(--space-md)" }}>
+            <button
+              className="btn btn-primary"
+              disabled={selected.size !== dp.selectionsNeeded}
+              onClick={handleSubmit}
+            >
+              Confirm Selection
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (dp.tag === "reveal") {
+    return (
+      <div className="tt-dialog-content">
+        <h2 className="tt-phase-title">Signatures Revealed</h2>
+        <p className="tt-phase-subtitle">Both players reveal their secret picks</p>
+        <div className="draft-reveal">
+          {dp.playerSelections.map((sels, i) => (
+            <div key={i} className="draft-reveal__player">
+              <span className="draft-reveal__name">{phase.playerNames[i] ?? `Player ${i}`}</span>
+              <div className="draft-reveal__cards">
+                {sels.map((name) => (
+                  <span key={name} className="draft-reveal__card">{name}</span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (dp.tag === "draft_order") {
+    return (
+      <div className="tt-dialog-content">
+        <h2 className="tt-phase-title">Draft Pool</h2>
+        <p className="tt-phase-subtitle">
+          {dp.amChooser
+            ? "Choose whether to pick first or second"
+            : "Waiting for opponent to choose pick order..."}
+        </p>
+        <DraftCardGrid cards={[...dp.faceUp]} selected={new Set()} maxSelections={0} disabled onToggle={() => {}} />
+        {dp.amChooser && (
+          <div className="draft-actions" style={{ marginTop: "var(--space-md)", gap: "var(--space-sm)", display: "flex" }}>
+            <button className="btn btn-primary" onClick={() => send({ type: "draft_order", goFirst: true })}>
+              Pick First
+            </button>
+            <button className="btn btn-secondary" onClick={() => send({ type: "draft_order", goFirst: false })}>
+              Pick Second
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (dp.tag === "drafting") {
+    return (
+      <div className="tt-dialog-content">
+        <h2 className="tt-phase-title">Snake Draft</h2>
+        <p className="tt-phase-subtitle">
+          {dp.amCurrentPicker
+            ? "Your turn — pick a card"
+            : "Opponent is picking..."}
+        </p>
+        <div className="draft-pool">
+          {dp.faceUp.map((name: string) => (
+            <div
+              key={name}
+              className={`draft-card ${dp.amCurrentPicker ? "" : "draft-card--disabled"}`}
+              onClick={() => { if (dp.amCurrentPicker) send({ type: "draft_pick", card: name }); }}
+            >
+              <div className="draft-card__name">{name}</div>
+              <div className="draft-card__desc">{SIGNATURE_DESCRIPTIONS[name] ?? ""}</div>
+            </div>
+          ))}
+        </div>
+        <div className="draft-my-sigs">
+          <span className="zone-label">Your Signatures</span>
+          <div className="draft-my-sigs__list">
+            {dp.mySignatures.map((name: string) => (
+              <span key={name} className="draft-reveal__card">{name}</span>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="tt-dialog-content">
-      <h2 className="tt-phase-title">Select Your Signature Cards</h2>
-      <p className="tt-phase-subtitle">
-        {submitted
-          ? "Waiting for opponent to select..."
-          : `Choose ${selectionsNeeded} cards for your Army (${selected.size}/${selectionsNeeded})`}
-      </p>
-      <div className="draft-pool">
-        {signaturePool.map((name) => {
-          const isSelected = selected.has(name);
-          const canSelect = !submitted && (isSelected || selected.size < selectionsNeeded);
-          return (
-            <div
-              key={name}
-              className={`draft-card ${isSelected ? "draft-card--selected" : ""} ${!canSelect && !isSelected ? "draft-card--disabled" : ""}`}
-              onClick={() => canSelect || isSelected ? toggleCard(name) : undefined}
-            >
-              <div className="draft-card__name">{name}</div>
-              <div className="draft-card__desc">
-                {SIGNATURE_DESCRIPTIONS[name] ?? ""}
+      <h2 className="tt-phase-title">Armies Assembled</h2>
+      <p className="tt-phase-subtitle">Starting the match...</p>
+      {dp.tag === "complete" && (
+        <div className="draft-reveal">
+          {dp.playerSignatures.map((sigs, i) => (
+            <div key={i} className="draft-reveal__player">
+              <span className="draft-reveal__name">{phase.playerNames[i] ?? `Player ${i}`}</span>
+              <div className="draft-reveal__cards">
+                {sigs.map((name) => (
+                  <span key={name} className="draft-reveal__card">{name}</span>
+                ))}
               </div>
             </div>
-          );
-        })}
-      </div>
-      {!submitted && (
-        <div className="draft-actions" style={{ marginTop: "var(--space-md)" }}>
-          <button
-            className="btn btn-primary"
-            disabled={selected.size !== selectionsNeeded}
-            onClick={handleSubmit}
-          >
-            Confirm Selection
-          </button>
+          ))}
         </div>
       )}
     </div>
@@ -1888,19 +2008,51 @@ const HeroHand: React.FC<{
 // HeroAntechamber + HeroPartingZone (center stage lower)
 // ---------------------------------------------------------------------------
 
-const HeroAntechamber: React.FC<{ readonly phase: InGamePhase }> = ({ phase }) => {
+const HeroAntechamber: React.FC<{
+  readonly phase: InGamePhase;
+  readonly send: (msg: IKClientMessage) => void;
+}> = ({ phase, send }) => {
+  const mi = safeMyIndex(phase);
   const gameState = hasGameState(phase) ? phase.gameState : null;
-  const myZones = gameState?.players[safeMyIndex(phase)];
+  const myZones = gameState?.players[mi];
   const cards = myZones?.antechamber ?? [];
-  if (cards.length === 0) return <div className="tt-hero-ante" />;
+  const isTouch = useTouchDevice();
+
+  const isMyTurn = hasActivePlayer(phase) && phase.activePlayer === mi;
+  const playActions: readonly IKPlayAction[] =
+    phase._tag === "play" ? phase.legalActions : [];
+
+  const canPlay = (cardId: number): boolean =>
+    playActions.some((a) => a.kind === "play" && a.cardId === cardId);
+
+  const handlePlay = useCallback(
+    (cardId: number) => {
+      send({ type: "action", action: { kind: "play", cardId } });
+    },
+    [send],
+  );
+
+  if (cards.length === 0) return null;
 
   return (
     <div className="tt-hero-ante">
       <span className="zone-label">Antechamber</span>
       <div className="tt-card-row">
-        {cards.map((c: import("@imposter-zero/engine").IKCard) => (
-          <Card key={c.id} visual={toCardVisual(c)} orientation="front" size="small" previewSource="hand" />
-        ))}
+        {cards.map((c: import("@imposter-zero/engine").IKCard) => {
+          const playable = phase._tag === "play" && isMyTurn && canPlay(c.id);
+          return (
+            <Card
+              key={c.id}
+              visual={toCardVisual(c)}
+              orientation="front"
+              size="small"
+              previewSource="hand"
+              interactive={playable || isTouch}
+              dimmed={phase._tag === "play" && isMyTurn && !playable && !isTouch}
+              onClick={() => { if (playable) handlePlay(c.id); }}
+            />
+          );
+        })}
       </div>
     </div>
   );
@@ -1944,7 +2096,7 @@ export const TabletopLayout: React.FC<Props> = ({ phase, send }) => {
   const gameState = hasGameState(phase) ? phase.gameState : null;
   const turnCount = gameState?.turnCount ?? 0;
   const isMyTurn = hasActivePlayer(phase) && phase.activePlayer === mi;
-  const handHelper = phase._tag === "play" || phase._tag === "resolving" ? phase.handHelper : false;
+  const handHelper = false;
 
   // ── Phase indicator (shows briefly on phase change) ──
   const [phaseLabel, setPhaseLabel] = useState<string | null>(null);
@@ -2119,7 +2271,6 @@ export const TabletopLayout: React.FC<Props> = ({ phase, send }) => {
               setMusteringSelection={setMusteringSelection}
             />
           </div>
-          <HeroAntechamber phase={phase} />
           <HeroPartingZone phase={phase} />
           {hasTertiary && (
             <div className="tabletop__tertiary-dialog">
@@ -2141,15 +2292,18 @@ export const TabletopLayout: React.FC<Props> = ({ phase, send }) => {
       </div>
 
       {/* ── Hand Strip ── */}
-      <HeroHand
-        phase={phase}
-        send={send}
-        setupSelection={setupSelection}
-        onSetupCardClick={handleSetupCardClick}
-        onCommitSetup={canCommitSetup ? handleCommitSetup : undefined}
-        musteringSelection={musteringSelection}
-        setMusteringSelection={setMusteringSelection}
-      />
+      <div className="tt-hand-strip">
+        <HeroAntechamber phase={phase} send={send} />
+        <HeroHand
+          phase={phase}
+          send={send}
+          setupSelection={setupSelection}
+          onSetupCardClick={handleSetupCardClick}
+          onCommitSetup={canCommitSetup ? handleCommitSetup : undefined}
+          musteringSelection={musteringSelection}
+          setMusteringSelection={setMusteringSelection}
+        />
+      </div>
     </div>
   );
 };
