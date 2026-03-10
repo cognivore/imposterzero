@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createImposterKingsGame, type IKAction, type IKState } from "@imposter-zero/engine";
 import { startServer, type ServerHandle } from "../ws-server.js";
-import { BotClient, createBotsInRoom, closeBots } from "./bot-client.js";
+import { BotClient, createBotsInRoom, closeBots, readyAllAndDraft } from "./bot-client.js";
 import type { OutboundMessage } from "../room.js";
 import type { PlayerId } from "@imposter-zero/types";
 
@@ -49,8 +49,7 @@ const create3pGame = async (targetScore: number): Promise<{ server: ServerHandle
   await server.ready;
   const url = `ws://127.0.0.1:${server.port}`;
   const bots = await createBotsInRoom(url, 3, 3, targetScore);
-  for (const bot of bots) bot.fireReady();
-  for (const bot of bots) await bot.drainMessages(3 + 1);
+  await readyAllAndDraft(bots);
   return { server, bots };
 };
 

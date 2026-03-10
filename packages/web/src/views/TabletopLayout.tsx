@@ -885,7 +885,11 @@ const SetupContent: React.FC<{
     <div className="tt-dialog-content">
       <h2 className="tt-phase-title">Setup Phase</h2>
       <p className="tt-phase-subtitle">
-        {isMyTurn ? "Choose your Successor and Dungeon cards" : "Waiting for other players..."}
+        {isMyTurn
+          ? setupSelection.needsSquire
+            ? "Choose your Successor, Dungeon, and Squire cards"
+            : "Choose your Successor and Dungeon cards"
+          : "Waiting for other players..."}
       </p>
       <div className="setup-slots">
         <SetupSlot
@@ -896,6 +900,12 @@ const SetupContent: React.FC<{
           kind="dungeon"
           card={setupSelection.dungeonVisual}
         />
+        {setupSelection.needsSquire && (
+          <SetupSlot
+            kind="squire"
+            card={setupSelection.squireVisual}
+          />
+        )}
       </div>
     </div>
   );
@@ -1577,6 +1587,7 @@ const HeroZones: React.FC<{
 
   const pendingSuccessor = setupSelection.successorVisual;
   const pendingDungeon = setupSelection.dungeonVisual;
+  const pendingSquire = setupSelection.squireVisual;
   const facet = kingFacetTitle(myZones.king.facet);
 
   return (
@@ -1642,9 +1653,13 @@ const HeroZones: React.FC<{
                 previewSource="hand"
                 forcePreview
               />
+            ) : pendingSquire ? (
+              <div className="player-zone-slot__pending player-zone-slot__pending--squire">
+                <Card visual={pendingSquire} orientation="front" size="small" previewSource="hand" />
+              </div>
             ) : undefined
           }
-          overlayLabel={myZones.squire !== null ? "Sq" : undefined}
+          overlayLabel={myZones.squire !== null || pendingSquire ? "Sq" : undefined}
         />
       </div>
       {(myZones.army.length > 0 || myZones.exhausted.length > 0) && (
@@ -1664,15 +1679,21 @@ const HeroZones: React.FC<{
 interface SetupSelection {
   readonly successorId: number | null;
   readonly dungeonId: number | null;
+  readonly squireId: number | null;
   readonly successorVisual: CardVisual | null;
   readonly dungeonVisual: CardVisual | null;
+  readonly squireVisual: CardVisual | null;
+  readonly needsSquire: boolean;
 }
 
 const EMPTY_SETUP: SetupSelection = {
   successorId: null,
   dungeonId: null,
+  squireId: null,
   successorVisual: null,
   dungeonVisual: null,
+  squireVisual: null,
+  needsSquire: false,
 };
 
 const HeroHand: React.FC<{
@@ -1732,8 +1753,11 @@ const HeroHand: React.FC<{
 
   const isMusteringHand = phase._tag === "mustering";
 
+  const myFacet = gameState?.players[mi]?.king.facet;
   const turnLabel = inSetup
-    ? "Choose Successor, then Dungeon"
+    ? myFacet === "masterTactician"
+      ? "Choose Successor, Dungeon, then Squire"
+      : "Choose Successor, then Dungeon"
     : phase._tag === "play" && isMyTurn
       ? "Your turn"
       : phase._tag === "play"
@@ -1755,7 +1779,7 @@ const HeroHand: React.FC<{
 
           if (inSetup) {
             const isSetupSelected =
-              card.id === setupSelection.successorId || card.id === setupSelection.dungeonId;
+              card.id === setupSelection.successorId || card.id === setupSelection.dungeonId || card.id === setupSelection.squireId;
             return (
               <animated.div
                 key={card.id}
@@ -1942,16 +1966,17 @@ export const TabletopLayout: React.FC<Props> = ({ phase, send }) => {
   // ── Setup selection state ──
   const isSetup = phase._tag === "setup";
   const isMustering = phase._tag === "mustering";
-  const [setupSel, setSetupSel] = useState<{ successorId: number | null; dungeonId: number | null }>({
+  const [setupSel, setSetupSel] = useState<{ successorId: number | null; dungeonId: number | null; squireId: number | null }>({
     successorId: null,
     dungeonId: null,
+    squireId: null,
   });
   const [musteringSelection, setMusteringSelection] = useState<MusteringSelection>(
     EMPTY_MUSTERING_SELECTION,
   );
 
   useEffect(() => {
-    if (!isSetup) setSetupSel({ successorId: null, dungeonId: null });
+    if (!isSetup) setSetupSel({ successorId: null, dungeonId: null, squireId: null });
   }, [isSetup]);
 
   useEffect(() => {
@@ -1966,21 +1991,29 @@ export const TabletopLayout: React.FC<Props> = ({ phase, send }) => {
     }
   }, [phase, mi]);
 
+  const myKingFacet = gameState?.players[mi]?.king.facet;
+  const isTactician = myKingFacet === "masterTactician";
+
   const handleSetupCardClick = useCallback((cardId: number) => {
     setSetupSel((prev) => {
       if (prev.successorId === null) return { ...prev, successorId: cardId };
-      if (cardId === prev.successorId) return { ...prev, successorId: null };
+      if (cardId === prev.successorId) return { ...prev, successorId: null, squireId: null };
       if (prev.dungeonId === null) return { ...prev, dungeonId: cardId };
-      if (cardId === prev.dungeonId) return { ...prev, dungeonId: null };
-      return { successorId: cardId, dungeonId: null };
+      if (cardId === prev.dungeonId) return { ...prev, dungeonId: null, squireId: null };
+      if (isTactician) {
+        if (prev.squireId === null) return { ...prev, squireId: cardId };
+        if (cardId === prev.squireId) return { ...prev, squireId: null };
+      }
+      return { successorId: cardId, dungeonId: null, squireId: null };
     });
-  }, []);
+  }, [isTactician]);
 
   const myHand = gameState?.players[mi]?.hand ?? [];
 
   const setupSelection: SetupSelection = useMemo(() => ({
     successorId: setupSel.successorId,
     dungeonId: setupSel.dungeonId,
+    squireId: setupSel.squireId,
     successorVisual:
       setupSel.successorId !== null
         ? (() => { const c = myHand.find((h: import("@imposter-zero/engine").IKCard) => h.id === setupSel.successorId); return c ? toCardVisual(c) : null; })()
@@ -1989,7 +2022,12 @@ export const TabletopLayout: React.FC<Props> = ({ phase, send }) => {
       setupSel.dungeonId !== null
         ? (() => { const c = myHand.find((h: import("@imposter-zero/engine").IKCard) => h.id === setupSel.dungeonId); return c ? toCardVisual(c) : null; })()
         : null,
-  }), [setupSel.successorId, setupSel.dungeonId, myHand]);
+    squireVisual:
+      setupSel.squireId !== null
+        ? (() => { const c = myHand.find((h: import("@imposter-zero/engine").IKCard) => h.id === setupSel.squireId); return c ? toCardVisual(c) : null; })()
+        : null,
+    needsSquire: isTactician,
+  }), [setupSel.successorId, setupSel.dungeonId, setupSel.squireId, myHand, isTactician]);
 
   const canCommitSetup =
     isSetup &&
@@ -1997,25 +2035,27 @@ export const TabletopLayout: React.FC<Props> = ({ phase, send }) => {
     setupSel.successorId !== null &&
     setupSel.dungeonId !== null &&
     setupSel.successorId !== setupSel.dungeonId &&
+    (!isTactician || setupSel.squireId !== null) &&
     (phase.legalActions as readonly IKSetupAction[]).some(
       (a) =>
         a.kind === "commit" &&
         a.successorId === setupSel.successorId &&
-        a.dungeonId === setupSel.dungeonId,
+        a.dungeonId === setupSel.dungeonId &&
+        (!isTactician || a.squireId === setupSel.squireId),
     );
 
   const handleCommitSetup = useCallback(() => {
     if (setupSel.successorId === null || setupSel.dungeonId === null) return;
-    send({
-      type: "action",
-      action: {
-        kind: "commit",
-        successorId: setupSel.successorId,
-        dungeonId: setupSel.dungeonId,
-      },
-    });
-    setSetupSel({ successorId: null, dungeonId: null });
-  }, [setupSel, send]);
+    if (isTactician && setupSel.squireId === null) return;
+    const action: IKSetupAction = {
+      kind: "commit",
+      successorId: setupSel.successorId,
+      dungeonId: setupSel.dungeonId,
+      ...(isTactician && setupSel.squireId !== null ? { squireId: setupSel.squireId } : {}),
+    };
+    send({ type: "action", action });
+    setSetupSel({ successorId: null, dungeonId: null, squireId: null });
+  }, [setupSel, send, isTactician]);
 
   // ── Hand helper + disgraced/seen card tracking ──
   const updateCourt = useDisgracedTracker((s) => s.updateCourt);

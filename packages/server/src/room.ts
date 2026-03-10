@@ -17,10 +17,7 @@ import {
   matchWinners,
   roundScore,
   expansionConfigForPlayers,
-  regulationDeck,
-  deal,
   SIGNATURE_CARD_NAMES,
-  REGULATION_2P_EXPANSION,
 } from "@imposter-zero/engine";
 import type { PlayerId as EnginePlayerId } from "@imposter-zero/types";
 
@@ -180,28 +177,18 @@ const startNewRound = (
   let activeGame = room.game;
   let initialState: IKState | undefined;
 
-  if (room.expansionState) {
-    const tk: PlayerId = trueKing ?? (0 as PlayerId);
-    activeGame = createExpansionGame(
-      room.expansionState.config,
-      room.expansionState.playerArmies,
-      tk,
-    );
-    initialState = createExpansionRound(
-      room.expansionState.config,
-      room.expansionState.playerArmies,
-      tk,
-    );
-  } else {
-    const tk: PlayerId = trueKing ?? (0 as PlayerId);
-    const defaultSigs: ReadonlyArray<ReadonlyArray<CardName>> = Array.from(
-      { length: numPlayers },
-      () => ["Aegis", "Exile", "Ancestor"],
-    );
-    const armies = buildPlayerArmies(REGULATION_2P_EXPANSION, defaultSigs);
-    activeGame = createExpansionGame(REGULATION_2P_EXPANSION, armies, tk);
-    initialState = createExpansionRound(REGULATION_2P_EXPANSION, armies, tk);
-  }
+  const expansion = room.expansionState!;
+  const tk: PlayerId = trueKing ?? (0 as PlayerId);
+  activeGame = createExpansionGame(
+    expansion.config,
+    expansion.playerArmies,
+    tk,
+  );
+  initialState = createExpansionRound(
+    expansion.config,
+    expansion.playerArmies,
+    tk,
+  );
 
   const rawSession = startSession(activeGame, numPlayers, playerMapping, room.turnDuration, now, initialState);
   const session = adjustDeadline(rawSession, room.turnDuration, now);

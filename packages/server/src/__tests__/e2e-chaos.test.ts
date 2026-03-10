@@ -6,6 +6,7 @@ import {
   createBots,
   createBotsInRoom,
   closeBots,
+  readyAllAndDraft,
   sleep,
   randomInRange,
   type ChaosPolicy,
@@ -47,9 +48,7 @@ const setupAndStart = async (
   const url = `ws://127.0.0.1:${server.port}`;
   bots = await createBotsInRoom(url, numPlayers, numPlayers, targetScore);
 
-  // All ready
-  for (let i = 0; i < numPlayers; i++) bots[i]!.fireReady();
-  for (const bot of bots) await bot.drainMessages(numPlayers + 1);
+  await readyAllAndDraft(bots);
 };
 
 const playChaosMatch = async (

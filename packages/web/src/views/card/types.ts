@@ -37,7 +37,7 @@ export interface ZonedCard {
   readonly zIndex: number;
 }
 
-export type SlotKind = "successor" | "dungeon";
+export type SlotKind = "successor" | "dungeon" | "squire";
 
 export interface SetupSlotData {
   readonly kind: SlotKind;

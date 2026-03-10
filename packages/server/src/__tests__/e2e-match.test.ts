@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { createImposterKingsGame, type IKAction } from "@imposter-zero/engine";
 import { startServer, type ServerHandle } from "../ws-server.js";
-import { BotClient, createBots, createBotsInRoom, closeBots } from "./bot-client.js";
+import { BotClient, createBots, createBotsInRoom, closeBots, readyAllAndDraft } from "./bot-client.js";
 import type { OutboundMessage } from "../room.js";
 import type { PlayerId } from "@imposter-zero/types";
 
@@ -32,16 +32,7 @@ const setupAndStart = async (
   const url = `ws://127.0.0.1:${server.port}`;
   bots = await createBotsInRoom(url, numPlayers, numPlayers, targetScore);
 
-  // All ready
-  for (let i = 0; i < numPlayers; i++) {
-    bots[i]!.fireReady();
-  }
-
-  // Each non-last ready: 1 lobby_state broadcast. Last ready: lobby_state(starting) + game_start + state.
-  // Total: (n-1) + 3 = n+2. Drain n+1 to leave the initial "state" for the play loop.
-  for (const bot of bots) {
-    await bot.drainMessages(numPlayers + 1);
-  }
+  await readyAllAndDraft(bots);
 };
 
 const playMatchOverWS = async (

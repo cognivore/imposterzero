@@ -29,6 +29,7 @@ export const LobbyView: React.FC<Props> = ({ phase, send }) => {
 
 
 
+
   return (
     <div className="lobby">
       <h1 className="lobby-title">Imposter Kings</h1>

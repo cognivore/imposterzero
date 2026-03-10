@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createImposterKingsGame } from "@imposter-zero/engine";
 import { startServer, type ServerHandle } from "../ws-server.js";
-import { BotClient, createBots, createBotsInRoom, closeBots } from "./bot-client.js";
+import { BotClient, createBots, createBotsInRoom, closeBots, readyAllAndDraft } from "./bot-client.js";
 
 let server: ServerHandle;
 let bots: BotClient[];
@@ -80,43 +80,25 @@ describe("E2E lobby", () => {
     server = startServer(createImposterKingsGame(), { port: 0 });
     bots = await createBotsInRoom(url(), 2);
 
-    // Bot 0 readies — lobby stays waiting
-    await bots[0]!.ready();
-    await bots[1]!.waitForMessage();
+    await readyAllAndDraft(bots);
 
-    // Bot 1 readies — game should start
-    await bots[1]!.ready();
+    const received0 = bots[0]!.received;
+    const received1 = bots[1]!.received;
 
-    // bot 0: lobby_state(starting), game_start, state
-    const allMsgs0 = await bots[0]!.drainMessages(3);
-    // bot 1: game_start, state (ready() already consumed lobby_state)
-    const allMsgs1 = await bots[1]!.drainMessages(2);
-
-    expect(allMsgs0.some((m) => m.type === "game_start")).toBe(true);
-    expect(allMsgs1.some((m) => m.type === "game_start")).toBe(true);
-    expect(allMsgs0.some((m) => m.type === "state")).toBe(true);
-    expect(allMsgs1.some((m) => m.type === "state")).toBe(true);
+    expect(received0.some((m) => m.type === "game_start")).toBe(true);
+    expect(received1.some((m) => m.type === "game_start")).toBe(true);
+    expect(received0.some((m) => m.type === "state")).toBe(true);
+    expect(received1.some((m) => m.type === "state")).toBe(true);
   });
 
   it("3-player lobby fills and starts", async () => {
     server = startServer(createImposterKingsGame(), { port: 0 });
     bots = await createBotsInRoom(url(), 3);
 
-    // First 2 ready — no start yet
-    for (let i = 0; i < 2; i++) {
-      await bots[i]!.ready();
-      for (let j = 0; j < 3; j++) {
-        if (j !== i) await bots[j]!.waitForMessage();
-      }
-    }
+    await readyAllAndDraft(bots);
 
-    // Third ready triggers start
-    await bots[2]!.ready();
-
-    // Drain messages: lobby(starting), game_start, state
     for (const bot of bots) {
-      const msgs = await bot.drainMessages(2);
-      expect(msgs.some((m) => m.type === "game_start")).toBe(true);
+      expect(bot.received.some((m) => m.type === "game_start")).toBe(true);
     }
   });
 
@@ -124,20 +106,10 @@ describe("E2E lobby", () => {
     server = startServer(createImposterKingsGame(), { port: 0 });
     bots = await createBotsInRoom(url(), 4, 4);
 
-    // First 3 ready
-    for (let i = 0; i < 3; i++) {
-      await bots[i]!.ready();
-      for (let j = 0; j < 4; j++) {
-        if (j !== i) await bots[j]!.waitForMessage();
-      }
-    }
-
-    // Fourth ready triggers start
-    await bots[3]!.ready();
+    await readyAllAndDraft(bots);
 
     for (const bot of bots) {
-      const msgs = await bot.drainMessages(2);
-      expect(msgs.some((m) => m.type === "game_start")).toBe(true);
+      expect(bot.received.some((m) => m.type === "game_start")).toBe(true);
     }
   });
 });

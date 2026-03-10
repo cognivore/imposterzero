@@ -128,6 +128,10 @@ export class BotClient {
     this.send({ type: "action", action });
   }
 
+  fireDraftSelect(cards: readonly string[]): void {
+    this.send({ type: "draft_select", cards });
+  }
+
   fireJoin(): void {
     this.send({ type: "join" });
   }
@@ -229,6 +233,30 @@ export const createBotsInRoom = async (
   }
 
   return bots;
+};
+
+/**
+ * Ready all bots, complete the signature draft, and drain messages up through
+ * `game_start`. After this call the next message each bot receives will be the
+ * initial `state`.
+ */
+export const readyAllAndDraft = async (
+  bots: BotClient[],
+  draftPicks: readonly string[] = ["Aegis", "Exile", "Ancestor"],
+): Promise<void> => {
+  for (const bot of bots) bot.fireReady();
+
+  for (const bot of bots) {
+    await bot.drainUntil((m) => m.type === "draft_state");
+  }
+
+  for (const bot of bots) {
+    bot.fireDraftSelect(draftPicks);
+  }
+
+  for (const bot of bots) {
+    await bot.drainUntil((m) => m.type === "game_start");
+  }
 };
 
 export const closeBots = (bots: BotClient[]): void => {
