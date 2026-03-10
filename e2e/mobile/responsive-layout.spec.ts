@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { waitForBrowser, reachSetupPhase, reachPlayPhase } from "../helpers.js";
+import { reachSetupPhase, reachPlayPhase } from "../helpers.js";
 
 test.describe("responsive layout", () => {
   test("card short text visible on normal-size cards in setup", async ({ page }) => {
@@ -37,13 +37,13 @@ test.describe("responsive layout", () => {
     await expect(statusBar).toBeHidden({ timeout: 3000 });
   });
 
-  test("preview zone hidden on mobile", async ({ page }) => {
+  test("preview zone present on mobile", async ({ page }) => {
     await page.setViewportSize({ width: 700, height: 400 });
     await page.goto("/");
     await reachSetupPhase(page, "MobilePreview");
 
-    const previewZone = page.locator(".preview-zone");
-    await expect(previewZone).toBeHidden({ timeout: 3000 });
+    const previewZone = page.locator(".tt-card-preview");
+    await expect(previewZone).toBeVisible({ timeout: 3000 });
   });
 
   test("cards render within expected size range on desktop", async ({ page }) => {
@@ -51,7 +51,7 @@ test.describe("responsive layout", () => {
     await page.goto("/");
     await reachSetupPhase(page, "DesktopSize");
 
-    const card = page.locator(".hand .card-perspective").first();
+    const card = page.locator(".tt-hand .card-perspective").first();
     await expect(card).toBeVisible({ timeout: 5000 });
     const box = await card.boundingBox();
     expect(box).not.toBeNull();
@@ -59,15 +59,15 @@ test.describe("responsive layout", () => {
     expect(box!.width).toBeLessThanOrEqual(130);
   });
 
-  test("preview zone occupies right side on desktop", async ({ page }) => {
+  test("preview zone occupies left column on desktop", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/");
     await reachSetupPhase(page, "PreviewLayout");
 
-    const zone = page.locator(".preview-zone");
+    const zone = page.locator(".tt-card-preview");
     await expect(zone).toBeVisible({ timeout: 5000 });
     const box = await zone.boundingBox();
     expect(box).not.toBeNull();
-    expect(box!.x).toBeGreaterThan(800);
+    expect(box!.x).toBeLessThan(300);
   });
 });

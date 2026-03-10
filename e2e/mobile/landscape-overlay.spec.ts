@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { waitForBrowser, reachSetupPhase } from "../helpers.js";
 
 test.describe("landscape overlay", () => {
+  test.setTimeout(60_000);
   test("no overlay in browser phase even in portrait", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");

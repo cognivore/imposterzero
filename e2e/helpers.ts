@@ -30,6 +30,28 @@ export const getBackupKey = async (page: Page): Promise<string> => {
   return (await el.textContent()) ?? "";
 };
 
+export const completeDraftSimple = async (page: Page): Promise<void> => {
+  const fixedRng = seededRng(1);
+  const draftCard = page.locator(".draft-card").first();
+  const confirmBtn = page.locator("button:has-text('Confirm Selection')");
+  const ttCourt = page.locator(".tt-court");
+  const crownChoice = page.locator(".crown-choice");
+  const setupSlots = page.locator(".setup-slots");
+  const doneBtn = page.locator("button:has-text('Done')");
+
+  const isDraftPhase = await Promise.race([
+    draftCard.waitFor({ timeout: 10000 }).then(() => true),
+    confirmBtn.waitFor({ timeout: 10000 }).then(() => true),
+    ttCourt.waitFor({ timeout: 10000 }).then(() => false),
+    crownChoice.waitFor({ timeout: 10000 }).then(() => false),
+    setupSlots.waitFor({ timeout: 10000 }).then(() => false),
+    doneBtn.waitFor({ timeout: 10000 }).then(() => false),
+  ]).catch(() => false);
+
+  if (!isDraftPhase) return;
+  await completeDraftPhases(page, fixedRng);
+};
+
 export const createRoomWithBot = async (page: Page, name: string): Promise<void> => {
   await setName(page, name);
   await page.click("button:has-text('2')", { strict: false });
@@ -37,40 +59,52 @@ export const createRoomWithBot = async (page: Page, name: string): Promise<void>
   await page.waitForSelector(".lobby-title", { timeout: 5000 });
   await page.click("button:has-text('+ Add Bot')");
   await page.click("button:has-text('Ready')");
+  await completeDraftSimple(page);
 };
 
-export const passCrownPhase = async (page: Page): Promise<void> => {
-  const crownChoice = page.locator(".crown-choice").first();
-  const setupSlots = page.locator(".setup-slots");
-  const handArea = page.locator(".hand-area");
-  await Promise.race([
-    crownChoice.waitFor({ timeout: 10000 }).then(async () => {
-      await crownChoice.click();
-    }),
-    setupSlots.waitFor({ timeout: 10000 }),
-    handArea.waitFor({ timeout: 10000 }),
-  ]);
+export const passCrownAndMustering = async (page: Page): Promise<void> => {
+  for (let i = 0; i < 80; i++) {
+    const setupSlots = page.locator(".setup-slots");
+    if (await setupSlots.isVisible().catch(() => false)) return;
+
+    const crownChoice = page.locator("button.crown-choice").first();
+    if (await crownChoice.isVisible().catch(() => false)) {
+      await crownChoice.dispatchEvent("click");
+      await page.waitForTimeout(1000);
+      continue;
+    }
+
+    const doneBtn = page.locator("button.btn-ghost:has-text('Done')");
+    if (await doneBtn.isVisible().catch(() => false)) {
+      await doneBtn.dispatchEvent("click");
+      await page.waitForTimeout(1000);
+      continue;
+    }
+
+    await page.waitForTimeout(500);
+  }
 };
 
 export const completeSetup = async (page: Page): Promise<void> => {
-  const commitBtn = page.locator("button:has-text('Commit Selection')");
-  await commitBtn.waitFor({ timeout: 10000 });
-  const cards = page.locator(".hand .card-perspective--interactive");
+  const cards = page.locator(".tt-hand .card-perspective--interactive");
+  await cards.first().waitFor({ timeout: 10000 });
   await cards.first().click();
   await cards.nth(1).click();
+  const commitBtn = page.locator("button:has-text('Commit')");
+  await commitBtn.waitFor({ timeout: 5000 });
   await commitBtn.click();
 };
 
 export const reachSetupPhase = async (page: Page, name: string): Promise<void> => {
   await createRoomWithBot(page, name);
-  await passCrownPhase(page);
-  await page.waitForSelector(".setup-slots", { timeout: 10000 });
+  await passCrownAndMustering(page);
+  await page.waitForSelector(".setup-slots", { timeout: 15000 });
 };
 
 export const reachPlayPhase = async (page: Page, name: string): Promise<void> => {
   await reachSetupPhase(page, name);
   await completeSetup(page);
-  await page.waitForSelector(".hand-area h3", { timeout: 15000 });
+  await page.locator(".tt-hand .hand-zone__cards .card-perspective").first().waitFor({ timeout: 15000 });
 };
 
 // ---------------------------------------------------------------------------

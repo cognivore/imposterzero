@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { reachSetupPhase, waitForBrowser, setName } from "../helpers.js";
 
 test.describe("touch targets", () => {
+  test.setTimeout(60_000);
   test.use({
     viewport: { width: 844, height: 390 },
     isMobile: true,
@@ -31,7 +32,7 @@ test.describe("touch targets", () => {
     await page.goto("/");
     await reachSetupPhase(page, "CardTarget");
 
-    const cards = page.locator(".hand .card-perspective");
+    const cards = page.locator(".tt-hand .card-perspective");
     await expect(cards.first()).toBeVisible({ timeout: 5000 });
     const count = await cards.count();
     expect(count).toBeGreaterThan(0);

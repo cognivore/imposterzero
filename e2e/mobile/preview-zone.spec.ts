@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { reachSetupPhase, reachPlayPhase } from "../helpers.js";
+import { reachSetupPhase } from "../helpers.js";
 
 test.describe("preview zone (desktop)", () => {
   test.use({ viewport: { width: 1280, height: 800 } });
@@ -8,17 +8,17 @@ test.describe("preview zone (desktop)", () => {
     await page.goto("/");
     await reachSetupPhase(page, "PreviewIdle");
 
-    const zone = page.locator(".preview-zone");
+    const zone = page.locator(".tt-card-preview");
     await expect(zone).toBeVisible({ timeout: 5000 });
-    await expect(page.locator(".preview-placeholder")).toBeVisible();
-    await expect(page.locator(".preview-placeholder")).toContainText("Hover a card to inspect");
+    await expect(page.locator(".tt-empty-zone--preview")).toBeVisible();
+    await expect(page.locator(".tt-empty-zone--preview")).toContainText("Hover a card to inspect");
   });
 
   test("hovering a hand card renders preview with full text", async ({ page }) => {
     await page.goto("/");
     await reachSetupPhase(page, "HoverText");
 
-    const card = page.locator(".hand .card-perspective").first();
+    const card = page.locator(".tt-hand .card-perspective").first();
     await expect(card).toBeVisible({ timeout: 5000 });
     await card.hover();
 
@@ -33,7 +33,7 @@ test.describe("preview zone (desktop)", () => {
     await page.goto("/");
     await reachSetupPhase(page, "HoverName");
 
-    const card = page.locator(".hand .card-perspective").first();
+    const card = page.locator(".tt-hand .card-perspective").first();
     await expect(card).toBeVisible({ timeout: 5000 });
     await card.hover();
 
@@ -48,7 +48,7 @@ test.describe("preview zone (desktop)", () => {
     await page.goto("/");
     await reachSetupPhase(page, "HoverSwitch");
 
-    const cards = page.locator(".hand .card-perspective");
+    const cards = page.locator(".tt-hand .card-perspective");
     await expect(cards.first()).toBeVisible({ timeout: 5000 });
     const count = await cards.count();
     expect(count).toBeGreaterThanOrEqual(2);
@@ -68,7 +68,7 @@ test.describe("preview zone (desktop)", () => {
     await page.goto("/");
     await reachSetupPhase(page, "HoverFlavor");
 
-    const cards = page.locator(".hand .card-perspective");
+    const cards = page.locator(".tt-hand .card-perspective");
     await expect(cards.first()).toBeVisible({ timeout: 5000 });
 
     const count = await cards.count();
