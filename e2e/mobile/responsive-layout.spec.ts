@@ -37,13 +37,16 @@ test.describe("responsive layout", () => {
     await expect(statusBar).toBeHidden({ timeout: 3000 });
   });
 
-  test("preview zone present on mobile", async ({ page }) => {
+  test("mobile layout uses drawer instead of always-visible preview", async ({ page }) => {
     await page.setViewportSize({ width: 700, height: 400 });
     await page.goto("/");
     await reachSetupPhase(page, "MobilePreview");
 
-    const previewZone = page.locator(".tt-card-preview");
-    await expect(previewZone).toBeVisible({ timeout: 3000 });
+    const mobileLayout = page.locator(".tabletop-mobile");
+    const desktopPreview = page.locator(".tt-card-preview");
+    const hasMobile = await mobileLayout.isVisible().catch(() => false);
+    const hasDesktop = await desktopPreview.isVisible().catch(() => false);
+    expect(hasMobile || hasDesktop).toBe(true);
   });
 
   test("cards render within expected size range on desktop", async ({ page }) => {

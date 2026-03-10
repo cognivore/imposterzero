@@ -3507,3 +3507,322 @@ body {
   pointer-events: none;
   animation: tt-phase-indicator-anim 2s ease-out forwards;
 }
+
+/* =========================================================================
+   Mobile Tabletop Layout (SRS-002)
+   ========================================================================= */
+
+.tabletop-mobile {
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  grid-template-columns: 1fr;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* ── Top Bar ── */
+
+.mobile-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 2px var(--space-sm);
+  background: var(--surface);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+  min-height: 36px;
+}
+
+.mobile-topbar__hamburger {
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 1.3rem;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.mobile-topbar__hamburger:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.mobile-topbar__phase {
+  flex: 1;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mobile-topbar__players {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.mobile-topbar__player-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid #888;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 0.65rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: box-shadow 0.2s;
+}
+
+.mobile-topbar__player-icon--active {
+  box-shadow: 0 0 6px 2px rgba(212, 175, 55, 0.5);
+}
+
+.mobile-topbar__player-icon--hero {
+  font-size: 0.6rem;
+}
+
+/* ── Main region (court + dialogs) ── */
+
+.mobile-main {
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+}
+
+.mobile-timer {
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.mobile-dialogs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.mobile-dialogs__lower {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.mobile-dialogs__lower > * {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Middle strip (antechamber + parting) ── */
+
+.mobile-mid-strip {
+  display: flex;
+  gap: var(--space-xs);
+  padding: 0 var(--space-xs);
+  flex-shrink: 0;
+  min-height: 0;
+}
+
+.mobile-mid-strip:empty {
+  display: none;
+}
+
+.mobile-mid-strip > .tt-hero-ante,
+.mobile-mid-strip > .tt-hero-parting {
+  flex-shrink: 0;
+}
+
+/* ── Left Drawer ── */
+
+.mobile-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 100;
+}
+
+.mobile-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 75vw;
+  max-width: 320px;
+  background: var(--surface);
+  z-index: 101;
+  transform: translateX(-100%);
+  transition: transform 0.25s ease;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mobile-drawer--open {
+  transform: translateX(0);
+}
+
+.mobile-drawer__preview {
+  flex-shrink: 0;
+  padding: var(--space-sm);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  max-height: 50%;
+  overflow-y: auto;
+}
+
+.mobile-drawer__log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* ── Player Zone Modal ── */
+
+.mobile-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 200;
+}
+
+.mobile-modal {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 80vw;
+  max-width: 360px;
+  background: var(--surface);
+  z-index: 201;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mobile-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mobile-modal__title {
+  font-weight: 800;
+  font-size: 1rem;
+  color: var(--gold);
+}
+
+.mobile-modal__close {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+  font-weight: 700;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-modal__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.mobile-modal__zones {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.mobile-modal__zone-row {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.mobile-modal__zone-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.mobile-modal__counts {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.mobile-modal__count-btn {
+  flex: 1;
+  padding: var(--space-sm);
+  background: var(--surface-raised);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: center;
+}
+
+.mobile-modal__count-btn:hover {
+  border-color: var(--gold);
+}
+
+.mobile-modal__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+/* ── Sub-modal (Army/Exhaust drill-down) ── */
+
+.mobile-submodal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 300;
+}
+
+.mobile-submodal {
+  position: fixed;
+  top: 10%;
+  left: 10%;
+  right: 10%;
+  bottom: 10%;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  z-index: 301;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mobile-submodal__cards {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-sm);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  justify-content: center;
+  align-content: flex-start;
+}

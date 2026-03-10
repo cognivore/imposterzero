@@ -23,6 +23,7 @@ const GAME_PHASES = new Set(["drafting", "crown", "mustering", "setup", "play", 
 const renderPhase = (
   phase: ClientPhase,
   send: ReturnType<typeof useWebSocket>["send"],
+  isMobile: boolean,
 ): React.ReactNode => {
   switch (phase._tag) {
     case "connecting":
@@ -39,7 +40,7 @@ const renderPhase = (
     case "resolving":
     case "scoring":
     case "finished":
-      return <TabletopLayout phase={phase} send={send} />;
+      return <TabletopLayout phase={phase} send={send} isMobile={isMobile} />;
     default:
       return absurd(phase);
   }
@@ -137,7 +138,7 @@ const useGameLogSync = (phase: ClientPhase): void => {
 export const App: React.FC = () => {
   const { phase, dispatch } = useGameReducer();
   const { send } = useWebSocket(wsUrl, dispatch);
-  const { requiresLandscape } = useOrientation();
+  const { isMobile, requiresLandscape } = useOrientation();
 
   useGameLogSync(phase);
 
@@ -150,7 +151,7 @@ export const App: React.FC = () => {
         className="phase-container"
         style={showLandscapeOverlay ? { display: "none" } : undefined}
       >
-        {renderPhase(phase, send)}
+        {renderPhase(phase, send, isMobile)}
       </div>
     </div>
   );

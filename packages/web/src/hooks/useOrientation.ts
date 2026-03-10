@@ -2,31 +2,34 @@ import { useState, useEffect } from "react";
 
 interface OrientationState {
   readonly isPortrait: boolean;
-  readonly isNarrow: boolean;
+  readonly isMobile: boolean;
   readonly requiresLandscape: boolean;
 }
 
 export const useOrientation = (): OrientationState => {
   const [isPortrait, setIsPortrait] = useState(false);
-  const [isNarrow, setIsNarrow] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     const mqlOrientation = window.matchMedia("(orientation: portrait)");
-    const mqlWidth = window.matchMedia("(max-width: 767px)");
+    const mqlWidth = window.matchMedia("(max-width: 960px)");
+    const mqlHeight = window.matchMedia("(max-height: 540px)");
 
     const update = () => {
       setIsPortrait(mqlOrientation.matches);
-      setIsNarrow(mqlWidth.matches);
+      setIsMobile(mqlWidth.matches || mqlHeight.matches);
     };
 
     update();
     mqlOrientation.addEventListener("change", update);
     mqlWidth.addEventListener("change", update);
+    mqlHeight.addEventListener("change", update);
     return () => {
       mqlOrientation.removeEventListener("change", update);
       mqlWidth.removeEventListener("change", update);
+      mqlHeight.removeEventListener("change", update);
     };
   }, []);
 
-  return { isPortrait, isNarrow, requiresLandscape: isPortrait && isNarrow };
+  return { isPortrait, isMobile, requiresLandscape: isPortrait && isMobile };
 };

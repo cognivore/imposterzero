@@ -54,6 +54,7 @@ type GameplayPhase = Extract<
 interface Props {
   readonly phase: InGamePhase;
   readonly send: (msg: IKClientMessage) => void;
+  readonly isMobile: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -2088,10 +2089,402 @@ const PHASE_LABELS: Partial<Record<InGamePhase["_tag"], string>> = {
 };
 
 // ---------------------------------------------------------------------------
+// Mobile UI store import
+// ---------------------------------------------------------------------------
+
+import { useMobileUIStore } from "../stores/mobile-ui.js";
+
+// ---------------------------------------------------------------------------
+// PLAYER_COLORS (shared)
+// ---------------------------------------------------------------------------
+
+const MOBILE_PLAYER_COLORS = ["#d4af37", "#8fa", "#f88", "#88f"];
+
+// ---------------------------------------------------------------------------
+// MobileLeftDrawer — sliding panel with preview + unified log
+// ---------------------------------------------------------------------------
+
+const MobileLeftDrawer: React.FC<{ readonly turnCount: number }> = ({ turnCount }) => {
+  const drawerOpen = useMobileUIStore((s) => s.drawerOpen);
+  const closeDrawer = useMobileUIStore((s) => s.closeDrawer);
+  const hoveredCard = usePreviewStore((s) => s.hoveredCard);
+
+  return (
+    <>
+      {drawerOpen && <div className="mobile-drawer-backdrop" onClick={closeDrawer} />}
+      <div className={`mobile-drawer ${drawerOpen ? "mobile-drawer--open" : ""}`}>
+        <div className="mobile-drawer__preview">
+          {hoveredCard !== null ? (
+            <div className="preview-card">
+              <div className={`preview-value card-value--${hoveredCard.front.tier}`}>{hoveredCard.front.value}</div>
+              <div className="preview-name">{hoveredCard.front.name}</div>
+              {(hoveredCard.front.keywords?.length ?? 0) > 0 && (
+                <div className="preview-keywords">
+                  {hoveredCard.front.keywords.map((kw) => (
+                    <span key={kw} className="preview-keyword">{kw.replace(/_/g, " ")}</span>
+                  ))}
+                </div>
+              )}
+              <div className="preview-divider" />
+              <div className="preview-full-text">{hoveredCard.front.fullText}</div>
+              {(hoveredCard.front.flavorText?.length ?? 0) > 0 && (
+                <div className="preview-flavor">{hoveredCard.front.flavorText}</div>
+              )}
+            </div>
+          ) : (
+            <div className="tt-empty-zone tt-empty-zone--preview">Tap a card to inspect</div>
+          )}
+        </div>
+        <div className="mobile-drawer__log">
+          <GameLog turnCount={turnCount} />
+        </div>
+      </div>
+    </>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// MobilePlayerModal — full-height panel showing a player's zones
+// ---------------------------------------------------------------------------
+
+const MobilePlayerZoneModal: React.FC<{
+  readonly phase: InGamePhase;
+}> = ({ phase }) => {
+  const playerModalOpen = useMobileUIStore((s) => s.playerModalOpen);
+  const subModal = useMobileUIStore((s) => s.subModal);
+  const closePlayerModal = useMobileUIStore((s) => s.closePlayerModal);
+  const openSubModal = useMobileUIStore((s) => s.openSubModal);
+  const closeSubModal = useMobileUIStore((s) => s.closeSubModal);
+
+  if (playerModalOpen === null) return null;
+
+  const gameState = hasGameState(phase) ? phase.gameState : null;
+  if (!gameState) return null;
+
+  const mi = safeMyIndex(phase);
+  const playerNames = "playerNames" in phase ? phase.playerNames : [];
+  const isHero = playerModalOpen === "hero";
+  const idx = isHero ? mi : playerModalOpen;
+  const zones = gameState.players[idx];
+  if (!zones) return null;
+
+  const name = isHero ? (playerNames[mi] ?? "You") : (playerNames[idx] ?? `Player ${idx}`);
+  const orientation = isHero ? "front" as const : "back" as const;
+
+  const armyCount = zones.army?.length ?? 0;
+  const exhaustCount = zones.exhausted?.length ?? 0;
+
+  return (
+    <>
+      <div className="mobile-modal-backdrop" onClick={closePlayerModal} />
+      <div className="mobile-modal">
+        <div className="mobile-modal__header">
+          <span className="mobile-modal__title">{name}</span>
+          <button className="mobile-modal__close" onClick={closePlayerModal}>X</button>
+        </div>
+        <div className="mobile-modal__body">
+          <div className="mobile-modal__zones">
+            <div className="mobile-modal__zone-row">
+              {zones.king && (
+                <div className="mobile-modal__zone-slot">
+                  <Card visual={toCardVisual(zones.king.card)} orientation={isHero || zones.king.face === "up" ? "front" : "back"} size="small" />
+                  <span className="zone-label">King</span>
+                </div>
+              )}
+              {zones.successor && (
+                <div className="mobile-modal__zone-slot">
+                  <Card visual={toCardVisual(zones.successor.card)} orientation={orientation} size="small" />
+                  <span className="zone-label">Successor</span>
+                </div>
+              )}
+              {zones.dungeon && (
+                <div className="mobile-modal__zone-slot">
+                  <Card visual={toCardVisual(zones.dungeon.card)} orientation={orientation} size="small" />
+                  <span className="zone-label">Dungeon</span>
+                </div>
+              )}
+              {zones.squire && (
+                <div className="mobile-modal__zone-slot">
+                  <Card visual={toCardVisual(zones.squire.card)} orientation={orientation} size="small" />
+                  <span className="zone-label">Squire</span>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="mobile-modal__counts">
+            <button className="mobile-modal__count-btn" onClick={() => openSubModal("army")}>
+              Army: {armyCount}
+            </button>
+            <button className="mobile-modal__count-btn" onClick={() => openSubModal("exhaust")}>
+              Exhaust: {exhaustCount}
+            </button>
+          </div>
+          {zones.antechamber.length > 0 && (
+            <div className="mobile-modal__section">
+              <span className="zone-label">Antechamber</span>
+              <div className="tt-card-row">
+                {zones.antechamber.map((c: import("@imposter-zero/engine").IKCard) => (
+                  <Card key={c.id} visual={toCardVisual(c)} orientation="front" size="small" />
+                ))}
+              </div>
+            </div>
+          )}
+          {zones.parting.length > 0 && (
+            <div className="mobile-modal__section">
+              <span className="zone-label">Parting Zone</span>
+              <div className="tt-card-row">
+                {zones.parting.map((c: import("@imposter-zero/engine").IKCard) => (
+                  <Card key={c.id} visual={toCardVisual(c)} orientation="front" size="small" />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {subModal !== null && (
+        <>
+          <div className="mobile-submodal-backdrop" onClick={closeSubModal} />
+          <div className="mobile-submodal">
+            <div className="mobile-modal__header">
+              <span className="mobile-modal__title">{subModal === "army" ? "Army" : "Exhausted"}</span>
+              <button className="mobile-modal__close" onClick={closeSubModal}>X</button>
+            </div>
+            <div className="mobile-submodal__cards">
+              {(subModal === "army" ? zones.army ?? [] : zones.exhausted ?? []).map((c: import("@imposter-zero/engine").IKCard) => (
+                <Card key={c.id} visual={toCardVisual(c)} orientation={isHero ? "front" : "back"} size="small" />
+              ))}
+              {(subModal === "army" ? zones.army ?? [] : zones.exhausted ?? []).length === 0 && (
+                <span className="zone-label">Empty</span>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// MobileTopBar — hamburger, phase indicator, player icons
+// ---------------------------------------------------------------------------
+
+const MobileTopBar: React.FC<{
+  readonly phase: InGamePhase;
+}> = ({ phase }) => {
+  const toggleDrawer = useMobileUIStore((s) => s.toggleDrawer);
+  const openPlayerModal = useMobileUIStore((s) => s.openPlayerModal);
+
+  const mi = safeMyIndex(phase);
+  const gameState = hasGameState(phase) ? phase.gameState : null;
+  const isMyTurn = hasActivePlayer(phase) && phase.activePlayer === mi;
+  const playerNames = "playerNames" in phase ? phase.playerNames : [];
+  const activePlayer = hasActivePlayer(phase) ? phase.activePlayer : null;
+  const numPlayers = gameState?.numPlayers ?? playerNames.length;
+
+  const phaseText = PHASE_LABELS[phase._tag] ?? "";
+  const turnText = isMyTurn ? "Your turn" : activePlayer !== null ? `${playerNames[activePlayer] ?? "..."} thinking...` : phaseText;
+
+  return (
+    <div className="mobile-topbar">
+      <button className="mobile-topbar__hamburger" onClick={toggleDrawer}>&#9776;</button>
+      <span className="mobile-topbar__phase">{turnText || phaseText}</span>
+      <div className="mobile-topbar__players">
+        {Array.from({ length: numPlayers }, (_, i) => {
+          if (i === mi) return null;
+          return (
+            <button
+              key={i}
+              className={`mobile-topbar__player-icon ${activePlayer === i ? "mobile-topbar__player-icon--active" : ""}`}
+              style={{ borderColor: MOBILE_PLAYER_COLORS[i] ?? "#888" }}
+              onClick={() => openPlayerModal(i as import("@imposter-zero/types").PlayerId)}
+            >
+              {(playerNames[i] ?? `P${i}`).charAt(0).toUpperCase()}
+            </button>
+          );
+        })}
+        <button
+          className={`mobile-topbar__player-icon mobile-topbar__player-icon--hero ${activePlayer === mi ? "mobile-topbar__player-icon--active" : ""}`}
+          style={{ borderColor: MOBILE_PLAYER_COLORS[mi] ?? "#d4af37" }}
+          onClick={() => openPlayerModal("hero")}
+        >
+          Me
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// MobileTabletop — the full mobile layout (SRS-002)
+// ---------------------------------------------------------------------------
+
+const MobileTabletop: React.FC<{
+  readonly phase: InGamePhase;
+  readonly send: (msg: IKClientMessage) => void;
+}> = ({ phase, send }) => {
+  const mi = safeMyIndex(phase);
+  const gameState = hasGameState(phase) ? phase.gameState : null;
+  const turnCount = gameState?.turnCount ?? 0;
+  const isMyTurn = hasActivePlayer(phase) && phase.activePlayer === mi;
+  const isSetup = phase._tag === "setup";
+  const isMustering = phase._tag === "mustering";
+  const setHovered = usePreviewStore((s) => s.setHovered);
+  const openDrawer = useMobileUIStore((s) => s.openDrawer);
+  const dismissAll = useMobileUIStore((s) => s.dismissAll);
+
+  const hasTertiary = phase._tag === "mustering" || phase._tag === "scoring";
+
+  const [setupSel, setSetupSel] = useState<{ successorId: number | null; dungeonId: number | null; squireId: number | null }>({
+    successorId: null, dungeonId: null, squireId: null,
+  });
+  const [musteringSelection, setMusteringSelection] = useState<MusteringSelection>(EMPTY_MUSTERING_SELECTION);
+
+  useEffect(() => { if (!isSetup) setSetupSel({ successorId: null, dungeonId: null, squireId: null }); }, [isSetup]);
+  useEffect(() => { if (!isMustering) setMusteringSelection(EMPTY_MUSTERING_SELECTION); }, [isMustering]);
+  useEffect(() => {
+    if (phase._tag === "mustering" && phase.activePlayer !== mi) setMusteringSelection(EMPTY_MUSTERING_SELECTION);
+  }, [phase, mi]);
+
+  const myKingFacet = gameState?.players[mi]?.king.facet;
+  const isTactician = myKingFacet === "masterTactician";
+
+  const handleSetupCardClick = useCallback((cardId: number) => {
+    setSetupSel((prev) => {
+      if (prev.successorId === null) return { ...prev, successorId: cardId };
+      if (cardId === prev.successorId) return { ...prev, successorId: null, squireId: null };
+      if (prev.dungeonId === null) return { ...prev, dungeonId: cardId };
+      if (cardId === prev.dungeonId) return { ...prev, dungeonId: null, squireId: null };
+      if (isTactician) {
+        if (prev.squireId === null) return { ...prev, squireId: cardId };
+        if (cardId === prev.squireId) return { ...prev, squireId: null };
+      }
+      return { successorId: cardId, dungeonId: null, squireId: null };
+    });
+  }, [isTactician]);
+
+  const myHand = gameState?.players[mi]?.hand ?? [];
+
+  const setupSelection: SetupSelection = useMemo(() => ({
+    successorId: setupSel.successorId,
+    dungeonId: setupSel.dungeonId,
+    squireId: setupSel.squireId,
+    successorVisual: setupSel.successorId !== null ? (() => { const c = myHand.find((h: import("@imposter-zero/engine").IKCard) => h.id === setupSel.successorId); return c ? toCardVisual(c) : null; })() : null,
+    dungeonVisual: setupSel.dungeonId !== null ? (() => { const c = myHand.find((h: import("@imposter-zero/engine").IKCard) => h.id === setupSel.dungeonId); return c ? toCardVisual(c) : null; })() : null,
+    squireVisual: setupSel.squireId !== null ? (() => { const c = myHand.find((h: import("@imposter-zero/engine").IKCard) => h.id === setupSel.squireId); return c ? toCardVisual(c) : null; })() : null,
+    needsSquire: isTactician,
+  }), [setupSel.successorId, setupSel.dungeonId, setupSel.squireId, myHand, isTactician]);
+
+  const canCommitSetup =
+    isSetup && isMyTurn &&
+    setupSel.successorId !== null && setupSel.dungeonId !== null &&
+    setupSel.successorId !== setupSel.dungeonId &&
+    (!isTactician || setupSel.squireId !== null) &&
+    (phase.legalActions as readonly IKSetupAction[]).some((a) =>
+      a.kind === "commit" && a.successorId === setupSel.successorId && a.dungeonId === setupSel.dungeonId &&
+      (!isTactician || a.squireId === setupSel.squireId),
+    );
+
+  const handleCommitSetup = useCallback(() => {
+    if (setupSel.successorId === null || setupSel.dungeonId === null) return;
+    if (isTactician && setupSel.squireId === null) return;
+    const action: IKSetupAction = {
+      kind: "commit",
+      successorId: setupSel.successorId,
+      dungeonId: setupSel.dungeonId,
+      ...(isTactician && setupSel.squireId !== null ? { squireId: setupSel.squireId } : {}),
+    };
+    send({ type: "action", action });
+    setSetupSel({ successorId: null, dungeonId: null, squireId: null });
+  }, [setupSel, send, isTactician]);
+
+  const handleCardLongPress = useCallback((visual: import("./card/types.js").CardVisual) => {
+    setHovered(visual, "hand");
+    openDrawer();
+  }, [setHovered, openDrawer]);
+
+  useEffect(() => { dismissAll(); }, [phase._tag]);
+
+  const timerDeadline = hasTurnDeadline(phase) ? phase.turnDeadline : 0;
+  const showTimer = timerDeadline > 0;
+
+  return (
+    <div className="tabletop-mobile">
+      <MobileTopBar phase={phase} />
+      <MobileLeftDrawer turnCount={turnCount} />
+      <MobilePlayerZoneModal phase={phase} />
+
+      {/* ── Top region: court + dialogs ── */}
+      <div className="mobile-main">
+        {showTimer && (
+          <div className="mobile-timer">
+            <CountdownTimer turnDeadline={timerDeadline} isMyTurn={isMyTurn} />
+          </div>
+        )}
+        <CourtArea phase={phase} />
+        <div className="mobile-dialogs">
+          <PrimaryDialog
+            phase={phase}
+            send={send}
+            setupSelection={setupSelection}
+            musteringSelection={musteringSelection}
+            setMusteringSelection={setMusteringSelection}
+          />
+          {hasTertiary && (
+            <div className="mobile-dialogs__lower">
+              <SecondaryDialog
+                phase={phase}
+                send={send}
+                musteringSelection={musteringSelection}
+                setMusteringSelection={setMusteringSelection}
+              />
+              <TertiaryDialog
+                phase={phase}
+                musteringSelection={musteringSelection}
+                setMusteringSelection={setMusteringSelection}
+              />
+            </div>
+          )}
+          {!hasTertiary && (
+            <SecondaryDialog
+              phase={phase}
+              send={send}
+              musteringSelection={musteringSelection}
+              setMusteringSelection={setMusteringSelection}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* ── Middle strip: antechamber + parting ── */}
+      <div className="mobile-mid-strip">
+        <HeroAntechamber phase={phase} send={send} />
+        <HeroPartingZone phase={phase} />
+      </div>
+
+      {/* ── Bottom strip: hand ── */}
+      <HeroHand
+        phase={phase}
+        send={send}
+        setupSelection={setupSelection}
+        onSetupCardClick={handleSetupCardClick}
+        onCommitSetup={canCommitSetup ? handleCommitSetup : undefined}
+        musteringSelection={musteringSelection}
+        setMusteringSelection={setMusteringSelection}
+      />
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
 // TabletopLayout — the master persistent grid
 // ---------------------------------------------------------------------------
 
-export const TabletopLayout: React.FC<Props> = ({ phase, send }) => {
+export const TabletopLayout: React.FC<Props> = ({ phase, send, isMobile }) => {
+  if (isMobile) {
+    return <MobileTabletop phase={phase} send={send} />;
+  }
+
   const mi = safeMyIndex(phase);
   const gameState = hasGameState(phase) ? phase.gameState : null;
   const turnCount = gameState?.turnCount ?? 0;
