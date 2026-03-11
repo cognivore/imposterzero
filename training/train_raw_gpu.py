@@ -197,22 +197,14 @@ def _worker_simulate(args):
                 obs_t = torch.tensor([obs], dtype=torch.float32)
                 logits = net(obs_t).squeeze(0)
 
-            # Clamp logits to prevent numerical instability
+            # Clamp logits and use -1e9 (not -inf) for MPS gradient stability
             logits = logits.clamp(-50, 50)
 
-            mask = torch.full((num_actions,), float("-inf"))
+            mask = torch.full((num_actions,), -1e9)
             for a in legal:
                 mask[a] = 0.0
 
             probs = F.softmax(logits + mask, dim=0)
-
-            # Fallback if NaN or invalid probabilities
-            if torch.isnan(probs).any() or probs.sum() < 0.5:
-                # Uniform over legal actions
-                probs = torch.zeros(num_actions)
-                for a in legal:
-                    probs[a] = 1.0 / len(legal)
-
             action = torch.multinomial(probs, 1).item()
 
             obs_list.append(obs)
@@ -249,14 +241,11 @@ def evaluate_vs_random(game, net, device, num_games=1000):
                     obs = raw_observation(state, player)
                     obs_t = torch.tensor([obs], dtype=torch.float32, device=device)
                     logits = net(obs_t).squeeze(0).clamp(-50, 50)
-                    mask = torch.full((NUM_ACTIONS,), float("-inf"), device=device)
+                    mask = torch.full((NUM_ACTIONS,), -1e9, device=device)
                     for a in legal:
                         mask[a] = 0.0
                     probs = F.softmax(logits + mask, dim=0)
-                    if torch.isnan(probs).any() or probs.sum() < 0.5:
-                        action = random.choice(legal)
-                    else:
-                        action = torch.multinomial(probs, 1).item()
+                    action = torch.multinomial(probs, 1).item()
                     state.apply_action(action)
                 else:
                     state.apply_action(random.choice(state.legal_actions()))
