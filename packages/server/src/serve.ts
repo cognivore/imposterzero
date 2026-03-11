@@ -1,5 +1,5 @@
 import { readFileSync, existsSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { ImposterKingsGame } from "@imposter-zero/engine";
@@ -11,6 +11,8 @@ import {
   createTabularStrategy,
   createNeuralStrategy,
   createCompositeStrategy,
+  createEffectsAwareStrategy,
+  modelHashName,
 } from "./bot-player.js";
 import { startServer } from "./ws-server.js";
 
@@ -43,13 +45,18 @@ const tryLoadJson = <T>(candidates: readonly string[], label: string): { data: T
   return null;
 };
 
-const loadBotStrategy = (): BotStrategy => {
+const loadBotStrategy = (): { strategy: BotStrategy; policyLabel: string } => {
   const strategies = new Map<number, BotStrategy>();
+  let policyLabel = "random";
 
-  const tab2p = tryLoadJson<TabularPolicy>(policyPaths("policy.json"), "2p tabular");
+  const tab2p =
+    tryLoadJson<TabularPolicy>(policyPaths("policy_2p_8h.json"), "2p tabular (8h)") ??
+    tryLoadJson<TabularPolicy>(policyPaths("policy.json"), "2p tabular");
   if (tab2p) {
     const s = tab2p.data.metadata?.info_states ?? Object.keys(tab2p.data.policy).length;
     const it = tab2p.data.metadata?.iterations ?? 0;
+    const ver = tab2p.data.metadata?.game_version ?? "unknown";
+    policyLabel = `mccfr-${ver}-${it}-${s}`;
     console.log(`[bot] 2p tabular: ${s} info states, ${it.toLocaleString()} iterations (${tab2p.path})`);
     strategies.set(2, createTabularStrategy(tab2p.data));
   }
@@ -67,7 +74,7 @@ const loadBotStrategy = (): BotStrategy => {
     console.warn("[bot] To train:");
     console.warn("[bot]   2p: python training/train.py --output training/policy.json");
     console.warn("[bot]   3p: python training/train_neural.py --output training/policy_3p.json");
-    return RandomStrategy;
+    return { strategy: RandomStrategy, policyLabel };
   }
 
   const missing = [2, 3].filter((n) => !strategies.has(n));
@@ -75,14 +82,15 @@ const loadBotStrategy = (): BotStrategy => {
     console.log(`[bot] No policy for ${missing.map((n) => `${n}p`).join(", ")} — will use random`);
   }
 
-  return createCompositeStrategy(strategies);
+  return { strategy: createCompositeStrategy(strategies), policyLabel };
 };
 
 const port = parseIntOr(process.env.PORT, 30588);
 const targetScore = parseIntOr(process.env.TARGET_SCORE, 7);
-// Trained policies are for the pre-effects game and produce nonsensical decisions.
-// Use random until the game is retrained with card effects enabled.
-const botStrategy = RandomStrategy;
+const replayDir = process.env.REPLAY_DIR ?? join(process.cwd(), "data", "replays");
+const { strategy: baseStrategy, policyLabel } = loadBotStrategy();
+const botStrategy = createEffectsAwareStrategy(baseStrategy);
+const botModelName = modelHashName(policyLabel);
 
 const handle = startServer(ImposterKingsGame, {
   port,
@@ -90,9 +98,15 @@ const handle = startServer(ImposterKingsGame, {
   autoAdvanceScoring: false,
   botDelayMs: 400,
   botStrategy,
+  replayDir,
+  botModelName,
 });
 
 handle.ready.then(
-  () => console.log(`Imposter Kings server listening on ws://localhost:${handle.port}`),
+  () => {
+    console.log(`Imposter Kings server listening on ws://localhost:${handle.port}`);
+    console.log(`[bot] Model name: "${botModelName}" (${policyLabel})`);
+    console.log(`[replay] Saving replays to ${replayDir}`);
+  },
   (e: unknown) => console.error("Server failed to start:", e),
 );

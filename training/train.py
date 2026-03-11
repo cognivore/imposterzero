@@ -22,123 +22,12 @@ import time
 
 import pyspiel
 
-import imposter_zero.game as ig
-
-
-# ---------------------------------------------------------------------------
-# Strategic abstraction: state bucketing
-# ---------------------------------------------------------------------------
-
-def _bucket_threshold(tv):
-    if tv <= 1:
-        return 0
-    if tv <= 3:
-        return 1
-    if tv <= 5:
-        return 2
-    if tv <= 7:
-        return 3
-    return 4
-
-
-def _bucket_playable(n):
-    if n == 0:
-        return 0
-    if n <= 2:
-        return 1
-    if n <= 4:
-        return 2
-    return 3
-
-
-def _bucket_hand(n):
-    if n <= 2:
-        return 0
-    if n <= 4:
-        return 1
-    if n <= 6:
-        return 2
-    return 3
-
-
-def abstract_state(state, player):
-    """Bucketed strategic abstraction of the game state."""
-    hand = state._hands[player]
-    hand_vals = sorted((state._card_values[c] for c in hand), reverse=True)
-    hand_size = len(hand)
-
-    if state._phase == "crown":
-        return "CR"
-
-    if state._phase == "setup":
-        low = sum(1 for v in hand_vals if v <= 4)
-        high = sum(1 for v in hand_vals if v >= 7)
-        return f"S{_bucket_hand(hand_size)}{min(low, 5)}{min(high, 5)}"
-
-    threshold = state._throne_value()
-    n_playable = sum(1 for v in hand_vals if v >= threshold)
-    can_disgrace = state._king_face_up[player] and len(state._court) > 0
-    opp = 1 - player
-    opp_hand = _bucket_hand(len(state._hands[opp]))
-    court_sz = min(len(state._court), 7)
-
-    return (
-        f"P{_bucket_playable(n_playable)}"
-        f"{_bucket_threshold(threshold)}"
-        f"{_bucket_hand(hand_size)}"
-        f"{opp_hand}"
-        f"{'D' if can_disgrace else '_'}"
-        f"{court_sz}"
-    )
-
-
-def abstract_action(state, encoded_action, player):
-    """Map a concrete action to an abstract action key.
-
-    Play:  L (lowest-value playable), M (middle), H (highest), D (disgrace)
-    Setup: LL (commit 2 lowest), HH (commit 2 highest), LH (one low, one high)
-    Crown: K0, K1
-    """
-    decoded = ig._decode_action(encoded_action, state._max_card_id, state._num_players)
-
-    if decoded[0] == "disgrace":
-        return "D"
-
-    if decoded[0] == "crown":
-        return f"K{decoded[1]}"
-
-    if decoded[0] == "play":
-        card_id = decoded[1]
-        value = state._card_values[card_id]
-        hand = state._hands[player]
-        threshold = state._throne_value()
-        playable_vals = sorted(state._card_values[c] for c in hand if state._card_values[c] >= threshold)
-
-        if len(playable_vals) <= 1:
-            return "L"
-        if value <= playable_vals[len(playable_vals) // 3]:
-            return "L"
-        if value >= playable_vals[-(len(playable_vals) // 3 + 1)]:
-            return "H"
-        return "M"
-
-    # commit(successor_id, dungeon_id)
-    sv = state._card_values[decoded[1]]
-    dv = state._card_values[decoded[2]]
-    avg = (sv + dv) / 2.0
-    if avg <= 4.0:
-        return "LL"
-    if avg >= 6.0:
-        return "HH"
-    return "LH"
-
-
-def group_legal_by_abstract(state, legal_actions, player):
-    groups = {}
-    for enc in legal_actions:
-        key = abstract_action(state, enc, player)
-        groups.setdefault(key, []).append(enc)
-    return groups
+import imposter_zero.game as ig  # noqa: F401
+from imposter_zero.abstraction import (
+    abstract_state,
+    abstract_action,
+    group_legal_by_abstract,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +177,7 @@ def export_policy(solver, output_path):
             "abstraction": "bucketed_strategic",
             "iterations": solver.iterations,
             "num_players": solver.num_players,
-            "game_version": "1.0",
+            "game_version": "2.0-effects",
             "info_states": len(policy),
             "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         },

@@ -2,7 +2,7 @@
 Shared strategic abstraction for Imposter Zero training and inference.
 
 Provides:
-  - enriched_obs(state, player)  -- 30-dim feature vector for neural training
+  - enriched_obs(state, player)  -- 33-dim feature vector for neural training
   - abstract_state(state, player) -- bucketed state key for tabular MCCFR
   - abstract_action(state, encoded, player) -- bucketed action key
   - group_legal_by_abstract(state, legal, player) -- group concrete -> abstract
@@ -20,14 +20,14 @@ from . import game as ig
 ABSTRACT_ACTIONS = ["L", "M", "H", "D", "LL", "LH", "HH", "K0", "K1", "K2"]
 
 # ---------------------------------------------------------------------------
-# Enriched observation tensor (30 dims for 3p, padded for consistency)
+# Enriched observation tensor (33 dims — extends 30-dim with effect features)
 # ---------------------------------------------------------------------------
 
-_ENRICHED_SIZE = 30
+_ENRICHED_SIZE = 33
 
 
 def enriched_obs(state, player):
-    """30-dim feature vector suitable for neural network input.
+    """33-dim feature vector suitable for neural network input.
 
     Layout (3p):
       [0..2]   active_player one-hot (3)
@@ -45,7 +45,10 @@ def enriched_obs(state, player):
       [26]     opponent 1 king face up (0/1)
       [27]     opponent 2 hand size / 9.0
       [28]     opponent 2 king face up (0/1)
-      [29]     (reserved, 0.0)
+      [29]     my antechamber count / 5.0
+      [30]     condemned count / 10.0
+      [31]     disgraced court count / 7.0
+      [32]     my parting count / 3.0
     """
     n = state._num_players
     hand = state._hands[player]
@@ -86,12 +89,16 @@ def enriched_obs(state, player):
     while len(opp_features) < 4:
         opp_features.append(0.0)
 
-    reserved = 0.0
+    ante_count = len(state._antechamber[player]) / 5.0
+    condemned_count = len(state._condemned) / 10.0
+    disgraced_count = sum(1 for _, fu, _ in state._court if not fu) / 7.0
+    parting_count = len(state._parting[player]) / 3.0
 
     return (
         active_oh + phase_oh + hist +
         [my_king, succ, dung, throne, court, accused, forgotten] +
-        fp_oh + opp_features + [reserved]
+        fp_oh + opp_features +
+        [ante_count, condemned_count, disgraced_count, parting_count]
     )
 
 
@@ -140,6 +147,7 @@ def abstract_state(state, player):
 
     Works for any player count. For play phase, encodes minimum opponent
     hand size (worst-case opponent) rather than a single opponent.
+    Forced actions (parting/antechamber) get distinct state prefixes.
     """
     hand = state._hands[player]
     hand_vals = sorted((state._card_values[c] for c in hand), reverse=True)
@@ -154,13 +162,20 @@ def abstract_state(state, player):
         high = sum(1 for v in hand_vals if v >= 7)
         return f"S{_bucket_hand(hand_size)}{min(low, 5)}{min(high, 5)}"
 
+    if state._parting[player]:
+        return "FP"
+
+    if state._antechamber[player]:
+        return "FA"
+
     threshold = state._throne_value()
-    n_playable = sum(1 for v in hand_vals if v >= threshold)
+    n_playable = sum(1 for c in hand if state._can_play_card(c, threshold))
     can_disgrace = state._king_face_up[player] and len(state._court) > 0
 
     opp_hands = [len(state._hands[(player + 1 + i) % n]) for i in range(n - 1)]
     min_opp = _bucket_hand(min(opp_hands))
     court_sz = min(len(state._court), 7)
+    disgraced = min(sum(1 for _, fu, _ in state._court if not fu), 3)
 
     return (
         f"P{_bucket_playable(n_playable)}"
@@ -169,6 +184,7 @@ def abstract_state(state, player):
         f"{min_opp}"
         f"{'D' if can_disgrace else '_'}"
         f"{court_sz}"
+        f"{disgraced}"
     )
 
 
@@ -194,9 +210,16 @@ def abstract_action(state, encoded_action, player):
     if decoded[0] == "play":
         card_id = decoded[1]
         value = state._card_values[card_id]
+
+        if card_id in state._parting[player] or card_id in state._antechamber[player]:
+            return "L"
+
         hand = state._hands[player]
         threshold = state._throne_value()
-        playable_vals = sorted(state._card_values[c] for c in hand if state._card_values[c] >= threshold)
+        playable_vals = sorted(
+            state._card_values[c] for c in hand
+            if state._can_play_card(c, threshold)
+        )
 
         if len(playable_vals) <= 1:
             return "L"

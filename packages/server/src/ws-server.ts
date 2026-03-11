@@ -1,5 +1,6 @@
+import { randomBytes } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
-import type { GameDef, PlayerId } from "@imposter-zero/types";
+import type { GameDef, PlayerId, ReplaySink } from "@imposter-zero/types";
 import type { IKState, IKAction } from "@imposter-zero/engine";
 import {
   type PlayingRoom,
@@ -15,6 +16,7 @@ import {
   RandomStrategy,
   addBot,
   isBot,
+  botDisplayName,
 } from "./bot-player.js";
 import {
   type ManagedRoom,
@@ -35,6 +37,8 @@ import {
 } from "./room-manager.js";
 import { draftStateToView, perPlayerDraftMessages } from "./room.js";
 import type { DraftingRoom } from "./room.js";
+import { createReplayRecorder, nullRecorder, type ReplayRecorder } from "./replay-recorder.js";
+import { fileReplaySink } from "./replay-writer.js";
 
 export interface ServerOptions {
   readonly port?: number;
@@ -44,6 +48,8 @@ export interface ServerOptions {
   readonly reconnectWindowMs?: number;
   readonly botDelayMs?: number;
   readonly botStrategy?: BotStrategy;
+  readonly replayDir?: string;
+  readonly botModelName?: string;
 }
 
 export interface ServerHandle {
@@ -71,6 +77,8 @@ export const startServer = (
     reconnectWindowMs = 60_000,
     botDelayMs = 250,
     botStrategy = RandomStrategy,
+    replayDir,
+    botModelName = "Bot",
   } = options;
 
   const store: RoomStore = emptyStore();
@@ -135,6 +143,47 @@ export const startServer = (
     }
   };
 
+  // ---- Replay recording ----
+
+  const makeRoomRecorder = (): ReplayRecorder<IKState, IKAction> =>
+    replayDir
+      ? createReplayRecorder(fileReplaySink<IKState, IKAction>(replayDir))
+      : nullRecorder as ReplayRecorder<IKState, IKAction>;
+
+  const recordLifecycle = (m: ManagedRoom, messages: ReadonlyArray<OutboundMessage>, now: number): void => {
+    const rec = m.replayRecorder;
+    for (const msg of messages) {
+      if (msg.type === "game_start" && m.room.phase === "playing") {
+        const playing = m.room as PlayingRoom;
+        const round = playing.match.roundsPlayed + 1;
+        if (round === 1) {
+          rec.startMatch({
+            matchId: `${m.id}-${randomBytes(4).toString("hex")}`,
+            roomId: m.id,
+            playerNames: playing.lobby.players.map((p) => p.id),
+            numPlayers: playing.lobby.players.length,
+            targetScore: m.targetScore,
+            startedAt: now,
+          });
+        }
+        rec.startRound(round, playing.session.state, now);
+      }
+      if (msg.type === "round_over") {
+        rec.endRound(msg.roundsPlayed, msg.state, msg.scores, msg.matchScores, now);
+      }
+      if (msg.type === "match_over") {
+        rec.endMatch(msg.winners, msg.finalScores, now);
+      }
+    }
+  };
+
+  const playerNameForIdx = (playing: PlayingRoom, idx: PlayerId): string => {
+    for (const [id, pidx] of playing.session.playerMapping) {
+      if (pidx === idx) return id;
+    }
+    return "";
+  };
+
   // ---- Per-room timers ----
 
   const clearRoomTurnTimer = (m: ManagedRoom): void => {
@@ -164,6 +213,7 @@ export const startServer = (
         if (result.ok) {
           m.room = result.value.room;
           broadcastToRoom(m, result.value.messages);
+          recordLifecycle(m, result.value.messages, now);
         }
       }
       scheduleTurnTimer(m);
@@ -185,6 +235,7 @@ export const startServer = (
       const result = continueAfterScoring(m.room as ScoringRoom, now);
       m.room = result.room;
       broadcastToRoom(m, result.messages);
+      recordLifecycle(m, result.messages, now);
       return;
     }
 
@@ -196,6 +247,7 @@ export const startServer = (
       if (result.ok) {
         m.room = result.value.room;
         broadcastToRoom(m, result.value.messages);
+        recordLifecycle(m, result.value.messages, now);
       }
     }
 
@@ -221,14 +273,14 @@ export const startServer = (
           if (idx < 0 || (ds.playerSelections[idx]?.length ?? 0) >= needed) continue;
           const picks = pool.slice(0, needed);
           const result = roomTransition(m.room, { kind: "draft_select", playerId: player.id, cards: picks, now }, now);
-          if (result.ok) { m.room = result.value.room; broadcastDraftState(m); broadcastToRoom(m, result.value.messages); acted = true; }
+          if (result.ok) { m.room = result.value.room; broadcastDraftState(m); broadcastToRoom(m, result.value.messages); recordLifecycle(m, result.value.messages, now); acted = true; }
         }
       } else if (ds.phase.tag === "draft_order") {
         const nonTrueKing = ((ds.trueKing + 1) % ds.numPlayers) as PlayerId;
         const chooserId = drafting.lobby.players[nonTrueKing]?.id;
         if (chooserId && isBot(m.botRegistry, chooserId)) {
           const result = roomTransition(m.room, { kind: "draft_order", playerId: chooserId, goFirst: true, now }, now);
-          if (result.ok) { m.room = result.value.room; broadcastDraftState(m); broadcastToRoom(m, result.value.messages); acted = true; }
+          if (result.ok) { m.room = result.value.room; broadcastDraftState(m); broadcastToRoom(m, result.value.messages); recordLifecycle(m, result.value.messages, now); acted = true; }
         }
       } else if (ds.phase.tag === "drafting") {
         const currentPicker = ds.phase.pickerOrder[ds.phase.currentPickerIdx]!;
@@ -236,7 +288,7 @@ export const startServer = (
         if (pickerId && isBot(m.botRegistry, pickerId) && ds.phase.faceUp.length > 0) {
           const card = ds.phase.faceUp[0]!;
           const result = roomTransition(m.room, { kind: "draft_pick", playerId: pickerId, card, now }, now);
-          if (result.ok) { m.room = result.value.room; broadcastDraftState(m); broadcastToRoom(m, result.value.messages); acted = true; }
+          if (result.ok) { m.room = result.value.room; broadcastDraftState(m); broadcastToRoom(m, result.value.messages); recordLifecycle(m, result.value.messages, now); acted = true; }
         }
       }
 
@@ -270,6 +322,7 @@ export const startServer = (
     m.botTimer = setTimeout(() => {
       if (m.room.phase !== "playing") return;
       const current = m.room as PlayingRoom;
+      const round = current.match.roundsPlayed + 1;
       const legal = current.game.legalActions(current.session.state);
       if (legal.length === 0) return;
 
@@ -284,6 +337,8 @@ export const startServer = (
 
       m.room = result.value.room;
       broadcastToRoom(m, result.value.messages);
+      m.replayRecorder.recordAction(round, activePlayer, activeBotId, action, false, now);
+      recordLifecycle(m, result.value.messages, now);
       advanceIfScoring(m, now);
       scheduleTurnTimer(m);
       scheduleBotTurn(m);
@@ -296,11 +351,23 @@ export const startServer = (
     const playing = m.room as PlayingRoom;
     const delay = Math.max(1, playing.session.turnDeadline - Date.now() + 1);
     m.turnTimer = setTimeout(() => {
+      if (m.room.phase !== "playing") return;
+      const pre = m.room as PlayingRoom;
+      const round = pre.match.roundsPlayed + 1;
+      const timeoutLegal = pre.game.legalActions(pre.session.state);
+      const timeoutAction = timeoutLegal[0];
+      const activeIdx = pre.game.currentPlayer(pre.session.state) as PlayerId;
+      const activeId = playerNameForIdx(pre, activeIdx);
+
       const now = Date.now();
       const result = roomTransition(m.room, { kind: "timeout", now }, now);
       if (!result.ok) return;
       m.room = result.value.room;
       broadcastToRoom(m, result.value.messages);
+      if (result.value.messages.length > 0 && timeoutAction !== undefined) {
+        m.replayRecorder.recordAction(round, activeIdx, activeId, timeoutAction, true, now);
+        recordLifecycle(m, result.value.messages, now);
+      }
       advanceIfScoring(m, now);
       scheduleTurnTimer(m);
       scheduleBotTurn(m);
@@ -353,7 +420,7 @@ export const startServer = (
   // ---- Room-scoped bot add ----
 
   const handleAddBot = (ws: WebSocket, m: ManagedRoom, now: number): void => {
-    const botId = `bot-${m.botCounter++}`;
+    const botId = botDisplayName(botModelName, m.botCounter++);
 
     const joinResult = roomTransition(m.room, { kind: "join", playerId: botId }, now);
     if (!joinResult.ok) {
@@ -373,6 +440,7 @@ export const startServer = (
     m.room = readyResult.value.room;
     broadcastToRoom(m, readyResult.value.messages);
     broadcastDraftState(m);
+    recordLifecycle(m, readyResult.value.messages, now);
 
     advanceIfScoring(m, now);
     scheduleTurnTimer(m);
@@ -461,7 +529,7 @@ export const startServer = (
         const maxPlayers = Math.min(4, Math.max(2, Number(msg.maxPlayers) || 4));
         const targetScore = Math.min(99, Math.max(1, Number(msg.targetScore) || 7));
 
-        const managed = createManagedRoom(store, game, name, maxPlayers, targetScore, turnDuration, msgNow);
+        const managed = createManagedRoom(store, game, name, maxPlayers, targetScore, turnDuration, msgNow, null, makeRoomRecorder());
         updateManagedRoomExpansion(managed, true);
 
         const joinResult = roomTransition(managed.room, { kind: "join", playerId: name }, msgNow);
@@ -607,6 +675,7 @@ export const startServer = (
         managed.room = result.value.room;
         broadcastToRoom(managed, result.value.messages);
         broadcastDraftState(managed);
+        recordLifecycle(managed, result.value.messages, msgNow);
         advanceIfScoring(managed, msgNow);
         scheduleTurnTimer(managed);
         scheduleBotTurn(managed);
@@ -631,6 +700,7 @@ export const startServer = (
         managed.room = result.value.room;
         broadcastDraftState(managed);
         broadcastToRoom(managed, result.value.messages);
+        recordLifecycle(managed, result.value.messages, msgNow);
         scheduleTurnTimer(managed);
         scheduleBotTurn(managed);
         return;
@@ -642,6 +712,10 @@ export const startServer = (
           return;
         }
 
+        const playing = managed.room as PlayingRoom;
+        const round = playing.match.roundsPlayed + 1;
+        const playerIdx = playing.session.playerMapping.get(name);
+
         const action = msg.action as IKAction;
         const result = roomTransition(managed.room, { kind: "action", playerId: name, action, now: msgNow }, msgNow);
         if (!result.ok) {
@@ -650,6 +724,10 @@ export const startServer = (
         }
         managed.room = result.value.room;
         broadcastToRoom(managed, result.value.messages);
+        if (playerIdx !== undefined) {
+          managed.replayRecorder.recordAction(round, playerIdx, name, action, false, msgNow);
+        }
+        recordLifecycle(managed, result.value.messages, msgNow);
         advanceIfScoring(managed, msgNow);
         scheduleTurnTimer(managed);
         scheduleBotTurn(managed);

@@ -2,6 +2,8 @@ import type { PlayerId } from "@imposter-zero/types";
 import {
   type IKState,
   type IKAction,
+  type PendingResolution,
+  type ChoiceOption,
   playerZones,
   throneValue,
   isKingFaceUp,
@@ -30,6 +32,50 @@ export const pickRandom = <A>(actions: NonEmptyReadonlyArray<A>): A =>
   actions[Math.floor(Math.random() * actions.length)];
 
 // ---------------------------------------------------------------------------
+// Deterministic bot naming — two-word model hash + ordinal prefix
+// ---------------------------------------------------------------------------
+
+const MODEL_ADJECTIVES = [
+  "Swift", "Bold", "Calm", "Deft", "Fey", "Grim", "Hale", "Keen",
+  "Lush", "Meek", "Odd", "Pale", "Rare", "Sly", "Tart", "Vast",
+  "Warm", "Zany", "Dry", "True", "Fond", "Glad", "Mild", "Neat",
+  "Pure", "Rich", "Sage", "Tall", "Wise", "Apt",
+] as const;
+
+const MODEL_NOUNS = [
+  "Potato", "Falcon", "Badger", "Walrus", "Cobalt", "Candle",
+  "Dagger", "Fennel", "Geyser", "Hermit", "Jackal", "Kettle",
+  "Lantern", "Magnet", "Nectar", "Oyster", "Pebble", "Quartz",
+  "Riddle", "Sphinx", "Timber", "Urchin", "Vortex", "Wraith",
+  "Zenith", "Anchor", "Breeze", "Cipher", "Donkey", "Ember",
+] as const;
+
+const ORDINAL_PREFIXES = [
+  "Keen", "Aspiring", "Diligent", "Earnest", "Fervent",
+  "Gallant", "Humble", "Intrepid", "Jovial", "Luminous",
+  "Noble", "Prudent", "Resolute", "Stalwart", "Tenacious",
+  "Valiant",
+] as const;
+
+const djb2 = (s: string): number => {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return h >>> 0;
+};
+
+export const modelHashName = (policyLabel: string): string => {
+  const h = djb2(policyLabel);
+  const adj = MODEL_ADJECTIVES[h % MODEL_ADJECTIVES.length]!;
+  const noun = MODEL_NOUNS[(h >>> 8) % MODEL_NOUNS.length]!;
+  return `${adj} ${noun}`;
+};
+
+export const botDisplayName = (modelName: string, index: number): string => {
+  const prefix = ORDINAL_PREFIXES[index % ORDINAL_PREFIXES.length]!;
+  return `${prefix} ${modelName}`;
+};
+
+// ---------------------------------------------------------------------------
 // Bot strategy interface
 // ---------------------------------------------------------------------------
 
@@ -41,6 +87,190 @@ export const RandomStrategy: BotStrategy = {
   selectAction: (_state, _player, legal) =>
     legal[Math.floor(Math.random() * legal.length)]!,
 };
+
+// ---------------------------------------------------------------------------
+// Effect heuristic — handles resolving and end_of_turn phases
+// ---------------------------------------------------------------------------
+
+const findCardValue = (state: IKState, cardId: number): number => {
+  for (const p of state.players) {
+    for (const c of p.hand) if (c.id === cardId) return c.kind.props.value;
+    for (const c of p.antechamber) if (c.id === cardId) return c.kind.props.value;
+    for (const c of p.parting) if (c.id === cardId) return c.kind.props.value;
+    for (const c of p.army) if (c.id === cardId) return c.kind.props.value;
+    if (p.successor?.card.id === cardId) return p.successor.card.kind.props.value;
+    if (p.dungeon?.card.id === cardId) return p.dungeon.card.kind.props.value;
+    if (p.squire?.card.id === cardId) return p.squire.card.kind.props.value;
+  }
+  for (const e of state.shared.court) if (e.card.id === cardId) return e.card.kind.props.value;
+  if (state.shared.accused?.id === cardId) return state.shared.accused.kind.props.value;
+  for (const e of state.shared.condemned) if (e.card.id === cardId) return e.card.kind.props.value;
+  return 0;
+};
+
+const selectReactionChoice = (
+  _state: IKState,
+  _player: PlayerId,
+  pending: PendingResolution,
+  legal: ReadonlyArray<IKAction>,
+): IKAction => {
+  const passIdx = pending.currentOptions.findIndex((o) => o.kind === "pass");
+  if (passIdx >= 0 && legal.length > 1) {
+    const reactAction = legal.find(
+      (a) => a.kind === "effect_choice" && a.choice !== passIdx,
+    );
+    if (reactAction) return reactAction;
+  }
+  return legal[0]!;
+};
+
+const pickCardOption = (
+  state: IKState,
+  player: PlayerId,
+  pending: PendingResolution,
+  options: ReadonlyArray<ChoiceOption>,
+  legal: ReadonlyArray<IKAction>,
+): IKAction => {
+  const isOwnEffect = pending.effectPlayer === player;
+  let bestIdx = 0;
+  let bestVal = isOwnEffect ? -1 : Infinity;
+  for (let i = 0; i < options.length; i++) {
+    const opt = options[i]!;
+    if (opt.kind !== "card") continue;
+    const val = findCardValue(state, opt.cardId);
+    if (isOwnEffect ? val > bestVal : val < bestVal) {
+      bestVal = val;
+      bestIdx = i;
+    }
+  }
+  return legal[bestIdx]!;
+};
+
+const pickPlayerOption = (
+  state: IKState,
+  options: ReadonlyArray<ChoiceOption>,
+  legal: ReadonlyArray<IKAction>,
+): IKAction => {
+  let bestIdx = 0;
+  let minHand = Infinity;
+  for (let i = 0; i < options.length; i++) {
+    const opt = options[i]!;
+    if (opt.kind !== "player") continue;
+    const handSize = playerZones(state, opt.player).hand.length;
+    if (handSize < minHand) {
+      minHand = handSize;
+      bestIdx = i;
+    }
+  }
+  return legal[bestIdx]!;
+};
+
+const selectEffectChoice = (
+  state: IKState,
+  player: PlayerId,
+  pending: PendingResolution,
+  legal: ReadonlyArray<IKAction>,
+): IKAction => {
+  const options = pending.currentOptions;
+  const isOwnEffect = pending.effectPlayer === player;
+  const first = options[0]!;
+
+  switch (first.kind) {
+    case "pass":
+    case "proceed":
+      return legal[0]!;
+
+    case "yesNo": {
+      const prefer = isOwnEffect;
+      const idx = options.findIndex(
+        (o) => o.kind === "yesNo" && o.value === prefer,
+      );
+      return idx >= 0 ? legal[idx]! : legal[0]!;
+    }
+
+    case "card":
+      return pickCardOption(state, player, pending, options, legal);
+
+    case "player":
+      return pickPlayerOption(state, options, legal);
+
+    case "value": {
+      const mid = Math.floor(options.length / 2);
+      return legal[mid]!;
+    }
+
+    case "cardName":
+      return legal[Math.floor(Math.random() * legal.length)]!;
+
+    default:
+      return legal[Math.floor(Math.random() * legal.length)]!;
+  }
+};
+
+const selectBestPlayAction = (
+  state: IKState,
+  player: PlayerId,
+  legal: ReadonlyArray<IKAction>,
+): IKAction => {
+  const zones = playerZones(state, player);
+  const pool = [...zones.hand, ...zones.antechamber, ...zones.parting];
+  let bestIdx = 0;
+  let bestVal = -1;
+  for (let i = 0; i < legal.length; i++) {
+    const action = legal[i]!;
+    if (action.kind !== "play") continue;
+    const card = pool.find((c) => c.id === action.cardId);
+    const val = card?.kind.props.value ?? 0;
+    if (val > bestVal) {
+      bestVal = val;
+      bestIdx = i;
+    }
+  }
+  return legal[bestIdx]!;
+};
+
+export const EffectHeuristic: BotStrategy = {
+  selectAction(
+    state: IKState,
+    player: PlayerId,
+    legal: ReadonlyArray<IKAction>,
+  ): IKAction {
+    if (legal.length <= 1) return legal[0]!;
+
+    if (state.phase === "end_of_turn") {
+      return selectBestPlayAction(state, player, legal);
+    }
+
+    const pending = state.pendingResolution;
+    if (!pending) return legal[Math.floor(Math.random() * legal.length)]!;
+
+    if (pending.isReactionWindow) {
+      return selectReactionChoice(state, player, pending, legal);
+    }
+
+    return selectEffectChoice(state, player, pending, legal);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Effects-aware strategy — dispatches to value policy or effect heuristic
+// ---------------------------------------------------------------------------
+
+export const createEffectsAwareStrategy = (
+  valuePolicy: BotStrategy,
+): BotStrategy => ({
+  selectAction(
+    state: IKState,
+    player: PlayerId,
+    legal: ReadonlyArray<IKAction>,
+  ): IKAction {
+    if (state.phase === "resolving" || state.phase === "end_of_turn")
+      return EffectHeuristic.selectAction(state, player, legal);
+    if (state.phase === "mustering")
+      return RandomStrategy.selectAction(state, player, legal);
+    return valuePolicy.selectAction(state, player, legal);
+  },
+});
 
 // ---------------------------------------------------------------------------
 // Abstract actions (shared vocabulary — mirrors imposter_zero/abstraction.py)
@@ -95,6 +325,9 @@ const abstractState = (state: IKState, player: PlayerId): string => {
     return `S${bucketHand(handSize)}${Math.min(low, 5)}${Math.min(high, 5)}`;
   }
 
+  if (perspective.parting.length > 0) return "FP";
+  if (perspective.antechamber.length > 0) return "FA";
+
   const threshold = throneValue(state);
   const nPlayable = handVals.filter((v) => v >= threshold).length;
   const canDisgrace = isKingFaceUp(state, player) && state.shared.court.length > 0;
@@ -105,6 +338,10 @@ const abstractState = (state: IKState, player: PlayerId): string => {
   });
   const minOpp = bucketHand(Math.min(...oppHands));
   const courtSz = Math.min(state.shared.court.length, 7);
+  const disgraced = Math.min(
+    state.shared.court.filter((e) => e.face === "down").length,
+    3,
+  );
 
   return (
     `P${bucketPlayable(nPlayable)}` +
@@ -112,7 +349,8 @@ const abstractState = (state: IKState, player: PlayerId): string => {
     `${bucketHand(handSize)}` +
     `${minOpp}` +
     `${canDisgrace ? "D" : "_"}` +
-    `${courtSz}`
+    `${courtSz}` +
+    `${disgraced}`
   );
 };
 
@@ -126,6 +364,12 @@ const abstractAction = (
 
   if (action.kind === "play") {
     const perspective = playerZones(state, player);
+
+    const isForced =
+      perspective.parting.some((c) => c.id === action.cardId) ||
+      perspective.antechamber.some((c) => c.id === action.cardId);
+    if (isForced) return "L";
+
     const threshold = throneValue(state);
     const playableVals = perspective.hand
       .map((c) => c.kind.props.value)
@@ -278,10 +522,16 @@ const enrichedObservation = (state: IKState, player: PlayerId): number[] => {
   }
   while (oppFeatures.length < 4) oppFeatures.push(0);
 
+  const anteCount = perspective.antechamber.length / 5;
+  const condemnedCount = state.shared.condemned.length / 10;
+  const disgracedCount = state.shared.court.filter((e) => e.face === "down").length / 7;
+  const partingCount = perspective.parting.length / 3;
+
   return [
     ...activeOh, ...phaseOh, ...hist,
     myKing, succ, dung, throne, court, accused, forgotten,
-    ...fpOh, ...oppFeatures, 0,
+    ...fpOh, ...oppFeatures,
+    anteCount, condemnedCount, disgracedCount, partingCount,
   ];
 };
 

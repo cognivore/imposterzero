@@ -1,9 +1,13 @@
 """
-Imposter Zero — OpenSpiel game definition.
+Imposter Zero — OpenSpiel game definition (effects-enabled).
 
 Faithful port of the TypeScript engine (packages/engine/src/imposter-kings).
 Phases: crown (select first player) -> setup (commit successor + dungeon) -> play.
 Terminal: active player has no legal play actions during play phase.
+
+Card effects are auto-resolved inside _apply_action using heuristic choices.
+This keeps the OpenSpiel action space identical (no effect_choice actions)
+while approximating the full game's strategic dynamics.
 
 Registers two game variants:
   - imposter_zero      (2-player, ZERO_SUM)
@@ -56,6 +60,9 @@ _FOUR_PLAYER_EXTRAS = [
     ("Executioner", 4),
     ("Arbiter", 5),
 ]
+
+_ROYALTY_NAMES = frozenset({"Princess", "Queen"})
+_ANTECHAMBER_SUPPRESSED = frozenset({"Herald"})
 
 
 def _regulation_deck(num_players):
@@ -250,10 +257,10 @@ class ImposterZeroGame(pyspiel.Game):
         return ImposterZeroState(self, num_players=self._np, seed=self._seed)
 
     def observation_tensor_size(self):
-        return self._np + 12
+        return self._np + 15
 
     def information_state_tensor_size(self):
-        return self._np + 12
+        return self._np + 15
 
 
 class ImposterZeroGame3P(ImposterZeroGame):
@@ -318,6 +325,12 @@ class ImposterZeroState(pyspiel.State):
         self._active_player = self._first_player
         self._turn_count = 0
 
+        self._antechamber = [[] for _ in range(self._num_players)]
+        self._parting = [[] for _ in range(self._num_players)]
+        self._condemned = []
+        self._soldier_bonus = {}
+        self._eliminated = set()
+
     # -- Cloning --
 
     def _clone_impl(self):
@@ -341,7 +354,138 @@ class ImposterZeroState(pyspiel.State):
         cloned._active_player = self._active_player
         cloned._turn_count = self._turn_count
 
+        cloned._antechamber = [list(a) for a in self._antechamber]
+        cloned._parting = [list(p) for p in self._parting]
+        cloned._condemned = list(self._condemned)
+        cloned._soldier_bonus = dict(self._soldier_bonus)
+        cloned._eliminated = set(self._eliminated)
+
         return cloned
+
+    # -- Continuous modifier helpers --
+
+    def _immortal_in_court(self):
+        return any(
+            self._card_names[cid] == "Immortal" and fu
+            for cid, fu, _ in self._court
+        )
+
+    def _is_royalty(self, card_id):
+        name = self._card_names[card_id]
+        if name in _ROYALTY_NAMES:
+            return True
+        if name == "Warlord" and self._immortal_in_court():
+            return True
+        return False
+
+    def _court_has_royalty(self):
+        return any(fu and self._is_royalty(cid) for cid, fu, _ in self._court)
+
+    def _throne_is_royalty(self):
+        if not self._court:
+            return False
+        cid, fu, _ = self._court[-1]
+        return fu and self._is_royalty(cid)
+
+    def _court_has_disgraced(self):
+        return any(not fu for _, fu, _ in self._court)
+
+    def _faceup_court_count(self):
+        return sum(1 for _, fu, _ in self._court if fu)
+
+    def _effective_court_value(self, card_id):
+        name = self._card_names[card_id]
+        base = self._card_values[card_id]
+        if name == "Immortal":
+            base = 5
+        if name == "Warlord" and self._court_has_royalty():
+            base += 2
+        if name != "Immortal" and self._immortal_in_court():
+            if self._is_royalty(card_id) or name == "Elder":
+                base -= 1
+        base += self._soldier_bonus.get(card_id, 0)
+        return max(base, 0)
+
+    def _throne_value(self):
+        if not self._court:
+            return 0
+        card_id, face_up, _ = self._court[-1]
+        if not face_up:
+            return 1
+        return self._effective_court_value(card_id)
+
+    # -- Play legality --
+
+    def _can_play_card(self, card_id, threshold):
+        val = self._card_values[card_id]
+        name = self._card_names[card_id]
+        if val >= threshold:
+            return True
+        if name == "Elder" and self._throne_is_royalty():
+            return True
+        if name == "Zealot" and not self._king_face_up[self._active_player]:
+            if self._court and not self._throne_is_royalty():
+                return True
+        if name == "Oathbound" and self._court:
+            top_cid, top_fu, _ = self._court[-1]
+            top_val = self._effective_court_value(top_cid) if top_fu else 1
+            if top_fu and top_val > val and len(self._hands[self._active_player]) >= 2:
+                return True
+        return False
+
+    # -- Heuristic helpers for auto-resolving effects --
+
+    def _opponents(self, player):
+        return [(player + 1 + i) % self._num_players for i in range(self._num_players - 1)]
+
+    def _heuristic_name_card(self, player):
+        """Pick the card name most likely in opponent hands."""
+        deck = _regulation_deck(self._num_players)
+        counts = {}
+        for name, _ in deck:
+            counts[name] = counts.get(name, 0) + 1
+        for c in self._hands[player]:
+            n = self._card_names[c]
+            counts[n] = counts.get(n, 0) - 1
+        for cid, fu, _ in self._court:
+            if fu:
+                n = self._card_names[cid]
+                counts[n] = counts.get(n, 0) - 1
+        candidates = {n: c for n, c in counts.items() if c > 0 and n != "King"}
+        if not candidates:
+            return "Soldier"
+        return max(candidates, key=lambda n: (candidates[n], n))
+
+    def _heuristic_name_value(self, player, max_val):
+        """Pick the value most likely in opponent hands, up to max_val."""
+        deck = _regulation_deck(self._num_players)
+        counts = {}
+        for _, val in deck:
+            if val <= max_val:
+                counts[val] = counts.get(val, 0) + 1
+        for c in self._hands[player]:
+            v = self._card_values[c]
+            if v in counts:
+                counts[v] -= 1
+        for cid, fu, _ in self._court:
+            if fu:
+                v = self._card_values[cid]
+                if v in counts:
+                    counts[v] -= 1
+        candidates = {v: c for v, c in counts.items() if c > 0}
+        if not candidates:
+            return min(max_val, 5)
+        return max(candidates, key=lambda v: (candidates[v], v))
+
+    # -- Auto-resolved card effects --
+
+    def _resolve_on_play(self, card_id, player, source):
+        name = self._card_names[card_id]
+        if source == "antechamber" and name in _ANTECHAMBER_SUPPRESSED:
+            return
+        resolver = _EFFECT_DISPATCH.get(name)
+        if resolver:
+            resolver(self, card_id, player)
 
     # -- OpenSpiel interface --
 
@@ -370,11 +514,18 @@ class ImposterZeroState(pyspiel.State):
                         actions.append(_encode_commit(s, d, self._max_card_id))
             return sorted(actions)
 
+        # Play phase — forced actions first
+        if self._parting[p]:
+            return sorted(_encode_play(c) for c in self._parting[p])
+
+        if self._antechamber[p]:
+            return sorted(_encode_play(c) for c in self._antechamber[p])
+
         threshold = self._throne_value()
         hand = self._hands[p]
         actions = []
         for card_id in hand:
-            if self._card_values[card_id] >= threshold:
+            if self._can_play_card(card_id, threshold):
                 actions.append(_encode_play(card_id))
 
         if self._king_face_up[p] and len(self._court) > 0:
@@ -419,10 +570,23 @@ class ImposterZeroState(pyspiel.State):
 
     def _apply_play(self, card_id):
         p = self._active_player
-        self._hands[p] = [c for c in self._hands[p] if c != card_id]
+
+        if card_id in self._parting[p]:
+            self._parting[p].remove(card_id)
+            self._condemned.append(card_id)
+            self._advance_turn()
+            return
+
+        source = "hand"
+        if card_id in self._antechamber[p]:
+            self._antechamber[p].remove(card_id)
+            source = "antechamber"
+        else:
+            self._hands[p] = [c for c in self._hands[p] if c != card_id]
+
         self._court.append((card_id, True, p))
-        self._active_player = (self._active_player + 1) % self._num_players
-        self._turn_count += 1
+        self._resolve_on_play(card_id, p, source)
+        self._end_of_turn()
 
     def _apply_disgrace(self):
         p = self._active_player
@@ -432,14 +596,42 @@ class ImposterZeroState(pyspiel.State):
             card_id, _, played_by = self._court[-1]
             self._court[-1] = (card_id, False, played_by)
 
+        if self._successors[p] is not None:
+            self._hands[p].append(self._successors[p])
+            self._successors[p] = None
+
+        self._end_of_turn()
+
+    def _end_of_turn(self):
+        """Auto-play active player's antechamber, then advance."""
+        p = self._active_player
+        while self._antechamber[p]:
+            best = max(self._antechamber[p], key=lambda c: self._card_values[c])
+            self._antechamber[p] = [c for c in self._antechamber[p] if c != best]
+            self._court.append((best, True, p))
+            name = self._card_names[best]
+            if name not in _ANTECHAMBER_SUPPRESSED:
+                self._resolve_on_play(best, p, "antechamber")
+        self._advance_turn()
+
+    def _advance_turn(self):
         self._active_player = (self._active_player + 1) % self._num_players
         self._turn_count += 1
+        self._soldier_bonus.clear()
 
-    def _throne_value(self):
-        if not self._court:
-            return 0
-        card_id, face_up, _ = self._court[-1]
-        return self._card_values[card_id] if face_up else 1
+        if self._num_players > 2:
+            attempts = 0
+            while (
+                self._active_player in self._eliminated
+                and attempts < self._num_players
+            ):
+                self._active_player = (self._active_player + 1) % self._num_players
+                attempts += 1
+
+            remaining = self._num_players - len(self._eliminated)
+            if remaining > 2 and not self._legal_actions_internal():
+                self._eliminated.add(self._active_player)
+                self._advance_turn()
 
     def is_terminal(self):
         if self._phase != "play":
@@ -452,6 +644,8 @@ class ImposterZeroState(pyspiel.State):
 
         stuck = self._active_player
         winner = (stuck - 1 + self._num_players) % self._num_players
+        while winner in self._eliminated:
+            winner = (winner - 1 + self._num_players) % self._num_players
         result = [0.0] * self._num_players
         result[winner] = 1.0
         result[stuck] = -1.0
@@ -480,8 +674,12 @@ class ImposterZeroState(pyspiel.State):
         throne_str = "none"
         if self._court:
             cid, face_up, _ = self._court[-1]
-            val = self._card_values[cid] if face_up else 1
+            val = self._effective_court_value(cid) if face_up else 1
             throne_str = f"{self._card_names[cid]}:{val}:{'up' if face_up else 'down'}"
+
+        ante_count = len(self._antechamber[player])
+        parting_count = len(self._parting[player])
+        condemned_count = len(self._condemned)
 
         return ";".join([
             f"phase={self._phase}",
@@ -496,6 +694,9 @@ class ImposterZeroState(pyspiel.State):
             f"courtSize={len(self._court)}",
             f"accused={'none' if self._accused is None else self._card_names[self._accused]}",
             f"forgotten={'none' if self._forgotten is None else 'set'}",
+            f"ante={ante_count}",
+            f"parting={parting_count}",
+            f"condemned={condemned_count}",
         ])
 
     def observation_string(self, player=None):
@@ -511,6 +712,9 @@ class ImposterZeroState(pyspiel.State):
             1.0 if self._phase == "setup" else 0.0,
             1.0 if self._phase == "play" else 0.0,
         ]
+        ante_count = len(self._antechamber[player])
+        condemned_count = len(self._condemned)
+        disgraced_count = sum(1 for _, fu, _ in self._court if not fu)
         return active_one_hot + phase_one_hot + [
             float(len(hand)),
             1.0 if self._king_face_up[player] else 0.0,
@@ -521,6 +725,9 @@ class ImposterZeroState(pyspiel.State):
             float(self._card_values[self._accused]) if self._accused is not None else 0.0,
             1.0 if self._forgotten is not None else 0.0,
             float(self._first_player),
+            float(ante_count),
+            float(condemned_count),
+            float(disgraced_count),
         ]
 
     def observation_tensor(self, player=None):
@@ -533,6 +740,210 @@ class ImposterZeroState(pyspiel.State):
             f"court={len(self._court)}, terminal={self.is_terminal()})"
         )
 
+
+# ---------------------------------------------------------------------------
+# Auto-resolved card effects
+# ---------------------------------------------------------------------------
+
+def _effect_queen(state, card_id, _player):
+    """Disgrace all other face-up court cards."""
+    state._court = [
+        (cid, False if cid != card_id and fu else fu, pb)
+        for cid, fu, pb in state._court
+    ]
+
+
+def _effect_fool(state, card_id, player):
+    """Take the highest-value face-up court card (not self)."""
+    best_idx = -1
+    best_val = -1
+    for i, (cid, fu, _) in enumerate(state._court):
+        if cid != card_id and fu:
+            val = state._effective_court_value(cid)
+            if val > best_val:
+                best_val = val
+                best_idx = i
+    if best_idx >= 0:
+        taken_cid = state._court[best_idx][0]
+        state._court.pop(best_idx)
+        state._hands[player].append(taken_cid)
+
+
+def _effect_inquisitor(state, card_id, player):
+    """Name a card; opponents with it play to antechamber."""
+    name = state._heuristic_name_card(player)
+    for opp in state._opponents(player):
+        matching = [c for c in state._hands[opp] if state._card_names[c] == name]
+        if matching:
+            target = matching[0]
+            state._hands[opp] = [c for c in state._hands[opp] if c != target]
+            state._antechamber[opp].append(target)
+
+
+def _effect_soldier(state, card_id, player):
+    """Name a card; if opponent has it, +2 value and disgrace up to 3."""
+    name = state._heuristic_name_card(player)
+    hit = any(
+        any(state._card_names[c] == name for c in state._hands[opp])
+        for opp in state._opponents(player)
+    )
+    if hit:
+        state._soldier_bonus[card_id] = 2
+        targets = [
+            (i, cid) for i, (cid, fu, _) in enumerate(state._court)
+            if cid != card_id and fu
+        ]
+        targets.sort(key=lambda t: state._card_values[t[1]])
+        for idx, _ in targets[:3]:
+            cid_t, _, pb_t = state._court[idx]
+            state._court[idx] = (cid_t, False, pb_t)
+
+
+def _effect_judge(state, card_id, player):
+    """Guess opponent's card for bonus play to antechamber."""
+    opps = state._opponents(player)
+    if not opps:
+        return
+    opp = opps[0]
+    name = state._heuristic_name_card(player)
+    if any(state._card_names[c] == name for c in state._hands[opp]):
+        eligible = [c for c in state._hands[player] if state._card_values[c] >= 2]
+        if eligible:
+            target = min(eligible, key=lambda c: state._card_values[c])
+            state._hands[player] = [c for c in state._hands[player] if c != target]
+            state._antechamber[player].append(target)
+
+
+def _effect_oathbound(state, card_id, player):
+    """If played on higher value, disgrace below and force play lowest hand card."""
+    if len(state._court) < 2:
+        return
+    below_cid, below_fu, below_pb = state._court[-2]
+    my_val = state._card_values[card_id]
+    below_val = state._effective_court_value(below_cid) if below_fu else 1
+    if below_val <= my_val:
+        return
+    idx = len(state._court) - 2
+    state._court[idx] = (below_cid, False, below_pb)
+    if state._hands[player]:
+        forced = min(state._hands[player], key=lambda c: state._card_values[c])
+        state._hands[player] = [c for c in state._hands[player] if c != forced]
+        state._court.append((forced, True, player))
+        state._resolve_on_play(forced, player, "hand")
+
+
+def _effect_mystic(state, card_id, player):
+    """If disgraced in court, disgrace self."""
+    if not state._court_has_disgraced():
+        return
+    for i, (cid, fu, pb) in enumerate(state._court):
+        if cid == card_id:
+            state._court[i] = (cid, False, pb)
+            break
+
+
+def _effect_warden(state, card_id, player):
+    """If 4+ faceup in court, swap lowest hand card with accused."""
+    if state._faceup_court_count() < 4 or state._accused is None:
+        return
+    if not state._hands[player]:
+        return
+    lowest = min(state._hands[player], key=lambda c: state._card_values[c])
+    state._hands[player] = [c for c in state._hands[player] if c != lowest]
+    state._hands[player].append(state._accused)
+    state._accused = lowest
+
+
+def _effect_sentry(state, card_id, player):
+    """Disgrace self, swap lowest hand card with best non-royalty court card."""
+    for i, (cid, fu, pb) in enumerate(state._court):
+        if cid == card_id:
+            state._court[i] = (cid, False, pb)
+            break
+    candidates = [
+        (i, cid) for i, (cid, fu, _) in enumerate(state._court)
+        if cid != card_id and fu and not state._is_royalty(cid)
+    ]
+    if not candidates or not state._hands[player]:
+        return
+    best_idx, best_cid = max(
+        candidates, key=lambda t: state._effective_court_value(t[1])
+    )
+    lowest = min(state._hands[player], key=lambda c: state._card_values[c])
+    state._hands[player] = [c for c in state._hands[player] if c != lowest]
+    state._hands[player].append(best_cid)
+    _, _, best_pb = state._court[best_idx]
+    state._court[best_idx] = (lowest, True, best_pb)
+
+
+def _effect_princess(state, card_id, player):
+    """Swap lowest hand card with a card from the weakest opponent."""
+    opps = state._opponents(player)
+    if not opps or not state._hands[player]:
+        return
+    opp = min(opps, key=lambda o: len(state._hands[o]))
+    if not state._hands[opp]:
+        return
+    give = min(state._hands[player], key=lambda c: state._card_values[c])
+    take = state._hands[opp][0]
+    state._hands[player] = [c for c in state._hands[player] if c != give]
+    state._hands[player].append(take)
+    state._hands[opp] = [c for c in state._hands[opp] if c != take]
+    state._hands[opp].append(give)
+
+
+def _effect_executioner(state, card_id, player):
+    """Name a value; all condemn a card of that value."""
+    max_court_val = max(
+        (state._card_values[cid] for cid, fu, _ in state._court if fu),
+        default=0,
+    )
+    if max_court_val < 1:
+        return
+    target_val = state._heuristic_name_value(player, max_court_val)
+    for p in range(state._num_players):
+        matching = [c for c in state._hands[p] if state._card_values[c] == target_val]
+        if matching:
+            victim = matching[0]
+            state._hands[p] = [c for c in state._hands[p] if c != victim]
+            state._condemned.append(victim)
+
+
+def _effect_herald(state, card_id, player):
+    """Swap successor into hand, place new lowest card as successor."""
+    if state._successors[player] is None:
+        return
+    succ = state._successors[player]
+    state._hands[player].append(succ)
+    if state._hands[player]:
+        new_succ = min(state._hands[player], key=lambda c: state._card_values[c])
+        state._hands[player] = [c for c in state._hands[player] if c != new_succ]
+        state._successors[player] = new_succ
+
+
+def _effect_spy(state, card_id, player):
+    """Disgrace self (conservative: skip successor swap)."""
+    for i, (cid, fu, pb) in enumerate(state._court):
+        if cid == card_id:
+            state._court[i] = (cid, False, pb)
+            break
+
+
+_EFFECT_DISPATCH = {
+    "Queen": _effect_queen,
+    "Fool": _effect_fool,
+    "Inquisitor": _effect_inquisitor,
+    "Soldier": _effect_soldier,
+    "Judge": _effect_judge,
+    "Oathbound": _effect_oathbound,
+    "Mystic": _effect_mystic,
+    "Warden": _effect_warden,
+    "Sentry": _effect_sentry,
+    "Princess": _effect_princess,
+    "Executioner": _effect_executioner,
+    "Herald": _effect_herald,
+    "Spy": _effect_spy,
+}
 
 # Keep module-level constants for backward compatibility with train.py / tests
 _NUM_PLAYERS = 2
