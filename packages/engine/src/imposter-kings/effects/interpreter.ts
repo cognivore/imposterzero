@@ -23,7 +23,7 @@ import type {
   ChoiceOption,
 } from "./program.js";
 import { evaluate } from "./predicates.js";
-import { crystallizeStickyModifiers, effectiveValue } from "./modifiers.js";
+import { crystallizeStickyModifiers, effectiveValue, effectiveKeywords } from "./modifiers.js";
 import {
   describeProgram,
   describeChoiceTrace,
@@ -62,7 +62,7 @@ const resolveZone = (ref: ZoneRef, ctx: EffectContext) =>
 // ---------------------------------------------------------------------------
 
 const matchesFilter = (
-  card: { readonly id: number; readonly kind: { readonly name?: string; readonly props: { readonly keywords: readonly string[]; readonly value: number } } },
+  card: IKCard,
   filter: CardFilter,
   state: IKState,
 ): boolean => {
@@ -72,15 +72,15 @@ const matchesFilter = (
       return !entry || entry.face === "up";
     }
     case "notRoyalty":
-      return !card.kind.props.keywords.includes("royalty");
+      return !effectiveKeywords(state, card).includes("royalty");
     case "notDisgracedOrRoyalty": {
       const entry = state.shared.court.find((e) => e.card.id === card.id);
       const isDisgraced = entry && entry.face === "down";
-      const isRoyalty = card.kind.props.keywords.includes("royalty");
+      const isRoyalty = effectiveKeywords(state, card).includes("royalty");
       return !isDisgraced && !isRoyalty;
     }
     case "hasKeyword":
-      return card.kind.props.keywords.includes(filter.keyword);
+      return effectiveKeywords(state, card).includes(filter.keyword);
     case "minValue":
       return card.kind.props.value >= filter.value;
     case "hasBaseValue":
@@ -543,7 +543,7 @@ export const resolve = (
     }
 
     case "khReactionWindow": {
-      if (ctx.playedCard.kind.props.keywords.includes("immune_to_kings_hand")) {
+      if (effectiveKeywords(state, ctx.playedCard).includes("immune_to_kings_hand")) {
         return resolve(program.continuation, state, ctx, trace, depth);
       }
       if (shouldSkipKHWindow(state, ctx)) {

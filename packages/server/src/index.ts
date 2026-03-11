@@ -72,6 +72,7 @@ export {
 export {
   type BotRegistry,
   type BotStrategy,
+  type MatchContext,
   type TabularPolicy,
   type NeuralPolicy,
   type NonEmptyReadonlyArray,

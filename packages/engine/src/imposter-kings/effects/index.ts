@@ -107,6 +107,7 @@ export {
 export {
   effectiveValue,
   effectiveKeywords,
+  isMuted,
   refreshModifiers,
   crystallizeStickyModifiers,
 } from "./modifiers.js";

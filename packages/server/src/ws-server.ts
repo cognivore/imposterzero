@@ -13,6 +13,7 @@ import {
 import { ConnectionRegistry, type RegistryEntry } from "./connection-registry.js";
 import {
   type BotStrategy,
+  type MatchContext,
   RandomStrategy,
   addBot,
   isBot,
@@ -332,10 +333,15 @@ export const startServer = (
       const legal = current.game.legalActions(current.session.state);
       if (legal.length === 0) return;
 
+      const matchCtx: MatchContext = {
+        scores: current.match.scores,
+        roundsPlayed: current.match.roundsPlayed,
+      };
       const action = botStrategy.selectAction(
         current.session.state,
         activePlayer,
         legal,
+        matchCtx,
       );
       const now = Date.now();
       const result = roomTransition(m.room, { kind: "action", playerId: activeBotId, action, now }, now);

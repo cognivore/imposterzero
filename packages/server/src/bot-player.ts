@@ -79,8 +79,13 @@ export const botDisplayName = (modelName: string, index: number): string => {
 // Bot strategy interface
 // ---------------------------------------------------------------------------
 
+export interface MatchContext {
+  readonly scores: ReadonlyArray<number>;
+  readonly roundsPlayed: number;
+}
+
 export interface BotStrategy {
-  selectAction(state: IKState, player: PlayerId, legal: ReadonlyArray<IKAction>): IKAction;
+  selectAction(state: IKState, player: PlayerId, legal: ReadonlyArray<IKAction>, matchCtx?: MatchContext): IKAction;
 }
 
 export const RandomStrategy: BotStrategy = {
@@ -362,10 +367,11 @@ export const createEffectsAwareStrategy = (
     state: IKState,
     player: PlayerId,
     legal: ReadonlyArray<IKAction>,
+    matchCtx?: MatchContext,
   ): IKAction {
     if (state.phase === "resolving" || state.phase === "end_of_turn")
       return EffectHeuristic.selectAction(state, player, legal);
-    return valuePolicy.selectAction(state, player, legal);
+    return valuePolicy.selectAction(state, player, legal, matchCtx);
   },
 });
 
@@ -421,11 +427,17 @@ const bucketScore = (s: number): number => {
   return 2;
 };
 
-const abstractState = (state: IKState, player: PlayerId): string => {
-  const n = state.numPlayers;
+const scoreCtx = (scores: ReadonlyArray<number>, player: PlayerId, n: number): string => {
   const opp = ((player + 1) % n) as PlayerId;
+  return `${bucketScore(scores[player] ?? 0)}${bucketScore(scores[opp] ?? 0)}`;
+};
 
-  if (state.phase === "crown") return "CR";
+const abstractState = (state: IKState, player: PlayerId, matchCtx?: MatchContext): string => {
+  const n = state.numPlayers;
+  const scores = matchCtx?.scores ?? Array.from({ length: n }, () => 0);
+  const sc = scoreCtx(scores, player, n);
+
+  if (state.phase === "crown") return `CR${sc}`;
 
   const perspective = playerZones(state, player);
   const handVals = perspective.hand
@@ -436,17 +448,18 @@ const abstractState = (state: IKState, player: PlayerId): string => {
   if (state.phase === "mustering") {
     const armyN = perspective.army.length;
     const facetChar = perspective.king.facet === "default" ? "d" : perspective.king.facet[0];
-    return `MUS${bucketHand(handSize)}${armyN}${facetChar}`;
+    const exh = state.hasExhaustedThisMustering ? "E" : "_";
+    return `MUS${bucketHand(handSize)}${armyN}${exh}${facetChar}${sc}`;
   }
 
   if (state.phase === "setup") {
     const low = handVals.filter((v) => v <= 4).length;
     const high = handVals.filter((v) => v >= 7).length;
-    return `S${bucketHand(handSize)}${Math.min(low, 5)}${Math.min(high, 5)}`;
+    return `S${bucketHand(handSize)}${Math.min(low, 5)}${Math.min(high, 5)}${sc}`;
   }
 
-  if (perspective.parting.length > 0) return "FP";
-  if (perspective.antechamber.length > 0) return "FA";
+  if (perspective.parting.length > 0) return `FP${sc}`;
+  if (perspective.antechamber.length > 0) return `FA${sc}`;
 
   const threshold = throneValue(state);
   const nPlayable = handVals.filter((v) => v >= threshold).length;
@@ -470,7 +483,8 @@ const abstractState = (state: IKState, player: PlayerId): string => {
     `${minOpp}` +
     `${canDisgrace ? "D" : "_"}` +
     `${courtSz}` +
-    `${disgraced}`
+    `${disgraced}` +
+    sc
   );
 };
 
@@ -579,8 +593,8 @@ export const createTabularStrategy = (policyJson: TabularPolicy): BotStrategy =>
   const table = policyJson.policy;
 
   return {
-    selectAction(state: IKState, player: PlayerId, legal: ReadonlyArray<IKAction>): IKAction {
-      const info = abstractState(state, player);
+    selectAction(state: IKState, player: PlayerId, legal: ReadonlyArray<IKAction>, matchCtx?: MatchContext): IKAction {
+      const info = abstractState(state, player, matchCtx);
       const entry = table[info];
 
       if (!entry) {
@@ -607,8 +621,9 @@ export const createTabularStrategy = (policyJson: TabularPolicy): BotStrategy =>
 // Enriched observation tensor — mirrors imposter_zero/abstraction.py
 // ---------------------------------------------------------------------------
 
-const enrichedObservation = (state: IKState, player: PlayerId): number[] => {
+const enrichedObservation = (state: IKState, player: PlayerId, matchCtx?: MatchContext): number[] => {
   const n = state.numPlayers;
+  const opp = ((player + 1) % n) as PlayerId;
   const perspective = playerZones(state, player);
 
   const activeOh = [0, 0, 0];
@@ -618,6 +633,8 @@ const enrichedObservation = (state: IKState, player: PlayerId): number[] => {
     state.phase === "crown" ? 1 : 0,
     state.phase === "setup" ? 1 : 0,
     state.phase === "play" ? 1 : 0,
+    state.phase === "mustering" ? 1 : 0,
+    0, 0, 0,
   ];
 
   const hist = [0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -637,25 +654,36 @@ const enrichedObservation = (state: IKState, player: PlayerId): number[] => {
   const fpOh = [0, 0, 0];
   if (state.firstPlayer < 3) fpOh[state.firstPlayer] = 1;
 
-  const oppFeatures: number[] = [];
-  for (let i = 0; i < n - 1; i++) {
-    const opp = ((player + 1 + i) % n) as PlayerId;
-    const oppZones = playerZones(state, opp);
-    oppFeatures.push(oppZones.hand.length / 9);
-    oppFeatures.push(oppZones.king.face === "up" ? 1 : 0);
-  }
-  while (oppFeatures.length < 4) oppFeatures.push(0);
+  const oppZones = playerZones(state, opp);
+  const oppHand = oppZones.hand.length / 9;
+  const oppKing = oppZones.king.face === "up" ? 1 : 0;
 
   const anteCount = perspective.antechamber.length / 5;
   const condemnedCount = state.shared.condemned.length / 10;
   const disgracedCount = state.shared.court.filter((e) => e.face === "down").length / 7;
   const partingCount = perspective.parting.length / 3;
 
+  const scores = matchCtx?.scores ?? Array.from({ length: n }, () => 0);
+  const myScore = (scores[player] ?? 0) / 7;
+  const oppScore = (scores[opp] ?? 0) / 7;
+  const rounds = (matchCtx?.roundsPlayed ?? 0) / 14;
+  const armyAvail = perspective.army.length / 8;
+  const armyExh = perspective.exhausted.length / 8;
+
+  const facet = perspective.king.facet;
+  const facetOh = [
+    facet === "default" ? 1 : 0,
+    facet === "masterTactician" ? 1 : 0,
+    facet === "charismatic" ? 1 : 0,
+  ];
+
   return [
     ...activeOh, ...phaseOh, ...hist,
     myKing, succ, dung, throne, court, accused, forgotten,
-    ...fpOh, ...oppFeatures,
+    ...fpOh, oppHand, oppKing,
     anteCount, condemnedCount, disgracedCount, partingCount,
+    myScore, oppScore, rounds, armyAvail, armyExh,
+    ...facetOh,
   ];
 };
 
@@ -738,8 +766,8 @@ export const createNeuralStrategy = (policyJson: NeuralPolicy): BotStrategy => {
   const absActions = policyJson.metadata.abstract_actions;
 
   return {
-    selectAction(state: IKState, player: PlayerId, legal: ReadonlyArray<IKAction>): IKAction {
-      const obs = enrichedObservation(state, player);
+    selectAction(state: IKState, player: PlayerId, legal: ReadonlyArray<IKAction>, matchCtx?: MatchContext): IKAction {
+      const obs = enrichedObservation(state, player, matchCtx);
       const logits = mlpForward(obs, layers);
 
       const groups = groupLegalByAbstract(state, legal, player);
@@ -766,8 +794,8 @@ export const createNeuralStrategy = (policyJson: NeuralPolicy): BotStrategy => {
 export const createCompositeStrategy = (
   strategies: ReadonlyMap<number, BotStrategy>,
 ): BotStrategy => ({
-  selectAction(state: IKState, player: PlayerId, legal: ReadonlyArray<IKAction>): IKAction {
+  selectAction(state: IKState, player: PlayerId, legal: ReadonlyArray<IKAction>, matchCtx?: MatchContext): IKAction {
     const strategy = strategies.get(state.numPlayers) ?? RandomStrategy;
-    return strategy.selectAction(state, player, legal);
+    return strategy.selectAction(state, player, legal, matchCtx);
   },
 });

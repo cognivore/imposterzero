@@ -204,6 +204,21 @@ export const effectiveKeywords = (
 };
 
 // ---------------------------------------------------------------------------
+// Mute check — true when any active mute modifier targets this card
+// ---------------------------------------------------------------------------
+
+export const isMuted = (state: IKState, card: IKCard): boolean => {
+  if (card.kind.props.keywords.includes("steadfast")) return false;
+  for (const mod of allModifiers(state)) {
+    if (
+      mod.spec.tag === "mute" &&
+      matchesQuery(mod.spec.target, card, mod.sourceCardId, state, mod.playedBy)
+    ) return true;
+  }
+  return false;
+};
+
+// ---------------------------------------------------------------------------
 // Crystallize sticky round modifiers for a card that just entered court
 // ---------------------------------------------------------------------------
 

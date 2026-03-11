@@ -20,7 +20,7 @@ import {
   disgraceInCourt,
 } from "../zone-addr.js";
 import type { EffectContext, EffectProgram, Resolution } from "../effects/program.js";
-import { refreshModifiers, crystallizeStickyModifiers } from "../effects/modifiers.js";
+import { refreshModifiers, crystallizeStickyModifiers, isMuted } from "../effects/modifiers.js";
 import {
   done,
   active,
@@ -132,7 +132,9 @@ const applyAntechamberPlayDirect = (
     onPlayEffect &&
     card.kind.props.fullText.includes("prevented if played from your Antechamber");
 
-  if (!onPlayEffect || suppressEffect) {
+  const mutedInCourt = onPlayEffect && isMuted(moved.value, card);
+
+  if (!onPlayEffect || suppressEffect || mutedInCourt) {
     return finalAdvance(moved.value, originalState);
   }
 
@@ -438,7 +440,9 @@ export const applyPlaySafe = (
     onPlayEffect &&
     card.kind.props.fullText.includes("prevented if played from your Antechamber");
 
-  if (!onPlayEffect || suppressEffect) {
+  const mutedInCourt = onPlayEffect && isMuted(moved.value, card);
+
+  if (!onPlayEffect || suppressEffect || mutedInCourt) {
     return ok(endOfTurn(moved.value, state));
   }
 

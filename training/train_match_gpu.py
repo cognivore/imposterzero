@@ -206,6 +206,8 @@ def main():
     parser.add_argument("--output", type=str, default="./training/policy_match_neural.json")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--patience", type=int, default=0)
+    parser.add_argument("--resume", type=str, default=None,
+                        help="Path to policy JSON to resume from (loads weights)")
     args = parser.parse_args()
 
     if args.seed is not None:
@@ -221,6 +223,25 @@ def main():
     n_players = game.num_players()
     input_size = OBS_SIZE
     net = PolicyNet(input_size, args.hidden_size, NUM_ABS, args.num_layers).to(device)
+
+    if args.resume:
+        with open(args.resume) as f:
+            resume_data = json.load(f)
+        rw = resume_data["weights"]
+        sd = net.state_dict()
+        linear_keys = [(k.rsplit(".", 1)[0], k) for k in sd if k.endswith(".weight")]
+        linear_keys.sort(key=lambda t: t[1])
+        for i, (prefix, wkey) in enumerate(linear_keys):
+            sd[wkey] = torch.tensor(rw[f"w{i+1}"])
+            bkey = prefix + ".bias"
+            if bkey in sd and f"b{i+1}" in rw:
+                sd[bkey] = torch.tensor(rw[f"b{i+1}"])
+        net.load_state_dict(sd)
+        net.to(device)
+        resumed_eps = resume_data.get("metadata", {}).get("episodes", 0)
+        resumed_wr = resume_data.get("metadata", {}).get("win_rate_vs_random", 0)
+        print(f"  Resumed from: {args.resume} ({resumed_eps:,} eps, wr={resumed_wr:.1%})")
+
     optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
 
     batch_size = args.num_workers * args.episodes_per_worker

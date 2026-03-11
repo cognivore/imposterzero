@@ -108,7 +108,12 @@ describe("Stage 4 golden parity", () => {
     expectReplayParity("Goose/Will", GOOSE_WILL_STAGE4_GOLDEN);
   });
 
-  it("replays Calm vs katto at full parity", () => {
+  // Transcript played under pre-fix rules where mute did not affect keyword
+  // filters (notRoyalty / notDisgracedOrRoyalty).  Immortal's continuous mute
+  // now strips Royalty for targeting, changing the available choices and
+  // invalidating the recorded choice indices.  Re-record once a new Calm vs
+  // katto match is available.
+  it.skip("replays Calm vs katto at full parity", () => {
     expectReplayParity("Calm/katto", CALM_KATTO_STAGE4_GOLDEN);
   });
 });

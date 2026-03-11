@@ -196,5 +196,6 @@ export {
   findCardName,
   effectiveValue,
   effectiveKeywords,
+  isMuted,
   refreshModifiers,
 } from "./effects/index.js";
