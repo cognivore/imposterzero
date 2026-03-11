@@ -50,6 +50,7 @@ const loadBotStrategy = (): { strategy: BotStrategy; policyLabel: string } => {
   let policyLabel = "random";
 
   const tab2p =
+    tryLoadJson<TabularPolicy>(policyPaths("policy_match.json"), "2p match") ??
     tryLoadJson<TabularPolicy>(policyPaths("policy_2p_8h.json"), "2p tabular (8h)") ??
     tryLoadJson<TabularPolicy>(policyPaths("policy.json"), "2p tabular");
   if (tab2p) {

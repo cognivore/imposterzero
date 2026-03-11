@@ -177,7 +177,7 @@ def export_policy(solver, output_path):
             "abstraction": "bucketed_strategic",
             "iterations": solver.iterations,
             "num_players": solver.num_players,
-            "game_version": "2.0-effects",
+            "game_version": "3.0-match",
             "info_states": len(policy),
             "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         },
@@ -204,15 +204,18 @@ def main():
     parser.add_argument("--eval_every", type=int, default=200_000)
     parser.add_argument("--eval_games", type=int, default=3000)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--game", type=str, default="imposter_zero_match",
+                        choices=["imposter_zero", "imposter_zero_match"])
     args = parser.parse_args()
 
     if args.seed is not None:
         random.seed(args.seed)
 
-    game = pyspiel.load_game("imposter_zero")
+    game = pyspiel.load_game(args.game)
     solver = OutcomeSamplingMCCFR(game, epsilon=args.epsilon)
 
     print(f"Imposter Zero — Outcome Sampling MCCFR (bucketed abstraction)")
+    print(f"  Game:       {args.game}")
     print(f"  Players:    {game.num_players()}")
     print(f"  Epsilon:    {args.epsilon}")
     print(f"  Iterations: {args.iterations:,}")

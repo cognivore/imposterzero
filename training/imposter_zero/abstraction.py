@@ -1,104 +1,101 @@
 """
 Shared strategic abstraction for Imposter Zero training and inference.
 
-Provides:
-  - enriched_obs(state, player)  -- 33-dim feature vector for neural training
-  - abstract_state(state, player) -- bucketed state key for tabular MCCFR
-  - abstract_action(state, encoded, player) -- bucketed action key
-  - group_legal_by_abstract(state, legal, player) -- group concrete -> abstract
-  - ABSTRACT_ACTIONS -- canonical list of abstract action keys
-
-All functions work for 2p and 3p (and 4p) by using state._num_players.
+Supports both round-only (imposter_zero) and match (imposter_zero_match) games.
+Match abstractions add draft, mustering, and match-score context.
 """
 
 from . import game as ig
 
 # ---------------------------------------------------------------------------
-# Abstract action keys (shared vocabulary across player counts)
+# Abstract action keys (shared vocabulary across all variants)
 # ---------------------------------------------------------------------------
 
-ABSTRACT_ACTIONS = ["L", "M", "H", "D", "LL", "LH", "HH", "K0", "K1", "K2"]
+ABSTRACT_ACTIONS = [
+    "L", "M", "H", "D",
+    "LL", "LH", "HH",
+    "K0", "K1", "K2",
+    "SK_C", "SK_T", "EM",
+    "BR", "RC_P", "RC_N",
+    "DS0", "DS1", "DS2", "DS3", "DS4", "DS5", "DS6", "DS7", "DS8",
+    "DO_F", "DO_S",
+    "DP0", "DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8",
+]
 
 # ---------------------------------------------------------------------------
-# Enriched observation tensor (33 dims — extends 30-dim with effect features)
+# Enriched observation (match-aware, 42 dims)
 # ---------------------------------------------------------------------------
 
-_ENRICHED_SIZE = 33
+_ENRICHED_SIZE = 43
 
 
 def enriched_obs(state, player):
-    """33-dim feature vector suitable for neural network input.
-
-    Layout (3p):
-      [0..2]   active_player one-hot (3)
-      [3..5]   phase one-hot: crown, setup, play (3)
-      [6..14]  hand value histogram: count of cards with values 1-9 (9)
-      [15]     my king face up (0/1)
-      [16]     successor set (0/1)
-      [17]     dungeon set (0/1)
-      [18]     throne value / 9.0
-      [19]     court size / 15.0
-      [20]     accused value / 9.0
-      [21]     forgotten exists (0/1)
-      [22..24] first player one-hot (3)
-      [25]     opponent 1 hand size / 9.0
-      [26]     opponent 1 king face up (0/1)
-      [27]     opponent 2 hand size / 9.0
-      [28]     opponent 2 king face up (0/1)
-      [29]     my antechamber count / 5.0
-      [30]     condemned count / 10.0
-      [31]     disgraced court count / 7.0
-      [32]     my parting count / 3.0
-    """
+    """42-dim feature vector for neural training (match-aware)."""
     n = state._num_players
-    hand = state._hands[player]
+    opp = (player + 1) % n
 
     active_oh = [0.0] * 3
     if state._active_player < 3:
         active_oh[state._active_player] = 1.0
 
-    phase_oh = [
-        1.0 if state._phase == "crown" else 0.0,
-        1.0 if state._phase == "setup" else 0.0,
-        1.0 if state._phase == "play" else 0.0,
-    ]
+    phase = getattr(state, "_phase", "play")
+    phase_oh = [float(phase == ph) for ph in (
+        "crown", "setup", "play", "mustering",
+        "draft_select", "draft_order", "draft_pick",
+    )]
 
+    hand = getattr(state, "_hands", [[], []])[player]
     hist = [0.0] * 9
     for c in hand:
-        v = state._card_values[c]
+        v = state._card_values.get(c, 0) if hasattr(state, "_card_values") else 0
         if 1 <= v <= 9:
             hist[v - 1] += 1.0
 
-    my_king = 1.0 if state._king_face_up[player] else 0.0
-    succ = 1.0 if state._successors[player] is not None else 0.0
-    dung = 1.0 if state._dungeons[player] is not None else 0.0
-    throne = state._throne_value() / 9.0
-    court = len(state._court) / 15.0
-    accused = (state._card_values[state._accused] / 9.0) if state._accused is not None else 0.0
-    forgotten = 1.0 if state._forgotten is not None else 0.0
+    king_up = float(getattr(state, "_king_face_up", [True, True])[player])
+    succ = float(getattr(state, "_successors", [None, None])[player] is not None)
+    dung = float(getattr(state, "_dungeons", [None, None])[player] is not None)
+    throne = state._throne_value() / 9.0 if hasattr(state, "_throne_value") else 0.0
+    court_sz = len(getattr(state, "_court", [])) / 15.0
+
+    accused_val = 0.0
+    accused = getattr(state, "_accused", None)
+    if accused is not None and hasattr(state, "_card_values"):
+        accused_val = state._card_values.get(accused, 0) / 9.0
+    forgotten = float(getattr(state, "_forgotten", None) is not None)
 
     fp_oh = [0.0] * 3
-    if state._first_player < 3:
-        fp_oh[state._first_player] = 1.0
+    fp = getattr(state, "_first_player", 0)
+    if fp < 3:
+        fp_oh[fp] = 1.0
 
-    opponents = [(player + 1 + i) % n for i in range(n - 1)]
-    opp_features = []
-    for opp in opponents:
-        opp_features.append(len(state._hands[opp]) / 9.0)
-        opp_features.append(1.0 if state._king_face_up[opp] else 0.0)
-    while len(opp_features) < 4:
-        opp_features.append(0.0)
+    opp_hand = len(getattr(state, "_hands", [[], []])[opp]) / 9.0
+    opp_king = float(getattr(state, "_king_face_up", [True, True])[opp])
 
-    ante_count = len(state._antechamber[player]) / 5.0
-    condemned_count = len(state._condemned) / 10.0
-    disgraced_count = sum(1 for _, fu, _ in state._court if not fu) / 7.0
-    parting_count = len(state._parting[player]) / 3.0
+    ante = len(getattr(state, "_antechamber", [[], []])[player]) / 5.0
+    condemned = len(getattr(state, "_condemned", [])) / 10.0
+    disgraced = sum(1 for _, fu, _ in getattr(state, "_court", []) if not fu) / 7.0
+    parting = len(getattr(state, "_parting", [[], []])[player]) / 3.0
+
+    my_score = getattr(state, "_match_scores", [0, 0])[player] / 7.0
+    opp_score = getattr(state, "_match_scores", [0, 0])[opp] / 7.0
+    rounds = getattr(state, "_rounds_played", 0) / 14.0
+    army_avail = len(getattr(state, "_army_ids", [[], []])[player]) / 8.0
+    army_exh = len(getattr(state, "_exhausted_ids", [[], []])[player]) / 8.0
+
+    facets = getattr(state, "_king_facets", ["default", "default"])
+    facet_oh = [
+        float(facets[player] == "default"),
+        float(facets[player] == "masterTactician"),
+        float(facets[player] == "charismatic"),
+    ]
 
     return (
         active_oh + phase_oh + hist +
-        [my_king, succ, dung, throne, court, accused, forgotten] +
-        fp_oh + opp_features +
-        [ante_count, condemned_count, disgraced_count, parting_count]
+        [king_up, succ, dung, throne, court_sz, accused_val, forgotten] +
+        fp_oh + [opp_hand, opp_king] +
+        [ante, condemned, disgraced, parting] +
+        [my_score, opp_score, rounds, army_avail, army_exh] +
+        facet_oh
     )
 
 
@@ -111,67 +108,71 @@ def enriched_obs_size():
 # ---------------------------------------------------------------------------
 
 def _bucket_threshold(tv):
-    if tv <= 1:
-        return 0
-    if tv <= 3:
-        return 1
-    if tv <= 5:
-        return 2
-    if tv <= 7:
-        return 3
+    if tv <= 1: return 0
+    if tv <= 3: return 1
+    if tv <= 5: return 2
+    if tv <= 7: return 3
     return 4
 
-
 def _bucket_playable(n):
-    if n == 0:
-        return 0
-    if n <= 2:
-        return 1
-    if n <= 4:
-        return 2
+    if n == 0: return 0
+    if n <= 2: return 1
+    if n <= 4: return 2
     return 3
-
 
 def _bucket_hand(n):
-    if n <= 2:
-        return 0
-    if n <= 4:
-        return 1
-    if n <= 6:
-        return 2
+    if n <= 2: return 0
+    if n <= 4: return 1
+    if n <= 6: return 2
     return 3
+
+def _bucket_score(s):
+    if s <= 2: return 0
+    if s <= 4: return 1
+    return 2
 
 
 def abstract_state(state, player):
-    """Bucketed strategic abstraction of the game state.
-
-    Works for any player count. For play phase, encodes minimum opponent
-    hand size (worst-case opponent) rather than a single opponent.
-    Forced actions (parting/antechamber) get distinct state prefixes.
-    """
-    hand = state._hands[player]
-    hand_vals = sorted((state._card_values[c] for c in hand), reverse=True)
-    hand_size = len(hand)
+    phase = getattr(state, "_phase", "play")
     n = state._num_players
 
-    if state._phase == "crown":
-        return "CR"
+    if phase in ("draft_select", "draft_order", "draft_pick"):
+        sel_count = len(getattr(state, "_draft_selections", [[], []])[player])
+        fu_count = len(getattr(state, "_draft_face_up", []))
+        return f"DR_{phase[6:]}_{sel_count}_{fu_count}"
 
-    if state._phase == "setup":
+    scores = getattr(state, "_match_scores", [0, 0])
+    opp = (player + 1) % n
+    score_ctx = f"{_bucket_score(scores[player])}{_bucket_score(scores[opp])}"
+
+    if phase == "crown":
+        return f"CR{score_ctx}"
+
+    hand = state._hands[player]
+    hand_vals = sorted((state._card_values.get(c, 0) for c in hand), reverse=True)
+    hand_size = len(hand)
+
+    if phase == "mustering":
+        army_n = len(getattr(state, "_army_ids", [[], []])[player])
+        facet = getattr(state, "_king_facets", ["default", "default"])[player]
+        exh = "E" if getattr(state, "_has_exhausted_this_mustering", False) else "_"
+        return f"MUS{_bucket_hand(hand_size)}{army_n}{exh}{facet[0]}{score_ctx}"
+
+    if phase == "setup":
         low = sum(1 for v in hand_vals if v <= 4)
         high = sum(1 for v in hand_vals if v >= 7)
-        return f"S{_bucket_hand(hand_size)}{min(low, 5)}{min(high, 5)}"
+        return f"S{_bucket_hand(hand_size)}{min(low, 5)}{min(high, 5)}{score_ctx}"
 
-    if state._parting[player]:
-        return "FP"
-
-    if state._antechamber[player]:
-        return "FA"
+    parting = getattr(state, "_parting", [[], []])
+    antechamber = getattr(state, "_antechamber", [[], []])
+    if parting[player]:
+        return f"FP{score_ctx}"
+    if antechamber[player]:
+        return f"FA{score_ctx}"
 
     threshold = state._throne_value()
     n_playable = sum(1 for c in hand if state._can_play_card(c, threshold))
     can_disgrace = state._king_face_up[player] and len(state._court) > 0
-
     opp_hands = [len(state._hands[(player + 1 + i) % n]) for i in range(n - 1)]
     min_opp = _bucket_hand(min(opp_hands))
     court_sz = min(len(state._court), 7)
@@ -183,8 +184,8 @@ def abstract_state(state, player):
         f"{_bucket_hand(hand_size)}"
         f"{min_opp}"
         f"{'D' if can_disgrace else '_'}"
-        f"{court_sz}"
-        f"{disgraced}"
+        f"{court_sz}{disgraced}"
+        f"{score_ctx}"
     )
 
 
@@ -193,55 +194,67 @@ def abstract_state(state, player):
 # ---------------------------------------------------------------------------
 
 def abstract_action(state, encoded_action, player):
-    """Map a concrete encoded action to an abstract action key.
+    mcid = state._max_card_id
+    np = state._num_players
 
-    Play:  L (lowest third), M (middle), H (highest third), D (disgrace)
-    Setup: LL (commit 2 low), LH (mixed), HH (commit 2 high)
-    Crown: K0, K1, K2
-    """
-    decoded = ig._decode_action(encoded_action, state._max_card_id, state._num_players)
+    crb = ig._crown_base(mcid)
+    if encoded_action < crb + np:
+        decoded = ig._decode_action(encoded_action, mcid, np)
+        if decoded[0] == "disgrace":
+            return "D"
+        if decoded[0] == "crown":
+            return f"K{decoded[1]}"
+        if decoded[0] == "play":
+            card_id = decoded[1]
+            parting = getattr(state, "_parting", [[], []])
+            antechamber = getattr(state, "_antechamber", [[], []])
+            if card_id in parting[player] or card_id in antechamber[player]:
+                return "L"
+            value = state._card_values.get(card_id, 0)
+            threshold = state._throne_value()
+            playable_vals = sorted(
+                state._card_values.get(c, 0) for c in state._hands[player]
+                if state._can_play_card(c, threshold)
+            )
+            if len(playable_vals) <= 1:
+                return "L"
+            third = len(playable_vals) // 3
+            if value <= playable_vals[third]:
+                return "L"
+            if value >= playable_vals[-(third + 1)]:
+                return "H"
+            return "M"
+        sv = state._card_values.get(decoded[1], 0)
+        dv = state._card_values.get(decoded[2], 0)
+        avg = (sv + dv) / 2.0
+        if avg <= 4.0: return "LL"
+        if avg >= 6.0: return "HH"
+        return "LH"
 
-    if decoded[0] == "disgrace":
-        return "D"
+    decoded = ig._decode_match_action(encoded_action, mcid, np)
+    kind = decoded[0]
 
-    if decoded[0] == "crown":
-        return f"K{decoded[1]}"
+    if kind == "select_king":
+        return "SK_C" if decoded[1] == 0 else "SK_T"
+    if kind == "end_mustering":
+        return "EM"
+    if kind == "begin_recruit":
+        return "BR"
+    if kind == "recruit":
+        take_val = state._card_values.get(decoded[2], 0)
+        disc_val = state._card_values.get(decoded[1], 0)
+        return "RC_P" if take_val > disc_val else "RC_N"
+    if kind == "draft_select":
+        return f"DS{decoded[1]}"
+    if kind == "draft_order":
+        return "DO_F" if decoded[1] else "DO_S"
+    if kind == "draft_pick":
+        return f"DP{decoded[1]}"
 
-    if decoded[0] == "play":
-        card_id = decoded[1]
-        value = state._card_values[card_id]
-
-        if card_id in state._parting[player] or card_id in state._antechamber[player]:
-            return "L"
-
-        hand = state._hands[player]
-        threshold = state._throne_value()
-        playable_vals = sorted(
-            state._card_values[c] for c in hand
-            if state._can_play_card(c, threshold)
-        )
-
-        if len(playable_vals) <= 1:
-            return "L"
-        third = len(playable_vals) // 3
-        if value <= playable_vals[third]:
-            return "L"
-        if value >= playable_vals[-(third + 1)]:
-            return "H"
-        return "M"
-
-    sv = state._card_values[decoded[1]]
-    dv = state._card_values[decoded[2]]
-    avg = (sv + dv) / 2.0
-    if avg <= 4.0:
-        return "LL"
-    if avg >= 6.0:
-        return "HH"
-    return "LH"
+    return "L"
 
 
 def group_legal_by_abstract(state, legal_actions, player):
-    """Group concrete encoded actions by abstract action key."""
     groups = {}
     for enc in legal_actions:
         key = abstract_action(state, enc, player)

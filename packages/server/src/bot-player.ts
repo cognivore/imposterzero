@@ -365,8 +365,6 @@ export const createEffectsAwareStrategy = (
   ): IKAction {
     if (state.phase === "resolving" || state.phase === "end_of_turn")
       return EffectHeuristic.selectAction(state, player, legal);
-    if (state.phase === "mustering")
-      return selectMusteringAction(state, player, legal);
     return valuePolicy.selectAction(state, player, legal);
   },
 });
@@ -375,7 +373,16 @@ export const createEffectsAwareStrategy = (
 // Abstract actions (shared vocabulary — mirrors imposter_zero/abstraction.py)
 // ---------------------------------------------------------------------------
 
-const ABSTRACT_ACTIONS = ["L", "M", "H", "D", "LL", "LH", "HH", "K0", "K1", "K2"] as const;
+const ABSTRACT_ACTIONS = [
+  "L", "M", "H", "D",
+  "LL", "LH", "HH",
+  "K0", "K1", "K2",
+  "SK_C", "SK_T", "EM",
+  "BR", "RC_P", "RC_N",
+  "DS0", "DS1", "DS2", "DS3", "DS4", "DS5", "DS6", "DS7", "DS8",
+  "DO_F", "DO_S",
+  "DP0", "DP1", "DP2", "DP3", "DP4", "DP5", "DP6", "DP7", "DP8",
+] as const;
 type AbstractAction = (typeof ABSTRACT_ACTIONS)[number];
 
 const ABS_TO_IDX: Readonly<Record<string, number>> = Object.fromEntries(
@@ -408,7 +415,16 @@ const bucketHand = (n: number): number => {
   return 3;
 };
 
+const bucketScore = (s: number): number => {
+  if (s <= 2) return 0;
+  if (s <= 4) return 1;
+  return 2;
+};
+
 const abstractState = (state: IKState, player: PlayerId): string => {
+  const n = state.numPlayers;
+  const opp = ((player + 1) % n) as PlayerId;
+
   if (state.phase === "crown") return "CR";
 
   const perspective = playerZones(state, player);
@@ -416,7 +432,12 @@ const abstractState = (state: IKState, player: PlayerId): string => {
     .map((c) => c.kind.props.value)
     .sort((a, b) => b - a);
   const handSize = handVals.length;
-  const n = state.numPlayers;
+
+  if (state.phase === "mustering") {
+    const armyN = perspective.army.length;
+    const facetChar = perspective.king.facet === "default" ? "d" : perspective.king.facet[0];
+    return `MUS${bucketHand(handSize)}${armyN}${facetChar}`;
+  }
 
   if (state.phase === "setup") {
     const low = handVals.filter((v) => v <= 4).length;
@@ -432,8 +453,8 @@ const abstractState = (state: IKState, player: PlayerId): string => {
   const canDisgrace = isKingFaceUp(state, player) && state.shared.court.length > 0;
 
   const oppHands = Array.from({ length: n - 1 }, (_, i) => {
-    const opp = ((player + 1 + i) % n) as PlayerId;
-    return playerZones(state, opp).hand.length;
+    const o = ((player + 1 + i) % n) as PlayerId;
+    return playerZones(state, o).hand.length;
   });
   const minOpp = bucketHand(Math.min(...oppHands));
   const courtSz = Math.min(state.shared.court.length, 7);
@@ -485,11 +506,15 @@ const abstractAction = (
   }
 
   if (action.kind === "effect_choice") return `E${action.choice}`;
-  if (action.kind === "begin_recruit") return "BR";
-  if (action.kind === "recruit") return "RCR";
-  if (action.kind === "recommission") return "RCM";
-  if (action.kind === "select_king") return action.facet === "charismatic" ? "KC" : "KT";
+  if (action.kind === "select_king") return action.facet === "charismatic" ? "SK_C" : "SK_T";
   if (action.kind === "end_mustering") return "EM";
+  if (action.kind === "begin_recruit") return "BR";
+  if (action.kind === "recruit") {
+    const takeVal = playerZones(state, player).army.find((c) => c.id === action.takeFromArmyId)?.kind.props.value ?? 0;
+    const discVal = playerZones(state, player).hand.find((c) => c.id === action.discardFromHandId)?.kind.props.value ?? 0;
+    return takeVal > discVal ? "RC_P" : "RC_N";
+  }
+  if (action.kind === "recommission") return "RC_N";
 
   const succ = state.players[player]!.hand.find((c) => c.id === action.successorId);
   const dung = state.players[player]!.hand.find((c) => c.id === action.dungeonId);
