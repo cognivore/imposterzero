@@ -180,6 +180,7 @@ def _worker_simulate(args):
         obs_list = []
         act_list = []
         player_list = []
+        legal_list = []  # Store legal action indices for entropy calculation
 
         while not state.is_terminal():
             player = state.current_player()
@@ -187,26 +188,41 @@ def _worker_simulate(args):
                 break
 
             legal = state.legal_actions()
+            if not legal:
+                break  # No legal actions, terminal state
+
             obs = raw_observation(state, player)
 
             with torch.no_grad():
                 obs_t = torch.tensor([obs], dtype=torch.float32)
                 logits = net(obs_t).squeeze(0)
 
+            # Clamp logits to prevent numerical instability
+            logits = logits.clamp(-50, 50)
+
             mask = torch.full((num_actions,), float("-inf"))
             for a in legal:
                 mask[a] = 0.0
 
             probs = F.softmax(logits + mask, dim=0)
+
+            # Fallback if NaN or invalid probabilities
+            if torch.isnan(probs).any() or probs.sum() < 0.5:
+                # Uniform over legal actions
+                probs = torch.zeros(num_actions)
+                for a in legal:
+                    probs[a] = 1.0 / len(legal)
+
             action = torch.multinomial(probs, 1).item()
 
             obs_list.append(obs)
             act_list.append(action)
             player_list.append(player)
+            legal_list.append(legal)
             state.apply_action(action)
 
         returns = state.returns() if state.is_terminal() else [0.0, 0.0]
-        results.append((obs_list, act_list, player_list, returns))
+        results.append((obs_list, act_list, player_list, legal_list, returns))
 
     return results
 
@@ -228,14 +244,19 @@ def evaluate_vs_random(game, net, device, num_games=1000):
                     break
                 if player == 0:
                     legal = state.legal_actions()
+                    if not legal:
+                        break
                     obs = raw_observation(state, player)
                     obs_t = torch.tensor([obs], dtype=torch.float32, device=device)
-                    logits = net(obs_t).squeeze(0)
+                    logits = net(obs_t).squeeze(0).clamp(-50, 50)
                     mask = torch.full((NUM_ACTIONS,), float("-inf"), device=device)
                     for a in legal:
                         mask[a] = 0.0
                     probs = F.softmax(logits + mask, dim=0)
-                    action = torch.multinomial(probs, 1).item()
+                    if torch.isnan(probs).any() or probs.sum() < 0.5:
+                        action = random.choice(legal)
+                    else:
+                        action = torch.multinomial(probs, 1).item()
                     state.apply_action(action)
                 else:
                     state.apply_action(random.choice(state.legal_actions()))
@@ -345,6 +366,12 @@ def main():
     last_report = start_time
     episode = 0
     best_wr = 0.0
+
+    # Restore episode count and best_wr when resuming
+    if args.resume:
+        episode = reps
+        best_wr = rwr
+
     evals_without_improvement = 0
     stop_reason = "max_episodes"
 
@@ -372,13 +399,15 @@ def main():
             flat_obs = []
             flat_acts = []
             flat_rewards = []
+            flat_legal = []
 
             for worker_eps in all_results:
-                for obs_list, act_list, player_list, returns in worker_eps:
-                    for obs, act, plr in zip(obs_list, act_list, player_list):
+                for obs_list, act_list, player_list, legal_list, returns in worker_eps:
+                    for obs, act, plr, legal in zip(obs_list, act_list, player_list, legal_list):
                         flat_obs.append(obs)
                         flat_acts.append(act)
                         flat_rewards.append(returns[plr])
+                        flat_legal.append(legal)
 
             episode += batch_size
             if not flat_obs:
@@ -388,14 +417,29 @@ def main():
             acts_t = torch.tensor(flat_acts, dtype=torch.long, device=device)
             rewards_t = torch.tensor(flat_rewards, dtype=torch.float32, device=device)
 
+            # Build legal action masks from sparse indices
+            # Use large negative value instead of -inf to avoid MPS numerical issues
+            n_samples = len(flat_obs)
+            masks_t = torch.full((n_samples, NUM_ACTIONS), -1e9, device=device)
+            for i, legal in enumerate(flat_legal):
+                masks_t[i, legal] = 0.0
+
             rewards_t = (rewards_t - rewards_t.mean()) / (rewards_t.std() + 1e-8)
 
-            logits = net(obs_t)
-            log_probs = F.log_softmax(logits, dim=1)
+            logits = net(obs_t).clamp(-50, 50)
+
+            # Apply mask for correct log probabilities
+            masked_logits = logits + masks_t
+            log_probs = F.log_softmax(masked_logits, dim=1)
             selected_lp = log_probs.gather(1, acts_t.unsqueeze(1)).squeeze(1)
 
             policy_loss = -(selected_lp * rewards_t).mean()
-            entropy = -(F.softmax(logits, dim=1) * log_probs).sum(dim=1).mean()
+
+            # Entropy over LEGAL actions only
+            # Use nan_to_num to handle 0 * -inf = NaN for illegal actions
+            masked_probs = F.softmax(masked_logits, dim=1)
+            entropy_terms = masked_probs * log_probs
+            entropy = -torch.nan_to_num(entropy_terms, nan=0.0).sum(dim=1).mean()
             total_loss = policy_loss - args.entropy_coeff * entropy
 
             optimizer.zero_grad()
