@@ -25,7 +25,11 @@ result-*
 
 *.log
 
+data/replays/
+
 packages/web/docs/
 training/policy_test.json
+training/checkpoints*/
+training/.venv/
 
 bin/serve-launchd

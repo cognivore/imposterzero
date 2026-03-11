@@ -17,6 +17,7 @@ import {
   addBot,
   isBot,
   botDisplayName,
+  rankSignatureCard,
 } from "./bot-player.js";
 import {
   type ManagedRoom,
@@ -266,7 +267,9 @@ export const startServer = (
 
       if (ds.phase.tag === "selection") {
         const needed = drafting.tournament ? 1 : ds.config.signaturesPerPlayer;
-        const pool = ds.config.signaturePool.map((k) => k.name);
+        const pool = ds.config.signaturePool
+          .map((k) => k.name)
+          .sort((a, b) => rankSignatureCard(b) - rankSignatureCard(a));
         for (const player of drafting.lobby.players) {
           if (!isBot(m.botRegistry, player.id)) continue;
           const idx = drafting.lobby.players.findIndex((p) => p.id === player.id);
@@ -286,7 +289,10 @@ export const startServer = (
         const currentPicker = ds.phase.pickerOrder[ds.phase.currentPickerIdx]!;
         const pickerId = drafting.lobby.players[currentPicker]?.id;
         if (pickerId && isBot(m.botRegistry, pickerId) && ds.phase.faceUp.length > 0) {
-          const card = ds.phase.faceUp[0]!;
+          const ranked = [...ds.phase.faceUp].sort(
+            (a, b) => rankSignatureCard(b) - rankSignatureCard(a),
+          );
+          const card = ranked[0]!;
           const result = roomTransition(m.room, { kind: "draft_pick", playerId: pickerId, card, now }, now);
           if (result.ok) { m.room = result.value.room; broadcastDraftState(m); broadcastToRoom(m, result.value.messages); recordLifecycle(m, result.value.messages, now); acted = true; }
         }

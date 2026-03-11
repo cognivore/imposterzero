@@ -176,7 +176,14 @@ const selectEffectChoice = (
   const first = options[0]!;
 
   switch (first.kind) {
-    case "pass":
+    case "pass": {
+      if (isOwnEffect && options.length > 1) {
+        const activateIdx = options.findIndex((o) => o.kind !== "pass");
+        if (activateIdx >= 0) return legal[activateIdx]!;
+      }
+      return legal[0]!;
+    }
+
     case "proceed":
       return legal[0]!;
 
@@ -188,8 +195,15 @@ const selectEffectChoice = (
       return idx >= 0 ? legal[idx]! : legal[0]!;
     }
 
-    case "card":
+    case "card": {
+      if (isOwnEffect) {
+        const passIdx = options.findIndex((o) => o.kind === "pass");
+        if (passIdx >= 0) {
+          return pickCardOption(state, player, pending, options.filter((o) => o.kind !== "pass"), legal);
+        }
+      }
       return pickCardOption(state, player, pending, options, legal);
+    }
 
     case "player":
       return pickPlayerOption(state, options, legal);
@@ -256,6 +270,91 @@ export const EffectHeuristic: BotStrategy = {
 // Effects-aware strategy — dispatches to value policy or effect heuristic
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Draft heuristic — rank signature cards by strategic value
+// ---------------------------------------------------------------------------
+
+const SIGNATURE_RANK: Readonly<Record<string, number>> = {
+  "Exile":        9,
+  "Conspiracist": 8,
+  "Aegis":        7,
+  "Lockshift":    6,
+  "Informant":    5,
+  "Ancestor":     5,
+  "Nakturn":      4,
+  "Stranger":     3,
+  "Flagbearer":   2,
+};
+
+export const rankSignatureCard = (name: string): number =>
+  SIGNATURE_RANK[name] ?? 0;
+
+// ---------------------------------------------------------------------------
+// Mustering heuristic — recruit high-value cards, prefer Master Tactician
+// ---------------------------------------------------------------------------
+
+const selectMusteringAction = (
+  state: IKState,
+  player: PlayerId,
+  legal: ReadonlyArray<IKAction>,
+): IKAction => {
+  if (legal.length <= 1) return legal[0]!;
+
+  const perspective = playerZones(state, player);
+  const hasKingFacet = perspective.king.facet !== "default";
+
+  const endAction = legal.find((a) => a.kind === "end_mustering");
+  const selectKingActions = legal.filter((a) => a.kind === "select_king");
+  const beginActions = legal.filter((a) => a.kind === "begin_recruit");
+  const recruitActions = legal.filter((a) => a.kind === "recruit");
+
+  if (!hasKingFacet && selectKingActions.length > 0) {
+    const tactician = selectKingActions.find(
+      (a) => a.kind === "select_king" && a.facet === "masterTactician",
+    );
+    return tactician ?? selectKingActions[0]!;
+  }
+
+  if (recruitActions.length > 0) {
+    let bestAction = recruitActions[0]!;
+    let bestScore = -Infinity;
+    for (const a of recruitActions) {
+      if (a.kind !== "recruit") continue;
+      const takeVal = findCardValue(state, a.takeFromArmyId);
+      const discardVal = findCardValue(state, a.discardFromHandId);
+      const score = takeVal - discardVal;
+      if (score > bestScore) {
+        bestScore = score;
+        bestAction = a;
+      }
+    }
+    if (bestScore > 0) return bestAction;
+    if (endAction) return endAction;
+    return bestAction;
+  }
+
+  if (beginActions.length > 0 && perspective.hand.length > 0) {
+    let worstAction = beginActions[0]!;
+    let worstVal = Infinity;
+    for (const a of beginActions) {
+      if (a.kind !== "begin_recruit") continue;
+      const val = findCardValue(state, a.exhaustCardId);
+      if (val < worstVal) {
+        worstVal = val;
+        worstAction = a;
+      }
+    }
+    return worstAction;
+  }
+
+  if (endAction) return endAction;
+  return legal[0]!;
+};
+
+// ---------------------------------------------------------------------------
+// Effects-aware strategy — dispatches to value policy or heuristic
+// ---------------------------------------------------------------------------
+
 export const createEffectsAwareStrategy = (
   valuePolicy: BotStrategy,
 ): BotStrategy => ({
@@ -267,7 +366,7 @@ export const createEffectsAwareStrategy = (
     if (state.phase === "resolving" || state.phase === "end_of_turn")
       return EffectHeuristic.selectAction(state, player, legal);
     if (state.phase === "mustering")
-      return RandomStrategy.selectAction(state, player, legal);
+      return selectMusteringAction(state, player, legal);
     return valuePolicy.selectAction(state, player, legal);
   },
 });
