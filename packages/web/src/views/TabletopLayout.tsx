@@ -1062,13 +1062,22 @@ const findCardVisualInState = (gameState: IKState, cardId: number): CardVisual |
   for (const entry of gameState.shared.court) {
     if (entry.card.id === cardId) return toCardVisual(entry.card);
   }
+  if (gameState.shared.accused?.id === cardId) return toCardVisual(gameState.shared.accused);
+  if (gameState.shared.forgotten?.card.id === cardId) return toCardVisual(gameState.shared.forgotten.card);
+  for (const entry of gameState.shared.condemned) {
+    if (entry.card.id === cardId) return toCardVisual(entry.card);
+  }
   for (const p of gameState.players) {
-    for (const c of p.hand) {
-      if (c.id === cardId) return toCardVisual(c);
-    }
-    for (const c of p.antechamber) {
-      if (c.id === cardId) return toCardVisual(c);
-    }
+    for (const c of p.hand) if (c.id === cardId) return toCardVisual(c);
+    if (p.king.card.id === cardId) return toCardVisual(p.king.card);
+    if (p.successor?.card.id === cardId) return toCardVisual(p.successor.card);
+    if (p.dungeon?.card.id === cardId) return toCardVisual(p.dungeon.card);
+    if (p.squire?.card.id === cardId) return toCardVisual(p.squire.card);
+    for (const c of p.antechamber) if (c.id === cardId) return toCardVisual(c);
+    for (const c of p.parting) if (c.id === cardId) return toCardVisual(c);
+    for (const c of p.army) if (c.id === cardId) return toCardVisual(c);
+    for (const c of p.exhausted) if (c.id === cardId) return toCardVisual(c);
+    for (const c of p.recruitDiscard) if (c.id === cardId) return toCardVisual(c);
   }
   return null;
 };
