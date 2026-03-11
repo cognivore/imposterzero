@@ -494,7 +494,7 @@ export const useGameReducer = () => {
 // ---------------------------------------------------------------------------
 
 export interface GameLogEvent {
-  readonly kind: "play" | "disgrace" | "round_start" | "round_end" | "mustering" | "commit";
+  readonly kind: "play" | "disgrace" | "round_start" | "round_end" | "mustering" | "commit" | "draft";
   readonly turnNumber: number;
   readonly playerName: string;
   readonly playerIndex: number;
@@ -532,11 +532,112 @@ const describeSetupCommit = (
     : "committed setup: chose a Successor and a Dungeon";
 };
 
+const draftEvent = (description: string, playerName = "", playerIndex = -1): GameLogEvent => ({
+  kind: "draft",
+  turnNumber: 0,
+  playerName,
+  playerIndex,
+  description,
+});
+
 export const detectLogEvents = (
   prev: ClientPhase,
   next: ClientPhase,
 ): ReadonlyArray<GameLogEvent> => {
   const events: GameLogEvent[] = [];
+
+  // ── Draft phase transitions ──
+  if (prev._tag === "drafting" && next._tag === "drafting") {
+    const prevDp = prev.draftPhase;
+    const nextDp = next.draftPhase;
+    const names = next.playerNames;
+
+    if (prevDp.tag === "selection" && nextDp.tag === "selection") {
+      if (!prevDp.allSubmitted && nextDp.allSubmitted) {
+        events.push(draftEvent("All players submitted their picks"));
+      } else if (!prevDp.submitted && nextDp.submitted) {
+        events.push(draftEvent("You submitted your pick"));
+      } else if (prevDp.allSubmitted === nextDp.allSubmitted && prevDp.submitted === nextDp.submitted) {
+        // no visible change
+      } else {
+        events.push(draftEvent("Opponent submitted their pick"));
+      }
+    }
+
+    if (prevDp.tag === "selection" && nextDp.tag === "draft_order") {
+      for (let i = 0; i < nextDp.playerSelections.length; i++) {
+        const sigs = nextDp.playerSelections[i];
+        if (sigs && sigs.length > 0) {
+          const name = names[i] ?? `Player ${i}`;
+          events.push(draftEvent(`selected ${sigs.join(", ")}`, name, i));
+        }
+      }
+      events.push(draftEvent("Signatures revealed — choosing draft order"));
+    }
+
+    if (prevDp.tag === "selection" && nextDp.tag === "reveal") {
+      for (let i = 0; i < nextDp.playerSelections.length; i++) {
+        const sigs = nextDp.playerSelections[i];
+        if (sigs && sigs.length > 0) {
+          const name = names[i] ?? `Player ${i}`;
+          events.push(draftEvent(`selected ${sigs.join(", ")}`, name, i));
+        }
+      }
+    }
+
+    if (prevDp.tag === "reveal" && nextDp.tag === "draft_order") {
+      events.push(draftEvent("Signatures revealed — choosing draft order"));
+    }
+
+    if (prevDp.tag === "selection" && nextDp.tag === "complete") {
+      if (nextDp.playerSignatures) {
+        const lines = nextDp.playerSignatures.map((sigs, i) =>
+          `${names[i] ?? `Player ${i}`}: ${sigs.join(", ")}`,
+        );
+        events.push(draftEvent(`Signatures selected\n${lines.join("\n")}`));
+      }
+    }
+
+    if (prevDp.tag === "draft_order" && nextDp.tag === "drafting") {
+      const chooserIdx = prevDp.chooser;
+      const chooserName = names[chooserIdx] ?? `Player ${chooserIdx}`;
+      const wentFirst = nextDp.currentPicker === chooserIdx;
+      events.push(draftEvent(
+        `chose to pick ${wentFirst ? "first" : "second"}`,
+        chooserName,
+        chooserIdx,
+      ));
+    }
+
+    if (prevDp.tag === "drafting" && (nextDp.tag === "drafting" || nextDp.tag === "complete")) {
+      const prevFaceUp = new Set(prevDp.faceUp);
+      const nextFaceUp = new Set(nextDp.tag === "drafting" ? nextDp.faceUp : []);
+      const picked = [...prevFaceUp].filter((c) => !nextFaceUp.has(c));
+      if (picked.length > 0) {
+        const pickerIdx = prevDp.currentPicker;
+        const pickerName = names[pickerIdx] ?? `Player ${pickerIdx}`;
+        for (const card of picked) {
+          events.push(draftEvent(`drafted ${card}`, pickerName, pickerIdx));
+        }
+      }
+    }
+
+    if (prevDp.tag !== "complete" && nextDp.tag === "complete") {
+      const lines = nextDp.playerSignatures.map((sigs, i) =>
+        `${names[i] ?? `Player ${i}`}: ${sigs.join(", ")}`,
+      );
+      events.push(draftEvent(`Armies assembled\n${lines.join("\n")}`));
+    }
+  }
+
+  if (prev._tag === "drafting" && next._tag !== "drafting") {
+    events.push(draftEvent("Draft complete — match begins"));
+  }
+
+  if (prev._tag === "lobby" && next._tag === "drafting") {
+    const mode = next.tournament ? "Tournament" : "Standard";
+    events.push(draftEvent(`${mode} Draft started`));
+  }
 
   if (prev._tag === "setup" && next._tag === "play") {
     events.push({

@@ -45,3 +45,13 @@ export {
   unwrapOr,
   fromTryCatch,
 } from "./result.js";
+
+export {
+  type MatchStartEvent,
+  type RoundStartEvent,
+  type ActionEvent,
+  type RoundEndEvent,
+  type MatchEndEvent,
+  type ReplayEvent,
+  type ReplaySink,
+} from "./replay.js";

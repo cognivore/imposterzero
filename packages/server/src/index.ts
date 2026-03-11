@@ -101,3 +101,15 @@ export {
   pruneEmptyRooms,
   updateManagedRoomTargetScore,
 } from "./room-manager.js";
+
+export {
+  createReplayRecorder,
+  nullRecorder,
+  type ReplayRecorder,
+} from "./replay-recorder.js";
+
+export {
+  fileReplaySink,
+  readReplayFile,
+  listReplayFiles,
+} from "./replay-writer.js";

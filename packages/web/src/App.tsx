@@ -4,7 +4,7 @@ import { useWebSocket } from "./ws-client.js";
 import { useGameLogStore } from "./stores/game-log.js";
 import { useDisgracedTracker } from "./stores/disgraced-tracker.js";
 import { useSeenCardsTracker } from "./stores/seen-cards.js";
-import { traceResolution, type TraceEntry } from "@imposter-zero/engine";
+import { traceResolution, applySafe, type TraceEntry, type IKState } from "@imposter-zero/engine";
 import type { PlayerId } from "@imposter-zero/types";
 import { useOrientation } from "./hooks/useOrientation.js";
 import { BrowserView } from "./views/BrowserView.js";
@@ -84,6 +84,20 @@ const traceEntryToLogEntry = (
   kind: "trace",
 });
 
+const inferLastChoice = (
+  prevState: IKState,
+  actualState: IKState,
+): number | undefined => {
+  const pending = prevState.pendingResolution;
+  if (!pending) return undefined;
+  const serialized = JSON.stringify(actualState);
+  for (let i = 0; i < pending.currentOptions.length; i++) {
+    const result = applySafe(prevState, { kind: "effect_choice", choice: i });
+    if (result.ok && JSON.stringify(result.value) === serialized) return i;
+  }
+  return undefined;
+};
+
 const useGameLogSync = (phase: ClientPhase): void => {
   const prevPhaseRef = useRef<ClientPhase>(phase);
   const traceCountRef = useRef(0);
@@ -101,11 +115,6 @@ const useGameLogSync = (phase: ClientPhase): void => {
       useSeenCardsTracker.getState().clear();
     }
 
-    const events = detectLogEvents(prev, phase);
-    for (const event of events) {
-      store.addEntry({ ...event, timestamp: Date.now() });
-    }
-
     const isResolving = phase._tag === "resolving" || phase._tag === "play";
     const wasResolving = prev._tag === "resolving";
     const gameState = isResolving && "gameState" in phase ? phase.gameState : null;
@@ -113,7 +122,9 @@ const useGameLogSync = (phase: ClientPhase): void => {
 
     try {
       if (wasResolving && phase._tag !== "resolving" && prevGameState?.pendingResolution) {
-        const fullTrace = traceResolution(prevGameState, true);
+        const actualState = "gameState" in phase ? (phase as { gameState: IKState }).gameState : undefined;
+        const lastChoice = actualState ? inferLastChoice(prevGameState, actualState) : undefined;
+        const fullTrace = traceResolution(prevGameState, true, lastChoice);
         const newEntries = fullTrace.slice(traceCountRef.current);
         const turn = prevGameState.turnCount;
         for (const entry of newEntries) {
@@ -131,6 +142,11 @@ const useGameLogSync = (phase: ClientPhase): void => {
       }
     } catch {
       /* tracing must never crash the app */
+    }
+
+    const events = detectLogEvents(prev, phase);
+    for (const event of events) {
+      store.addEntry({ ...event, timestamp: Date.now() });
     }
   }, [phase]);
 };

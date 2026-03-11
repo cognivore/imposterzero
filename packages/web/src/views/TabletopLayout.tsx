@@ -135,7 +135,7 @@ const MatchLog: React.FC = () => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const matchEntries = useMemo(
-    () => entries.filter((e) => e.kind === "round_start" || e.kind === "round_end"),
+    () => entries.filter((e) => e.kind === "round_start" || e.kind === "round_end" || e.kind === "draft"),
     [entries],
   );
 
@@ -149,8 +149,15 @@ const MatchLog: React.FC = () => {
       <div className="tt-section-header">Match Log</div>
       <div className="tt-match-log__entries" ref={scrollRef}>
         {matchEntries.map((entry) => (
-          <div key={entry.id} className="tt-match-log__entry">
-            <span className="left-rail__system">{entry.description}</span>
+          <div key={entry.id} className={`tt-match-log__entry tt-match-log__entry--${entry.kind}`}>
+            {entry.kind === "draft" && entry.playerIndex >= 0 ? (
+              <>
+                <span className="left-rail__player">{entry.playerName}</span>
+                <span className="left-rail__desc">{entry.description}</span>
+              </>
+            ) : (
+              <span className="left-rail__system">{entry.description}</span>
+            )}
           </div>
         ))}
         {matchEntries.length === 0 && (
@@ -263,7 +270,7 @@ const GameLog: React.FC<{ readonly turnCount: number }> = ({ turnCount }) => {
               <span className="left-rail__system">{entry.description}</span>
             ) : entry.kind === "trace" ? (
               <span className="left-rail__trace">{entry.description}</span>
-            ) : entry.kind === "mustering" ? (
+            ) : entry.kind === "mustering" || entry.kind === "draft" ? (
               entry.playerIndex === -1 ? (
                 <span className="left-rail__system">{entry.description}</span>
               ) : (
@@ -1082,19 +1089,25 @@ const ResolvingContent: React.FC<{
   const topCard = court.at(-1);
   const contextCardName = topCard ? topCard.card.kind.name : "card";
   const isReaction = pending.isReactionWindow ?? false;
+  const reactionWindowKind = pending.reactionWindowKind;
+  const effectPlayerName = playerNames[pending.effectPlayer] ?? `Player ${pending.effectPlayer}`;
 
   const handleChoice = (choiceIndex: number) => {
     send({ type: "action", action: { kind: "effect_choice", choice: choiceIndex } });
   };
 
   if (!isMyChoice) {
+    const waitingName = playerNames[choosingPlayer] ?? `Player ${choosingPlayer}`;
+    const waitingText = !isReaction
+      ? `${waitingName} is choosing...`
+      : reactionWindowKind === "king_flip"
+        ? `${waitingName} may react with Assassin...`
+        : `${waitingName} may react with King's Hand...`;
     return (
       <div className="tt-dialog-content">
         <div className="inline-choice-bar">
           <div className="inline-choice-bar__waiting">
-            {isReaction
-              ? `${playerNames[choosingPlayer] ?? `Player ${choosingPlayer}`} — reaction window...`
-              : `${playerNames[choosingPlayer] ?? `Player ${choosingPlayer}`} is choosing...`}
+            {waitingText}
           </div>
         </div>
       </div>
@@ -1102,23 +1115,28 @@ const ResolvingContent: React.FC<{
   }
 
   const descriptionForOptions = (opts: readonly import("@imposter-zero/engine").ChoiceOption[]): string => {
-    if (opts.length === 0) return "make a choice";
+    if (opts.length === 0) return "make a choice:";
     const first = opts[0];
-    if (!first) return "make a choice";
+    if (!first) return "make a choice:";
     switch (first.kind) {
-      case "card": return "choose a card";
-      case "player": return "choose a player";
-      case "cardName": return "name a card";
-      case "value": return "choose a value";
+      case "card": return "choose a card:";
+      case "player": return "choose a player:";
+      case "cardName": return "name a card:";
+      case "value": return "choose a value:";
       case "pass":
-      case "proceed": return "decide";
-      case "yesNo": return "answer yes or no";
+      case "proceed": return "use ability?";
+      case "yesNo": return "answer yes or no:";
     }
   };
 
-  const reactionContext = isReaction
-    ? `${contextCardName} — react with King's Hand?`
-    : `${contextCardName} — ${descriptionForOptions(options)}:`;
+  const reactionContext = (() => {
+    if (!isReaction) return `${contextCardName} — ${descriptionForOptions(options)}`;
+    if (reactionWindowKind === "king_flip")
+      return `${effectPlayerName} is flipping their king. React with Assassin?`;
+    if (pending.source.kind === "disgrace")
+      return `Assassin was played. Counter with King's Hand?`;
+    return `${contextCardName}. React with King's Hand?`;
+  })();
 
   return (
     <div className="tt-dialog-content">
@@ -1130,7 +1148,9 @@ const ResolvingContent: React.FC<{
           {options.map((option, idx) => {
             const enabled = effectActions.some((a) => a.choice === idx);
             const labelOverride = isReaction
-              ? option.kind === "proceed" ? "React with King's Hand" : "Pass"
+              ? option.kind === "proceed"
+                ? reactionWindowKind === "king_flip" ? "React with Assassin" : "React with King's Hand"
+                : "Pass"
               : undefined;
 
             const content = labelOverride ? (

@@ -15,6 +15,7 @@ import {
   type BotRegistry,
   emptyBotRegistry,
 } from "./bot-player.js";
+import { type ReplayRecorder, nullRecorder } from "./replay-recorder.js";
 
 // ---------------------------------------------------------------------------
 // ManagedRoom — per-room state wrapper
@@ -27,6 +28,7 @@ export interface ManagedRoom {
   readonly maxPlayers: number;
   readonly targetScore: number;
   readonly turnDuration: number;
+  readonly replayRecorder: ReplayRecorder<IKState, IKAction>;
   tournament: boolean;
   room: Room;
   botRegistry: BotRegistry;
@@ -61,6 +63,7 @@ export const createManagedRoom = (
   turnDuration: number,
   now: number,
   expansionState: ExpansionState | null = null,
+  replayRecorder: ReplayRecorder<IKState, IKAction> = nullRecorder as ReplayRecorder<IKState, IKAction>,
 ): ManagedRoom => {
   const id = generateRoomId();
   const managed: ManagedRoom = {
@@ -70,6 +73,7 @@ export const createManagedRoom = (
     maxPlayers,
     targetScore,
     turnDuration,
+    replayRecorder,
     tournament: true,
     room: createRoom(game, maxPlayers, targetScore, turnDuration, expansionState, true),
     botRegistry: emptyBotRegistry,

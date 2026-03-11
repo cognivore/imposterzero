@@ -1023,6 +1023,10 @@ body {
   opacity: 0.85;
 }
 
+.left-rail__entry--draft {
+  border-left-color: var(--gold);
+}
+
 .left-rail__trace {
   font-family: var(--font-mono, monospace);
   font-size: 0.7rem;

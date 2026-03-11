@@ -648,6 +648,7 @@ const buildTraceCtx = (
 export const traceResolution = (
   state: IKState,
   tryComplete = false,
+  lastChoice?: number,
 ): ReadonlyArray<TraceEntry> => {
   const pending = state.pendingResolution;
   if (!pending) return [];
@@ -659,6 +660,12 @@ export const traceResolution = (
   if (!ctx) return [];
 
   if (tryComplete) {
+    if (lastChoice !== undefined && lastChoice >= 0 && lastChoice < pending.currentOptions.length) {
+      const fullChoices = [...pending.choicesMade, lastChoice];
+      const entries: TraceEntry[] = [];
+      replay(program, pending.stateBeforeEffect, ctx, fullChoices, (e) => entries.push(e));
+      return entries;
+    }
     for (let i = 0; i < pending.currentOptions.length; i++) {
       const fullChoices = [...pending.choicesMade, i];
       const entries: TraceEntry[] = [];

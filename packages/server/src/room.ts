@@ -199,7 +199,7 @@ export const draftStateToView = (
       return { tag: "reveal", playerSelections: ds.phase.selections };
     case "draft_order": {
       const nonTrueKing = ((ds.trueKing + 1) % ds.numPlayers) as PlayerId;
-      return { tag: "draft_order", faceUp: ds.phase.faceUp, chooser: nonTrueKing, amChooser: playerIdx === nonTrueKing };
+      return { tag: "draft_order", faceUp: ds.phase.faceUp, chooser: nonTrueKing, amChooser: playerIdx === nonTrueKing, playerSelections: ds.playerSelections };
     }
     case "drafting":
       return {

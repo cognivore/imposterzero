@@ -7,7 +7,7 @@ export interface GameLogEntry {
   readonly playerIndex: number;
   readonly description: string;
   readonly timestamp: number;
-  readonly kind: "play" | "disgrace" | "commit" | "round_start" | "round_end" | "trace" | "mustering";
+  readonly kind: "play" | "disgrace" | "commit" | "round_start" | "round_end" | "trace" | "mustering" | "draft";
 }
 
 interface GameLogState {

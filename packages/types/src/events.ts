@@ -71,6 +71,7 @@ export type DraftPhaseView =
       readonly faceUp: ReadonlyArray<string>;
       readonly chooser: PlayerId;
       readonly amChooser: boolean;
+      readonly playerSelections: ReadonlyArray<ReadonlyArray<string>>;
     }
   | {
       readonly tag: "drafting";
