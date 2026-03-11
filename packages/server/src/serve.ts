@@ -49,17 +49,29 @@ const loadBotStrategy = (): { strategy: BotStrategy; policyLabel: string } => {
   const strategies = new Map<number, BotStrategy>();
   let policyLabel = "random";
 
-  const tab2p =
-    tryLoadJson<TabularPolicy>(policyPaths("policy_match.json"), "2p match") ??
-    tryLoadJson<TabularPolicy>(policyPaths("policy_2p_8h.json"), "2p tabular (8h)") ??
-    tryLoadJson<TabularPolicy>(policyPaths("policy.json"), "2p tabular");
-  if (tab2p) {
-    const s = tab2p.data.metadata?.info_states ?? Object.keys(tab2p.data.policy).length;
-    const it = tab2p.data.metadata?.iterations ?? 0;
-    const ver = tab2p.data.metadata?.game_version ?? "unknown";
-    policyLabel = `mccfr-${ver}-${it}-${s}`;
-    console.log(`[bot] 2p tabular: ${s} info states, ${it.toLocaleString()} iterations (${tab2p.path})`);
-    strategies.set(2, createTabularStrategy(tab2p.data));
+  const nn2p = tryLoadJson<NeuralPolicy>(policyPaths("policy_match_neural.json"), "2p neural match");
+  if (nn2p && nn2p.data.weights) {
+    const { input_size, hidden_size, output_size, episodes } = nn2p.data.metadata;
+    const wr = (nn2p.data.metadata.win_rate_vs_random as number | undefined) ?? 0;
+    const ver = nn2p.data.metadata.game_version ?? "unknown";
+    policyLabel = `neural-${ver}-${episodes}-${hidden_size}`;
+    console.log(`[bot] 2p neural: ${input_size}->${hidden_size}->${output_size} MLP, ${(episodes as number).toLocaleString()} eps, wr=${(wr * 100).toFixed(1)}% (${nn2p.path})`);
+    strategies.set(2, createNeuralStrategy(nn2p.data));
+  }
+
+  if (!strategies.has(2)) {
+    const tab2p =
+      tryLoadJson<TabularPolicy>(policyPaths("policy_match.json"), "2p match") ??
+      tryLoadJson<TabularPolicy>(policyPaths("policy_2p_8h.json"), "2p tabular (8h)") ??
+      tryLoadJson<TabularPolicy>(policyPaths("policy.json"), "2p tabular");
+    if (tab2p) {
+      const s = tab2p.data.metadata?.info_states ?? Object.keys(tab2p.data.policy).length;
+      const it = tab2p.data.metadata?.iterations ?? 0;
+      const ver = tab2p.data.metadata?.game_version ?? "unknown";
+      policyLabel = `mccfr-${ver}-${it}-${s}`;
+      console.log(`[bot] 2p tabular: ${s} info states, ${it.toLocaleString()} iterations (${tab2p.path})`);
+      strategies.set(2, createTabularStrategy(tab2p.data));
+    }
   }
 
   const nn3p = tryLoadJson<NeuralPolicy>(policyPaths("policy_3p.json"), "3p neural");
