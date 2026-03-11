@@ -7,9 +7,11 @@ import {
   type BotStrategy,
   type TabularPolicy,
   type NeuralPolicy,
+  type RawNeuralPolicy,
   RandomStrategy,
   createTabularStrategy,
   createNeuralStrategy,
+  createRawNeuralStrategy,
   createCompositeStrategy,
   createEffectsAwareStrategy,
   modelHashName,
@@ -49,14 +51,26 @@ const loadBotStrategy = (): { strategy: BotStrategy; policyLabel: string } => {
   const strategies = new Map<number, BotStrategy>();
   let policyLabel = "random";
 
-  const nn2p = tryLoadJson<NeuralPolicy>(policyPaths("policy_match_neural.json"), "2p neural match");
-  if (nn2p && nn2p.data.weights) {
-    const { input_size, hidden_size, output_size, episodes } = nn2p.data.metadata;
-    const wr = (nn2p.data.metadata.win_rate_vs_random as number | undefined) ?? 0;
-    const ver = nn2p.data.metadata.game_version ?? "unknown";
-    policyLabel = `neural-${ver}-${episodes}-${hidden_size}`;
-    console.log(`[bot] 2p neural: ${input_size}->${hidden_size}->${output_size} MLP, ${(episodes as number).toLocaleString()} eps, wr=${(wr * 100).toFixed(1)}% (${nn2p.path})`);
-    strategies.set(2, createNeuralStrategy(nn2p.data));
+  const raw2p = tryLoadJson<RawNeuralPolicy>(policyPaths("policy_raw_neural.json"), "2p raw neural");
+  if (raw2p && raw2p.data.weights && raw2p.data.metadata?.action_space === "raw") {
+    const { input_size, hidden_size, output_size, num_actions, episodes } = raw2p.data.metadata;
+    const wr = (raw2p.data.metadata.win_rate_vs_random as number | undefined) ?? 0;
+    const ver = raw2p.data.metadata.game_version ?? "unknown";
+    policyLabel = `raw-${ver}-${episodes}-${hidden_size}`;
+    console.log(`[bot] 2p raw neural: ${input_size}->${hidden_size}->${output_size} MLP, ${num_actions} actions, ${(episodes as number).toLocaleString()} eps, wr=${(wr * 100).toFixed(1)}% (${raw2p.path})`);
+    strategies.set(2, createRawNeuralStrategy(raw2p.data));
+  }
+
+  if (!strategies.has(2)) {
+    const nn2p = tryLoadJson<NeuralPolicy>(policyPaths("policy_match_neural.json"), "2p neural match");
+    if (nn2p && nn2p.data.weights) {
+      const { input_size, hidden_size, output_size, episodes } = nn2p.data.metadata;
+      const wr = (nn2p.data.metadata.win_rate_vs_random as number | undefined) ?? 0;
+      const ver = nn2p.data.metadata.game_version ?? "unknown";
+      policyLabel = `neural-${ver}-${episodes}-${hidden_size}`;
+      console.log(`[bot] 2p neural: ${input_size}->${hidden_size}->${output_size} MLP, ${(episodes as number).toLocaleString()} eps, wr=${(wr * 100).toFixed(1)}% (${nn2p.path})`);
+      strategies.set(2, createNeuralStrategy(nn2p.data));
+    }
   }
 
   if (!strategies.has(2)) {

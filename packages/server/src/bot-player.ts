@@ -7,6 +7,7 @@ import {
   playerZones,
   throneValue,
   isKingFaceUp,
+  SIGNATURE_CARD_NAMES,
 } from "@imposter-zero/engine";
 
 // ---------------------------------------------------------------------------
@@ -783,6 +784,172 @@ export const createNeuralStrategy = (policyJson: NeuralPolicy): BotStrategy => {
       const chosenAbs = sampleWeighted(available, availableProbs);
       const concreteOptions = groups.get(chosenAbs)!;
       return concreteOptions[Math.floor(Math.random() * concreteOptions.length)]!;
+    },
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Raw neural strategy — outputs over all 2990 encoded actions directly
+// ---------------------------------------------------------------------------
+
+const RAW_MAX_CARD_ID = 37;
+const RAW_SPAN = RAW_MAX_CARD_ID + 1;
+const RAW_NUM_ACTIONS = 2990;
+
+const rawCommitBase = 1 + RAW_SPAN;
+const rawCrownBase = rawCommitBase + RAW_SPAN * RAW_SPAN;
+const rawSelectKingBase = rawCrownBase + 2;
+const rawEndMusteringSlot = rawSelectKingBase + 2;
+const rawBeginRecruitBase = rawEndMusteringSlot + 1;
+const rawRecruitBase = rawBeginRecruitBase + RAW_SPAN;
+const rawDraftSelectBase = rawRecruitBase + RAW_SPAN * RAW_SPAN;
+const rawDraftOrderBase = rawDraftSelectBase + 9;
+const rawDraftPickBase = rawDraftOrderBase + 2;
+
+const SIGNATURE_NAMES_LIST = [...SIGNATURE_CARD_NAMES];
+
+const encodeMatchAction = (action: IKAction): number => {
+  if (action.kind === "disgrace") return 0;
+  if (action.kind === "play") return 1 + action.cardId;
+  if (action.kind === "commit") return rawCommitBase + action.successorId * RAW_SPAN + action.dungeonId;
+  if (action.kind === "crown") return rawCrownBase + action.firstPlayer;
+  if (action.kind === "select_king") return rawSelectKingBase + (action.facet === "charismatic" ? 0 : 1);
+  if (action.kind === "end_mustering") return rawEndMusteringSlot;
+  if (action.kind === "begin_recruit") return rawBeginRecruitBase + action.exhaustCardId;
+  if (action.kind === "recruit") return rawRecruitBase + action.discardFromHandId * RAW_SPAN + action.takeFromArmyId;
+  return 0;
+};
+
+const decodeRawAction = (encoded: number): IKAction => {
+  if (encoded === 0) return { kind: "disgrace" };
+  if (encoded < rawCommitBase) return { kind: "play", cardId: encoded - 1 };
+  if (encoded < rawCrownBase) {
+    const off = encoded - rawCommitBase;
+    return { kind: "commit", successorId: Math.floor(off / RAW_SPAN), dungeonId: off % RAW_SPAN };
+  }
+  if (encoded < rawSelectKingBase) return { kind: "crown", firstPlayer: (encoded - rawCrownBase) as PlayerId };
+  if (encoded < rawEndMusteringSlot) {
+    return { kind: "select_king", facet: (encoded - rawSelectKingBase) === 0 ? "charismatic" : "masterTactician" };
+  }
+  if (encoded === rawEndMusteringSlot) return { kind: "end_mustering" };
+  if (encoded < rawRecruitBase) return { kind: "begin_recruit", exhaustCardId: encoded - rawBeginRecruitBase };
+  if (encoded < rawDraftSelectBase) {
+    const off = encoded - rawRecruitBase;
+    return { kind: "recruit", discardFromHandId: Math.floor(off / RAW_SPAN), takeFromArmyId: off % RAW_SPAN };
+  }
+  return { kind: "disgrace" };
+};
+
+const rawObservation = (state: IKState, player: PlayerId, matchCtx?: MatchContext): number[] => {
+  const n = state.numPlayers;
+  const opp = ((player + 1) % n) as PlayerId;
+  const perspective = playerZones(state, player);
+
+  const activeOh = [0, 0, 0];
+  if (state.activePlayer < 3) activeOh[state.activePlayer] = 1;
+
+  const phaseOh = [
+    state.phase === "crown" ? 1 : 0,
+    state.phase === "setup" ? 1 : 0,
+    state.phase === "play" ? 1 : 0,
+    state.phase === "mustering" ? 1 : 0,
+    0, 0, 0,
+  ];
+
+  const handBin = new Array<number>(RAW_SPAN).fill(0);
+  for (const c of perspective.hand) {
+    if (c.id >= 0 && c.id < RAW_SPAN) handBin[c.id] = 1;
+  }
+
+  const courtUp = new Array<number>(RAW_SPAN).fill(0);
+  for (const e of state.shared.court) {
+    if (e.face === "up" && e.card.id >= 0 && e.card.id < RAW_SPAN) courtUp[e.card.id] = 1;
+  }
+
+  const kingUp = perspective.king.face === "up" ? 1 : 0;
+  const succSet = perspective.successor !== null ? 1 : 0;
+  const dungSet = perspective.dungeon !== null ? 1 : 0;
+  const throne = throneValue(state) / 9;
+  const courtSz = state.shared.court.length / 15;
+  const accusedVal = state.shared.accused ? state.shared.accused.kind.props.value / 9 : 0;
+  const forgotten = state.shared.forgotten !== null ? 1 : 0;
+
+  const fpOh = [0, 0, 0];
+  if (state.firstPlayer < 3) fpOh[state.firstPlayer] = 1;
+
+  const oppZones = playerZones(state, opp);
+  const oppHand = oppZones.hand.length / 9;
+  const oppKing = oppZones.king.face === "up" ? 1 : 0;
+
+  const ante = perspective.antechamber.length / 5;
+  const condemned = state.shared.condemned.length / 10;
+  const disgraced = state.shared.court.filter((e) => e.face === "down").length / 7;
+
+  const scores = matchCtx?.scores ?? [0, 0];
+  const myScore = (scores[player] ?? 0) / 7;
+  const oppScore = (scores[opp] ?? 0) / 7;
+  const rounds = (matchCtx?.roundsPlayed ?? 0) / 14;
+  const armyAvail = perspective.army.length / 8;
+  const armyExh = perspective.exhausted.length / 8;
+
+  const facet = perspective.king.facet;
+  const facetOh = [
+    facet === "default" ? 1 : 0,
+    facet === "masterTactician" ? 1 : 0,
+    facet === "charismatic" ? 1 : 0,
+  ];
+
+  return [
+    ...activeOh, ...phaseOh, ...handBin, ...courtUp,
+    kingUp, succSet, dungSet, throne, courtSz, accusedVal, forgotten,
+    ...fpOh, oppHand, oppKing,
+    ante, condemned, disgraced,
+    myScore, oppScore, rounds, armyAvail, armyExh,
+    ...facetOh,
+  ];
+};
+
+export interface RawNeuralPolicy {
+  readonly metadata: {
+    readonly action_space: "raw";
+    readonly num_actions: number;
+    readonly input_size: number;
+    readonly hidden_size: number;
+    readonly num_layers: number;
+    readonly output_size: number;
+    readonly [key: string]: unknown;
+  };
+  readonly weights: Readonly<Record<string, Matrix | readonly number[]>>;
+}
+
+export const createRawNeuralStrategy = (policyJson: RawNeuralPolicy): BotStrategy => {
+  const layers = parseLayerParams(policyJson.weights);
+  const numActions = policyJson.metadata.num_actions;
+
+  return {
+    selectAction(
+      state: IKState,
+      player: PlayerId,
+      legal: ReadonlyArray<IKAction>,
+      matchCtx?: MatchContext,
+    ): IKAction {
+      const obs = rawObservation(state, player, matchCtx);
+      const logits = mlpForward(obs, layers);
+
+      const legalSet = new Set(legal.map(encodeMatchAction));
+      const masked = logits.map((l, i) => (legalSet.has(i) ? l : -Infinity));
+      const probs = softmax(masked);
+
+      let r = Math.random();
+      for (let i = 0; i < probs.length; i++) {
+        r -= probs[i]!;
+        if (r <= 0) {
+          const decoded = decodeRawAction(i);
+          const match = legal.find((a) => encodeMatchAction(a) === i);
+          return match ?? decoded;
+        }
+      }
+      return legal[legal.length - 1]!;
     },
   };
 };
