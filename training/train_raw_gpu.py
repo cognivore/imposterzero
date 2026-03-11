@@ -16,6 +16,7 @@ Usage:
 """
 
 import argparse
+import gc
 import json
 import os
 import pickle
@@ -257,6 +258,19 @@ def evaluate_vs_random(game, net, device, num_games=1000):
 
 
 # ---------------------------------------------------------------------------
+# Memory management
+# ---------------------------------------------------------------------------
+
+def cleanup_memory(device):
+    """Free unused memory to prevent OOM during long training runs."""
+    gc.collect()
+    if device.type == "mps":
+        torch.mps.empty_cache()
+    elif device.type == "cuda":
+        torch.cuda.empty_cache()
+
+
+# ---------------------------------------------------------------------------
 # Export weights as JSON
 # ---------------------------------------------------------------------------
 
@@ -303,6 +317,10 @@ def main():
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--resume", type=str, default=None)
+    parser.add_argument("--max_batch_samples", type=int, default=50_000,
+                        help="Max samples per batch to prevent OOM (0=unlimited)")
+    parser.add_argument("--cleanup_every", type=int, default=100,
+                        help="Run garbage collection every N batches")
     args = parser.parse_args()
 
     if args.seed is not None:
@@ -363,6 +381,7 @@ def main():
 
     evals_without_improvement = 0
     stop_reason = "max_episodes"
+    batch_count = 0
 
     pool = Pool(processes=args.num_workers)
 
@@ -402,39 +421,62 @@ def main():
             if not flat_obs:
                 continue
 
-            obs_t = torch.tensor(flat_obs, dtype=torch.float32, device=device)
-            acts_t = torch.tensor(flat_acts, dtype=torch.long, device=device)
-            rewards_t = torch.tensor(flat_rewards, dtype=torch.float32, device=device)
-
-            # Build legal action masks from sparse indices
-            # Use large negative value instead of -inf to avoid MPS numerical issues
+            # Truncate batch if too large to prevent OOM
             n_samples = len(flat_obs)
-            masks_t = torch.full((n_samples, NUM_ACTIONS), -1e9, device=device)
-            for i, legal in enumerate(flat_legal):
-                masks_t[i, legal] = 0.0
+            if args.max_batch_samples > 0 and n_samples > args.max_batch_samples:
+                flat_obs = flat_obs[:args.max_batch_samples]
+                flat_acts = flat_acts[:args.max_batch_samples]
+                flat_rewards = flat_rewards[:args.max_batch_samples]
+                flat_legal = flat_legal[:args.max_batch_samples]
+                n_samples = args.max_batch_samples
 
-            rewards_t = (rewards_t - rewards_t.mean()) / (rewards_t.std() + 1e-8)
+            # GPU training step with OOM recovery
+            try:
+                obs_t = torch.tensor(flat_obs, dtype=torch.float32, device=device)
+                acts_t = torch.tensor(flat_acts, dtype=torch.long, device=device)
+                rewards_t = torch.tensor(flat_rewards, dtype=torch.float32, device=device)
 
-            logits = net(obs_t).clamp(-50, 50)
+                # Build legal action masks from sparse indices
+                # Use large negative value instead of -inf to avoid MPS numerical issues
+                n_samples = len(flat_obs)
+                masks_t = torch.full((n_samples, NUM_ACTIONS), -1e9, device=device)
+                for i, legal in enumerate(flat_legal):
+                    masks_t[i, legal] = 0.0
 
-            # Apply mask for correct log probabilities
-            masked_logits = logits + masks_t
-            log_probs = F.log_softmax(masked_logits, dim=1)
-            selected_lp = log_probs.gather(1, acts_t.unsqueeze(1)).squeeze(1)
+                rewards_t = (rewards_t - rewards_t.mean()) / (rewards_t.std() + 1e-8)
 
-            policy_loss = -(selected_lp * rewards_t).mean()
+                logits = net(obs_t).clamp(-50, 50)
 
-            # Entropy over LEGAL actions only
-            # Use nan_to_num to handle 0 * -inf = NaN for illegal actions
-            masked_probs = F.softmax(masked_logits, dim=1)
-            entropy_terms = masked_probs * log_probs
-            entropy = -torch.nan_to_num(entropy_terms, nan=0.0).sum(dim=1).mean()
-            total_loss = policy_loss - args.entropy_coeff * entropy
+                # Apply mask for correct log probabilities
+                masked_logits = logits + masks_t
+                log_probs = F.log_softmax(masked_logits, dim=1)
+                selected_lp = log_probs.gather(1, acts_t.unsqueeze(1)).squeeze(1)
 
-            optimizer.zero_grad()
-            total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
-            optimizer.step()
+                policy_loss = -(selected_lp * rewards_t).mean()
+
+                # Entropy over LEGAL actions only
+                # Use nan_to_num to handle 0 * -inf = NaN for illegal actions
+                masked_probs = F.softmax(masked_logits, dim=1)
+                entropy_terms = masked_probs * log_probs
+                entropy = -torch.nan_to_num(entropy_terms, nan=0.0).sum(dim=1).mean()
+                total_loss = policy_loss - args.entropy_coeff * entropy
+
+                optimizer.zero_grad()
+                total_loss.backward()
+                torch.nn.utils.clip_grad_norm_(net.parameters(), 1.0)
+                optimizer.step()
+
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower() or "MPS" in str(e):
+                    print(f"  !! OOM at ep {episode} (batch {n_samples} samples), clearing memory and continuing...")
+                    cleanup_memory(device)
+                    continue
+                raise
+
+            # Periodic memory cleanup to prevent OOM during long runs
+            batch_count += 1
+            if batch_count % args.cleanup_every == 0:
+                cleanup_memory(device)
 
             now = time.time()
             if now - last_report >= 10.0 or episode >= args.episodes:
