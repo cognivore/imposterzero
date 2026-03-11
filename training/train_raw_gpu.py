@@ -468,7 +468,7 @@ def main():
 
             except RuntimeError as e:
                 if "out of memory" in str(e).lower() or "MPS" in str(e):
-                    print(f"  !! OOM at ep {episode} (batch {n_samples} samples), clearing memory and continuing...")
+                    print(f"  !! OOM at ep {episode} (batch {n_samples} samples), clearing memory and continuing...", flush=True)
                     cleanup_memory(device)
                     continue
                 raise
@@ -490,7 +490,8 @@ def main():
                     f"  |  loss: {total_loss.item():.4f}"
                     f"  |  ent: {entropy.item():.3f}"
                     f"  |  best: {best_wr:.1%}"
-                    f"  |  {tag}: {remaining:.0f}s"
+                    f"  |  {tag}: {remaining:.0f}s",
+                    flush=True,
                 )
                 last_report = now
 
@@ -498,7 +499,7 @@ def main():
                 net.cpu()
                 wr = evaluate_vs_random(game, net, torch.device("cpu"), args.eval_games)
                 net.to(device)
-                print(f"  ** eval @ {episode:,}: win rate vs random = {wr:.1%}")
+                print(f"  ** eval @ {episode:,}: win rate vs random = {wr:.1%}", flush=True)
                 if wr > best_wr:
                     best_wr = wr
                     evals_without_improvement = 0
