@@ -23,6 +23,8 @@
             python.pkgs.virtualenv
 
             git
+            git-annex
+            rclone
             jq
           ];
 
@@ -31,6 +33,7 @@
             echo "  node $(node --version)"
             echo "  pnpm $(pnpm --version)"
             echo "  python $(python3 --version 2>&1 | cut -d' ' -f2)"
+            echo "  git-annex $(git-annex version | head -1 | cut -d' ' -f3)"
           '';
         };
       }
