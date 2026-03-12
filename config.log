@@ -1,1 +1,1 @@
-1773316699s annex.largefiles include=training/policy*.json
+1773316781s annex.largefiles include=training/policy*.json and exclude=assets/*
