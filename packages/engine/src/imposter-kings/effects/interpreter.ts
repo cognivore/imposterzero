@@ -795,17 +795,18 @@ export const resolve = (
       const assassinId = resolvePlayer(program.assassin, ctx);
 
       let s = state;
-      const assassinCard = findCardInState(s, program.assassinCardId);
-      if (assassinCard) {
-        const victimHand = { scope: "player" as const, player: victimId, slot: "hand" as const };
+      const removed = removeFromZone(
+        s,
+        { scope: "player", player: assassinId, slot: "parting" },
+        program.assassinCardId,
+      );
+      if (removed.ok) {
         s = {
-          ...s,
-          players: s.players.map((p, i) =>
+          ...removed.value.state,
+          players: removed.value.state.players.map((p, i) =>
             i === victimId
-              ? { ...p, hand: [...p.hand, assassinCard] }
-              : i === assassinId
-                ? { ...p, parting: p.parting.filter((c) => c.id !== program.assassinCardId) }
-                : p,
+              ? { ...p, hand: [...p.hand, removed.value.card] }
+              : p,
           ),
         };
       }
@@ -1192,7 +1193,7 @@ const resolveReactionChain = (
           if (toParting.ok) s = toParting.value;
         }
 
-        const effectiveOnReacted = ctx.numPlayers > 2
+        const effectiveOnReacted = ctx.numPlayers === 3
           ? { tag: "assassinate3p" as const, victim: { kind: "active" as const }, assassin: { kind: "id" as const, player: reactor }, assassinCardId: reactionCard.cardId }
           : onReacted;
 

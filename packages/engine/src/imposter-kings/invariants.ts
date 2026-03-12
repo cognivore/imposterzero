@@ -7,6 +7,7 @@ const collectAllCardIds = (state: IKState): number[] => {
     ids.push(p.king.card.id);
     if (p.successor) ids.push(p.successor.card.id);
     if (p.dungeon) ids.push(p.dungeon.card.id);
+    if (p.squire) ids.push(p.squire.card.id);
     ids.push(...p.antechamber.map((c) => c.id));
     ids.push(...p.parting.map((c) => c.id));
     ids.push(...p.army.map((c) => c.id));
