@@ -24,6 +24,7 @@
 
             git
             git-annex
+            git-filter-repo
             rclone
             jq
           ];
