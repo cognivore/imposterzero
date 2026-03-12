@@ -17,12 +17,15 @@ Usage:
 
 import argparse
 import gc
+import glob
 import json
 import os
 import pickle
 import random
 import time
+from datetime import datetime
 from multiprocessing import Pool, set_start_method
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -271,10 +274,47 @@ def cleanup_memory(device):
 
 
 # ---------------------------------------------------------------------------
+# Output path helpers
+# ---------------------------------------------------------------------------
+
+def generate_timestamped_output(base_dir: str = "./training", prefix: str = "policy_raw") -> str:
+    """Generate a timestamped output path to avoid overwriting annexed files."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return os.path.join(base_dir, f"{prefix}_{timestamp}.json")
+
+
+def check_output_path(output_path: str, resume_path: Optional[str] = None) -> None:
+    """Warn if output path is an annexed symlink or same as resume path."""
+    if os.path.islink(output_path):
+        print(f"  !! WARNING: Output path is a git-annex symlink: {output_path}")
+        print(f"  !! The symlink will be removed and replaced with a new file.")
+        print(f"  !! Consider using --output with a fresh timestamped path.")
+    if resume_path and os.path.abspath(output_path) == os.path.abspath(resume_path):
+        print(f"  !! WARNING: Output path is same as resume path.")
+        print(f"  !! If the file is annexed, exports will overwrite it.")
+
+
+def rotate_checkpoints(output_dir: str, prefix: str, keep_last: int = 5) -> None:
+    """Keep only the last N checkpoints matching the prefix pattern."""
+    pattern = os.path.join(output_dir, f"{prefix}_*.json")
+    checkpoints = glob.glob(pattern)
+    checkpoints.sort(key=lambda x: os.path.getmtime(x))
+    to_remove = checkpoints[:-keep_last] if len(checkpoints) > keep_last else []
+    for checkpoint in to_remove:
+        try:
+            if os.path.islink(checkpoint) or os.path.exists(checkpoint):
+                os.remove(checkpoint)
+                print(f"  -- Rotated out old checkpoint: {checkpoint}", flush=True)
+        except OSError as e:
+            print(f"  !! Failed to remove {checkpoint}: {e}", flush=True)
+
+
+# ---------------------------------------------------------------------------
 # Export weights as JSON
 # ---------------------------------------------------------------------------
 
-def export_weights(net, output_path, metadata):
+def export_weights(net, output_path, metadata, rotate_prefix: Optional[str] = None,
+                   rotate_dir: Optional[str] = None, keep_checkpoints: int = 5):
     sd = net.state_dict()
     weights = {}
     linear_keys = [(k.rsplit(".", 1)[0], k) for k in sd if k.endswith(".weight")]
@@ -292,7 +332,11 @@ def export_weights(net, output_path, metadata):
     with open(output_path, "w") as f:
         json.dump(payload, f)
     size_mb = os.path.getsize(output_path) / (1024 * 1024)
-    print(f"  -> Exported: {size_mb:.1f} MB -> {output_path}")
+    print(f"  -> Exported: {size_mb:.1f} MB -> {output_path}", flush=True)
+
+    # Rotate old checkpoints if requested
+    if rotate_prefix and rotate_dir:
+        rotate_checkpoints(rotate_dir, rotate_prefix, keep_checkpoints)
 
 
 # ---------------------------------------------------------------------------
@@ -316,7 +360,12 @@ def main():
     parser.add_argument("--entropy_coeff", type=float, default=0.01)
     parser.add_argument("--eval_every", type=int, default=10_000)
     parser.add_argument("--eval_games", type=int, default=1000)
-    parser.add_argument("--output", type=str, default="./training/policy_raw_neural.json")
+    parser.add_argument("--output", type=str, default=None,
+                        help="Output path (default: timestamped file in ./training/)")
+    parser.add_argument("--output_prefix", type=str, default="policy_raw",
+                        help="Prefix for auto-generated output filename")
+    parser.add_argument("--keep_checkpoints", type=int, default=5,
+                        help="Number of checkpoints to keep (0 = keep all)")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--patience", type=int, default=0)
     parser.add_argument("--resume", type=str, default=None)
@@ -325,6 +374,14 @@ def main():
     parser.add_argument("--cleanup_every", type=int, default=100,
                         help="Run garbage collection every N batches")
     args = parser.parse_args()
+
+    # Generate timestamped output path if not specified
+    if args.output is None:
+        args.output = generate_timestamped_output("./training", args.output_prefix)
+        print(f"  Using timestamped output: {args.output}")
+
+    # Check for potential git-annex issues
+    check_output_path(args.output, args.resume)
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -522,7 +579,12 @@ def main():
                         "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     }
                     net.cpu()
-                    export_weights(net, args.output, meta)
+                    export_weights(
+                        net, args.output, meta,
+                        rotate_prefix=args.output_prefix if args.keep_checkpoints > 0 else None,
+                        rotate_dir="./training",
+                        keep_checkpoints=args.keep_checkpoints
+                    )
                     net.to(device)
                 else:
                     evals_without_improvement += 1
@@ -559,7 +621,12 @@ def main():
             "win_rate_vs_random": round(wr, 4),
             "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
-        export_weights(net, args.output, meta)
+        export_weights(
+            net, args.output, meta,
+            rotate_prefix=args.output_prefix if args.keep_checkpoints > 0 else None,
+            rotate_dir="./training",
+            keep_checkpoints=args.keep_checkpoints
+        )
 
 
 if __name__ == "__main__":
