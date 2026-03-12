@@ -768,6 +768,11 @@ def main():
     print(f"  League:      max {args.league_size} checkpoints, add every {args.league_add_every} eps")
     print(f"  Workers:     {args.num_workers} x {args.episodes_per_worker} eps/worker")
     print(f"  LR:          {args.lr}")
+    if args.max_time > 0:
+        print(f"  Max time:    {args.max_time}s ({args.max_time // 3600}h {(args.max_time % 3600) // 60}m)")
+    else:
+        print(f"  Max time:    unlimited (max {args.episodes:,} episodes)")
+    print(f"  Output:      {args.output}")
     print()
 
     start_time = time.time()

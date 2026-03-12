@@ -427,6 +427,11 @@ def main():
     print(f"  Batch:       {batch_size} episodes ({args.episodes_per_worker}/worker)")
     print(f"  LR:          {args.lr}")
     print(f"  Entropy:     {args.entropy_coeff}")
+    if args.max_time > 0:
+        print(f"  Max time:    {args.max_time}s ({args.max_time // 3600}h {(args.max_time % 3600) // 60}m)")
+    else:
+        print(f"  Max time:    unlimited (max {args.episodes:,} episodes)")
+    print(f"  Output:      {args.output}")
     print()
 
     start_time = time.time()
