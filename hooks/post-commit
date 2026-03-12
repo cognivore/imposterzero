@@ -1,0 +1,13 @@
+#!/bin/sh
+# Post-commit hook: handles git-lfs and git-annex uploads
+#
+# Install: ln -sf ../../hooks/post-commit .git/hooks/post-commit
+
+# Git LFS
+command -v git-lfs >/dev/null 2>&1 || { printf >&2 "\n%s\n\n" "This repository is configured for Git LFS but 'git-lfs' was not found on your path. If you no longer wish to use Git LFS, remove this hook by deleting the 'post-commit' file in the hooks directory (set by 'core.hookspath'; usually '.git/hooks')."; exit 2; }
+git lfs post-commit "$@"
+
+# Auto-upload annexed files to Google Drive
+if command -v git-annex >/dev/null 2>&1; then
+    git annex copy --to gdrive --not --in gdrive 2>/dev/null || true
+fi
