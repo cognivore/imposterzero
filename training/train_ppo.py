@@ -587,6 +587,9 @@ def export_weights(net, output_path, metadata):
             weights[f"b{i + 1}"] = sd[bkey].cpu().tolist()
     payload = {"metadata": metadata, "weights": weights}
     os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
+    # Remove existing file if it's a symlink (git-annex makes annexed files read-only symlinks)
+    if os.path.islink(output_path) or os.path.exists(output_path):
+        os.remove(output_path)
     with open(output_path, "w") as f:
         json.dump(payload, f)
     size_mb = os.path.getsize(output_path) / (1024 * 1024)
