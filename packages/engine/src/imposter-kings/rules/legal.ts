@@ -1,7 +1,7 @@
 import type { PlayerId } from "@imposter-zero/types";
 
 import { ikCardOps, type IKCard } from "../card.js";
-import { effectiveValue } from "../effects/modifiers.js";
+import { effectiveValue, effectiveKeywords } from "../effects/modifiers.js";
 import type { IKAction } from "../actions.js";
 import { playerZones, throne, type IKState } from "../state.js";
 import { throneValue, isKingFaceUp } from "../selectors.js";
@@ -39,14 +39,14 @@ export const canPlayCard = (
         return (
           top !== null &&
           top.face === "up" &&
-          top.card.kind.props.keywords.includes("royalty")
+          effectiveKeywords(state, top.card).includes("royalty")
         );
       }
       case "onAnyNonRoyaltyWhen": {
         const top = throne(state);
         const throneIsNonRoyalty =
           top !== null &&
-          (top.face !== "up" || !top.card.kind.props.keywords.includes("royalty"));
+          (top.face !== "up" || !effectiveKeywords(state, top.card).includes("royalty"));
         return throneIsNonRoyalty && evaluate(o.condition.predicate, state, ctx);
       }
       case "onHigherValue": {

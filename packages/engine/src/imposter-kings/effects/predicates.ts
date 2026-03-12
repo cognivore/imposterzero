@@ -2,7 +2,7 @@ import type { PlayerId } from "@imposter-zero/types";
 
 import type { IKState } from "../state.js";
 import { playerZones, throne } from "../state.js";
-import { effectiveValue } from "./modifiers.js";
+import { effectiveValue, effectiveKeywords } from "./modifiers.js";
 import type { EffectContext, PlayerRef } from "./program.js";
 
 // ---------------------------------------------------------------------------
@@ -58,15 +58,15 @@ export const evaluate = (
       return state.shared.court.filter((e) => e.face === "up").length >= pred.count;
     case "courtHasRoyalty":
       return state.shared.court.some((e) =>
-        e.face === "up" && e.card.kind.props.keywords.includes("royalty"),
+        e.face === "up" && effectiveKeywords(state, e.card).includes("royalty"),
       );
     case "throneIsRoyalty": {
       const top = throne(state);
-      return top !== null && top.face === "up" && top.card.kind.props.keywords.includes("royalty");
+      return top !== null && top.face === "up" && effectiveKeywords(state, top.card).includes("royalty");
     }
     case "throneIsNotRoyalty": {
       const top = throne(state);
-      return top !== null && (top.face !== "up" || !top.card.kind.props.keywords.includes("royalty"));
+      return top !== null && (top.face !== "up" || !effectiveKeywords(state, top.card).includes("royalty"));
     }
     case "playedOnHigherValue": {
       if (ctx.playedFrom === "antechamber") return false;
@@ -92,7 +92,7 @@ export const evaluate = (
       const idx = court.findIndex((e) => e.card.id === ctx.playedCard.id);
       if (idx <= 0) return false;
       const below = court[idx - 1]!;
-      return below.face === "up" && below.card.kind.props.keywords.includes("royalty");
+      return below.face === "up" && effectiveKeywords(state, below.card).includes("royalty");
     }
   }
 };
