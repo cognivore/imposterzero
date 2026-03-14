@@ -25,7 +25,8 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from itertools import combinations
-from multiprocessing import Pool, set_start_method
+from multiprocessing import Pool, set_start_method, TimeoutError as MPTimeoutError
+import traceback
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
 import numpy as np
@@ -46,6 +47,19 @@ from train_ppo import (
     generate_timestamped_output,
     check_output_path,
 )
+
+
+# ---------------------------------------------------------------------------
+# Memory Management
+# ---------------------------------------------------------------------------
+
+def cleanup_memory(device):
+    """Clean up GPU/MPS memory and force garbage collection."""
+    gc.collect()
+    if device.type == "mps":
+        torch.mps.empty_cache()
+    elif device.type == "cuda":
+        torch.cuda.empty_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -142,81 +156,100 @@ def _worker_play_games(args):
     Worker: play games using network weights, return trajectories.
     Uses Gumbel search with minimal simulations.
     """
-    (weights_bytes, n_episodes, seed, input_size, hidden, n_layers,
-     n_actions, n_sims, use_gumbel) = args
+    try:
+        (weights_bytes, n_episodes, seed, input_size, hidden, n_layers,
+         n_actions, n_sims, use_gumbel) = args
 
-    # Reconstruct network
-    net = BlazingNet(input_size, hidden, n_actions, n_layers)
-    net.load_state_dict(pickle.loads(weights_bytes))
-    net.eval()
+        # Reconstruct network
+        net = BlazingNet(input_size, hidden, n_actions, n_layers)
+        net.load_state_dict(pickle.loads(weights_bytes))
+        net.eval()
 
-    game = pyspiel.load_game("imposter_zero_match")
-    rng = random.Random(seed)
-    results = []
+        game = pyspiel.load_game("imposter_zero_match")
+        rng = random.Random(seed)
+        results = []
 
-    for _ in range(n_episodes):
-        state = game.new_initial_state()
-        trajectory = []
-        pending_actions = []
+        for ep_idx in range(n_episodes):
+            state = game.new_initial_state()
+            trajectory = []
+            pending_actions = []
 
-        while not state.is_terminal():
-            player = state.current_player()
-            if player < 0:
-                break
+            while not state.is_terminal():
+                player = state.current_player()
+                if player < 0:
+                    break
 
-            legal = state.legal_actions()
-            if not legal:
-                break
+                legal = state.legal_actions()
+                if not legal:
+                    break
 
-            # Handle pending intent actions
-            if pending_actions:
-                action = pending_actions.pop(0)
-                if action in legal:
-                    if player == 0:
-                        obs = raw_observation(state, player)
-                        with torch.no_grad():
-                            obs_t = torch.tensor([obs], dtype=torch.float32)
-                            _, val = net(obs_t)
-                        trajectory.append((obs, action, legal, val.item()))
-                    state.apply_action(action)
-                else:
-                    pending_actions.clear()
-                continue
-
-            obs = raw_observation(state, player)
-            phase = getattr(state, "_phase", "play")
-
-            if player == 0:
-                # Player 0 decision
-                if phase == "mustering":
-                    # Intent-based mustering
-                    intents = get_intents(state, player)
-                    if len(intents) > 1:
-                        intent = _select_intent_fast(state, player, intents, net, n_sims)
-                    else:
-                        intent = intents[0] if intents else Intent(frozenset(), None)
-
-                    actions = execute_intent(state, player, intent)
-                    if actions and actions[0] in legal:
-                        pending_actions = actions[1:]
-                        action = actions[0]
-                        with torch.no_grad():
-                            obs_t = torch.tensor([obs], dtype=torch.float32)
-                            _, val = net(obs_t)
-                        trajectory.append((obs, action, legal, val.item()))
+                # Handle pending intent actions
+                if pending_actions:
+                    action = pending_actions.pop(0)
+                    if action in legal:
+                        if player == 0:
+                            obs = raw_observation(state, player)
+                            with torch.no_grad():
+                                obs_t = torch.tensor([obs], dtype=torch.float32)
+                                _, val = net(obs_t)
+                            trajectory.append((obs, action, legal, val.item()))
                         state.apply_action(action)
-                        continue
+                    else:
+                        pending_actions.clear()
+                    continue
 
-                # Standard action selection
-                with torch.no_grad():
-                    obs_t = torch.tensor([obs], dtype=torch.float32)
-                    logits, val = net(obs_t)
-                    logits = logits.squeeze(0).clamp(-50, 50)
-                    value = val.item()
+                obs = raw_observation(state, player)
+                phase = getattr(state, "_phase", "play")
 
-                if use_gumbel and len(legal) > 2:
-                    action = _gumbel_select_fast(state, player, legal, logits, net, n_sims)
+                if player == 0:
+                    # Player 0 decision
+                    if phase == "mustering":
+                        # Intent-based mustering
+                        intents = get_intents(state, player)
+                        if len(intents) > 1:
+                            intent = _select_intent_fast(state, player, intents, net, n_sims)
+                        else:
+                            intent = intents[0] if intents else Intent(frozenset(), None)
+
+                        actions = execute_intent(state, player, intent)
+                        if actions and actions[0] in legal:
+                            pending_actions = actions[1:]
+                            action = actions[0]
+                            with torch.no_grad():
+                                obs_t = torch.tensor([obs], dtype=torch.float32)
+                                _, val = net(obs_t)
+                            trajectory.append((obs, action, legal, val.item()))
+                            state.apply_action(action)
+                            continue
+
+                    # Standard action selection
+                    with torch.no_grad():
+                        obs_t = torch.tensor([obs], dtype=torch.float32)
+                        logits, val = net(obs_t)
+                        logits = logits.squeeze(0).clamp(-50, 50)
+                        value = val.item()
+
+                    if use_gumbel and len(legal) > 2:
+                        action = _gumbel_select_fast(state, player, legal, logits, net, n_sims)
+                    else:
+                        mask = torch.full((n_actions,), -1e9)
+                        for a in legal:
+                            mask[a] = 0.0
+                        probs = F.softmax(logits + mask, dim=0)
+                        if torch.isnan(probs).any():
+                            action = rng.choice(legal)
+                        else:
+                            action = torch.multinomial(probs, 1).item()
+
+                    trajectory.append((obs, action, legal, value))
+
                 else:
+                    # Opponent
+                    with torch.no_grad():
+                        obs_t = torch.tensor([obs], dtype=torch.float32)
+                        logits, _ = net(obs_t)
+                        logits = logits.squeeze(0).clamp(-50, 50)
+
                     mask = torch.full((n_actions,), -1e9)
                     for a in legal:
                         mask[a] = 0.0
@@ -226,30 +259,21 @@ def _worker_play_games(args):
                     else:
                         action = torch.multinomial(probs, 1).item()
 
-                trajectory.append((obs, action, legal, value))
+                state.apply_action(action)
 
-            else:
-                # Opponent
-                with torch.no_grad():
-                    obs_t = torch.tensor([obs], dtype=torch.float32)
-                    logits, _ = net(obs_t)
-                    logits = logits.squeeze(0).clamp(-50, 50)
+            # End of episode - outside while loop, inside for loop
+            returns = state.returns() if state.is_terminal() else [0.0, 0.0]
+            results.append((trajectory, returns[0]))
 
-                mask = torch.full((n_actions,), -1e9)
-                for a in legal:
-                    mask[a] = 0.0
-                probs = F.softmax(logits + mask, dim=0)
-                if torch.isnan(probs).any():
-                    action = rng.choice(legal)
-                else:
-                    action = torch.multinomial(probs, 1).item()
+            # Periodic cleanup to prevent memory accumulation
+            if ep_idx % 4 == 3:
+                gc.collect()
 
-            state.apply_action(action)
+        return results
 
-        returns = state.returns() if state.is_terminal() else [0.0, 0.0]
-        results.append((trajectory, returns[0]))
-
-    return results
+    except Exception as e:
+        print(f"[Worker Error] {e}\n{traceback.format_exc()}", flush=True)
+        return []  # Return empty so main process continues
 
 
 def _select_intent_fast(state, player: int, intents: List[Intent], net, n_sims: int) -> Intent:
@@ -265,33 +289,36 @@ def _select_intent_fast(state, player: int, intents: List[Intent], net, n_sims: 
             continue
 
         sim = state._clone_impl()
-        valid = True
-        for a in actions:
-            if a in sim.legal_actions():
-                sim.apply_action(a)
+        try:
+            valid = True
+            for a in actions:
+                if a in sim.legal_actions():
+                    sim.apply_action(a)
+                else:
+                    valid = False
+                    break
+
+            if not valid:
+                continue
+
+            if sim.is_terminal():
+                score = sim.returns()[player]
             else:
-                valid = False
-                break
+                obs = raw_observation(sim, sim.current_player())
+                with torch.no_grad():
+                    obs_t = torch.tensor([obs], dtype=torch.float32)
+                    _, val = net(obs_t)
+                    score = val.item()
 
-        if not valid:
-            continue
+            # Bonus for high-value recruits
+            bonus = sum(state._card_values.get(c, 0) for c in intent.targets) / 72.0
+            score += 0.1 * bonus
 
-        if sim.is_terminal():
-            score = sim.returns()[player]
-        else:
-            obs = raw_observation(sim, sim.current_player())
-            with torch.no_grad():
-                obs_t = torch.tensor([obs], dtype=torch.float32)
-                _, val = net(obs_t)
-                score = val.item()
-
-        # Bonus for high-value recruits
-        bonus = sum(state._card_values.get(c, 0) for c in intent.targets) / 72.0
-        score += 0.1 * bonus
-
-        if score > best_score:
-            best_score = score
-            best_intent = intent
+            if score > best_score:
+                best_score = score
+                best_intent = intent
+        finally:
+            del sim  # Explicit cleanup of cloned state
 
     return best_intent
 
@@ -322,20 +349,23 @@ def _gumbel_select_fast(state, player: int, legal: List[int], logits: torch.Tens
 
     for action in candidates:
         sim = state._clone_impl()
-        sim.apply_action(action)
+        try:
+            sim.apply_action(action)
 
-        if sim.is_terminal():
-            value = sim.returns()[player]
-        else:
-            obs = raw_observation(sim, sim.current_player())
-            with torch.no_grad():
-                obs_t = torch.tensor([obs], dtype=torch.float32)
-                _, val = net(obs_t)
-                value = val.item()
+            if sim.is_terminal():
+                value = sim.returns()[player]
+            else:
+                obs = raw_observation(sim, sim.current_player())
+                with torch.no_grad():
+                    obs_t = torch.tensor([obs], dtype=torch.float32)
+                    _, val = net(obs_t)
+                    value = val.item()
 
-        if value > best_value:
-            best_value = value
-            best_action = action
+            if value > best_value:
+                best_value = value
+                best_action = action
+        finally:
+            del sim  # Explicit cleanup of cloned state
 
     return best_action
 
@@ -424,7 +454,7 @@ def main():
     print()
 
     game = pyspiel.load_game("imposter_zero_match")
-    pool = Pool(processes=args.num_workers)
+    pool = Pool(processes=args.num_workers, maxtasksperchild=1)
 
     # Replay buffer
     buffer = deque(maxlen=100_000)
@@ -457,7 +487,15 @@ def main():
                 for i in range(args.num_workers)
             ]
 
-            all_results = pool.map(_worker_play_games, worker_args)
+            try:
+                async_result = pool.map_async(_worker_play_games, worker_args)
+                all_results = async_result.get(timeout=120)  # 2 minute timeout
+            except MPTimeoutError:
+                print("[WARN] Worker timeout, recreating pool", flush=True)
+                pool.terminate()
+                pool.join()
+                pool = Pool(processes=args.num_workers, maxtasksperchild=1)
+                continue  # Skip this batch
 
             # Process results
             for worker_results in all_results:
@@ -515,18 +553,24 @@ def main():
                     net.cpu()
                     export_weights(net, args.output, {
                         "algorithm": "blazing_mk_iii",
+                        "action_space": "raw",
+                        "num_actions": NUM_ACTIONS,
+                        "input_size": OBS_SIZE,
+                        "hidden_size": args.hidden_size,
+                        "num_layers": args.num_layers,
+                        "output_size": NUM_ACTIONS,
                         "n_simulations": args.n_simulations,
                         "episodes": episode,
-                        "win_rate": round(wr, 4),
+                        "win_rate_vs_random": round(wr, 4),
                     })
                     net.to(device)
 
                 if wr_f >= 0.55:
                     frozen.load_state_dict(net.state_dict())
 
-            # Cleanup
-            if episode % 5000 == 0:
-                gc.collect()
+            # Cleanup memory periodically
+            if episode % 1000 == 0:
+                cleanup_memory(device)
 
     except KeyboardInterrupt:
         print("\nInterrupted")
@@ -547,8 +591,15 @@ def main():
     if wr >= best_wr:
         export_weights(net, args.output, {
             "algorithm": "blazing_mk_iii",
+            "action_space": "raw",
+            "num_actions": NUM_ACTIONS,
+            "input_size": OBS_SIZE,
+            "hidden_size": args.hidden_size,
+            "num_layers": args.num_layers,
+            "output_size": NUM_ACTIONS,
+            "n_simulations": args.n_simulations,
             "episodes": episode,
-            "win_rate": round(wr, 4),
+            "win_rate_vs_random": round(wr, 4),
         })
     print(f"  -> {args.output}")
 
