@@ -66,7 +66,9 @@ def _obs_size():
         + 1     # rounds / 14
         + 1     # army_avail / 8
         + 1     # army_exhausted / 8
-        + 3     # facet one-hot
+        + 3     # facet one-hot (self)
+        + 3     # opp_facet one-hot
+        + SPAN  # revealed_successors binary (cards known to be in successor slots)
     )
 
 
@@ -132,6 +134,22 @@ def raw_observation(state, player):
         float(facets[player] == "masterTactician"),
         float(facets[player] == "charismatic"),
     ]
+    opp_facet_oh = [
+        float(facets[opp] == "default"),
+        float(facets[opp] == "masterTactician"),
+        float(facets[opp] == "charismatic"),
+    ]
+
+    # Revealed successors: cards known to be in successor slots
+    # Charismatic reveals the player's successor to everyone
+    revealed_succ = [0.0] * SPAN
+    successors = getattr(state, "_successors", [None, None])
+    for p in range(n):
+        succ_id = successors[p]
+        if succ_id is not None and 0 <= succ_id < SPAN:
+            # Successor is revealed if: it's our own OR opponent chose Charismatic
+            if p == player or facets[p] == "charismatic":
+                revealed_succ[succ_id] = 1.0
 
     return (
         active_oh + phase_oh + hand_bin + court_up +
@@ -139,7 +157,7 @@ def raw_observation(state, player):
         fp_oh + [opp_hand, opp_king] +
         [ante, condemned, disgraced] +
         [my_score, opp_score, rounds, army_avail, army_exh] +
-        facet_oh
+        facet_oh + opp_facet_oh + revealed_succ
     )
 
 
@@ -617,19 +635,46 @@ def rotate_checkpoints(output_dir: str, prefix: str, keep_last: int = 5) -> None
 # ---------------------------------------------------------------------------
 
 def export_weights(net, output_path, metadata, rotate_prefix: Optional[str] = None,
-                   rotate_dir: Optional[str] = None, keep_checkpoints: int = 5):
+                   rotate_dir: Optional[str] = None, keep_checkpoints: int = 5,
+                   exclude_prefixes: Optional[List[str]] = None):
     sd = net.state_dict()
-    weights = {}
-    linear_keys = [(k.rsplit(".", 1)[0], k) for k in sd if k.endswith(".weight")]
-    linear_keys.sort(key=lambda t: t[1])
-    for i, (prefix, wkey) in enumerate(linear_keys):
-        bkey = prefix + ".bias"
-        weights[f"w{i + 1}"] = sd[wkey].cpu().tolist()
-        if bkey in sd:
-            weights[f"b{i + 1}"] = sd[bkey].cpu().tolist()
-    payload = {"metadata": metadata, "weights": weights}
     os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
-    # Remove existing file if it's a symlink (git-annex makes annexed files read-only symlinks)
+
+    # Helper to build weights dict from linear layers
+    def build_weights(keys):
+        w = {}
+        for i, (prefix, wkey) in enumerate(keys):
+            bkey = prefix + ".bias"
+            w[f"w{i + 1}"] = sd[wkey].cpu().tolist()
+            if bkey in sd:
+                w[f"b{i + 1}"] = sd[bkey].cpu().tolist()
+        return w
+
+    # Get all linear layer keys
+    all_linear_keys = [(k.rsplit(".", 1)[0], k) for k in sd if k.endswith(".weight")]
+    all_linear_keys.sort(key=lambda t: t[1])
+
+    # If excluding layers, export both inference and checkpoint versions
+    if exclude_prefixes:
+        # Full checkpoint (for fine-tuning) - includes all weights
+        checkpoint_path = output_path.replace(".json", ".checkpoint.json")
+        full_weights = build_weights(all_linear_keys)
+        checkpoint_meta = {**metadata, "checkpoint": True, "num_layers": len(all_linear_keys) - 1}
+        checkpoint_payload = {"metadata": checkpoint_meta, "weights": full_weights}
+        if os.path.islink(checkpoint_path) or os.path.exists(checkpoint_path):
+            os.remove(checkpoint_path)
+        with open(checkpoint_path, "w") as f:
+            json.dump(checkpoint_payload, f)
+        ckpt_size = os.path.getsize(checkpoint_path) / (1024 * 1024)
+        print(f"  -> Checkpoint: {ckpt_size:.1f} MB -> {checkpoint_path}", flush=True)
+
+        # Inference-only (for TypeScript) - excludes value_head etc.
+        filtered_keys = [(p, k) for p, k in all_linear_keys if not any(k.startswith(ex) for ex in exclude_prefixes)]
+        weights = build_weights(filtered_keys)
+    else:
+        weights = build_weights(all_linear_keys)
+
+    payload = {"metadata": metadata, "weights": weights}
     if os.path.islink(output_path) or os.path.exists(output_path):
         os.remove(output_path)
     with open(output_path, "w") as f:
@@ -1030,7 +1075,7 @@ def main():
                         "game_version": "3.0-match-ppo",
                         "input_size": OBS_SIZE,
                         "hidden_size": args.hidden_size,
-                        "num_layers": args.num_layers,
+                        "num_layers": args.num_layers - 2,  # Actual hidden layers in shared encoder
                         "output_size": NUM_ACTIONS,
                         "num_actions": NUM_ACTIONS,
                         "episodes": episode,
@@ -1045,7 +1090,8 @@ def main():
                         net, args.output, meta,
                         rotate_prefix=args.output_prefix if args.keep_checkpoints > 0 else None,
                         rotate_dir="./training",
-                        keep_checkpoints=args.keep_checkpoints
+                        keep_checkpoints=args.keep_checkpoints,
+                        exclude_prefixes=["value_head"]
                     )
                     net.to(device)
                 else:
@@ -1080,7 +1126,7 @@ def main():
             "game_version": "3.0-match-ppo",
             "input_size": OBS_SIZE,
             "hidden_size": args.hidden_size,
-            "num_layers": args.num_layers,
+            "num_layers": args.num_layers - 2,  # Actual hidden layers in shared encoder
             "output_size": NUM_ACTIONS,
             "num_actions": NUM_ACTIONS,
             "episodes": episode,
@@ -1093,7 +1139,8 @@ def main():
             net, args.output, meta,
             rotate_prefix=args.output_prefix if args.keep_checkpoints > 0 else None,
             rotate_dir="./training",
-            keep_checkpoints=args.keep_checkpoints
+            keep_checkpoints=args.keep_checkpoints,
+            exclude_prefixes=["value_head"]
         )
 
 

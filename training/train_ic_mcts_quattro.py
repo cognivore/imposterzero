@@ -1224,7 +1224,7 @@ def main():
                         "game_version": "4.0-intent-mcts",
                         "input_size": OBS_SIZE,
                         "hidden_size": args.hidden_size,
-                        "num_layers": args.num_layers,
+                        "num_layers": args.num_layers - 1,  # Actual hidden layers in encoder
                         "output_size": NUM_ACTIONS,
                         "num_actions": NUM_ACTIONS,
                         "max_intents": args.max_intents,
@@ -1240,7 +1240,8 @@ def main():
                         net, args.output, meta,
                         rotate_prefix=args.output_prefix if args.keep_checkpoints > 0 else None,
                         rotate_dir="./training",
-                        keep_checkpoints=args.keep_checkpoints
+                        keep_checkpoints=args.keep_checkpoints,
+                        exclude_prefixes=["value_head"]
                     )
                     net.to(device)
                 else:
@@ -1282,7 +1283,7 @@ def main():
             "game_version": "4.0-intent-mcts",
             "input_size": OBS_SIZE,
             "hidden_size": args.hidden_size,
-            "num_layers": args.num_layers,
+            "num_layers": args.num_layers - 1,  # Actual hidden layers in encoder
             "output_size": NUM_ACTIONS,
             "num_actions": NUM_ACTIONS,
             "max_intents": args.max_intents,
@@ -1297,6 +1298,7 @@ def main():
             net, args.output, meta,
             rotate_prefix=args.output_prefix if args.keep_checkpoints > 0 else None,
             rotate_dir="./training",
+            exclude_prefixes=["value_head"],
             keep_checkpoints=args.keep_checkpoints
         )
 

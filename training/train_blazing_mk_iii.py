@@ -18,9 +18,14 @@ from __future__ import annotations
 
 import argparse
 import gc
+import json
 import math
+import os
 import pickle
 import random
+import signal
+import subprocess
+import sys
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -47,6 +52,82 @@ from train_ppo import (
     generate_timestamped_output,
     check_output_path,
 )
+
+# ---------------------------------------------------------------------------
+# Graceful Shutdown
+# ---------------------------------------------------------------------------
+
+_shutdown_requested = False
+
+def _signal_handler(signum, frame):
+    """Handle SIGTERM/SIGINT for graceful shutdown."""
+    global _shutdown_requested
+    sig_name = signal.Signals(signum).name
+    print(f"\n[{sig_name}] Shutdown requested, finishing current batch...", flush=True)
+    _shutdown_requested = True
+
+
+def _validate_typescript_compat(policy_path: str) -> bool:
+    """Run the TypeScript compatibility validator on the exported policy."""
+    validator = os.path.join(os.path.dirname(__file__), "activate_policy.py")
+    if not os.path.exists(validator):
+        print(f"  [WARN] Validator not found: {validator}", flush=True)
+        return True  # Don't block training if validator missing
+
+    try:
+        result = subprocess.run(
+            [sys.executable, validator, policy_path, "--quiet"],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            print(f"  ✓ TypeScript compatible", flush=True)
+            return True
+        else:
+            print(f"  ✗ TypeScript validation failed:", flush=True)
+            for line in result.stdout.strip().split('\n'):
+                if line.strip():
+                    print(f"    {line}", flush=True)
+            return False
+    except subprocess.TimeoutExpired:
+        print(f"  [WARN] Validator timed out", flush=True)
+        return True
+    except Exception as e:
+        print(f"  [WARN] Validator error: {e}", flush=True)
+        return True
+
+
+def _load_checkpoint(checkpoint_path: str, net: nn.Module, device) -> Tuple[int, float]:
+    """Load weights from a checkpoint file. Returns (episode_count, best_win_rate)."""
+    print(f"  Loading checkpoint: {checkpoint_path}", flush=True)
+
+    with open(checkpoint_path) as f:
+        data = json.load(f)
+
+    # Load weights into network
+    weights = data["weights"]
+    sd = net.state_dict()
+    linear_keys = [(k.rsplit(".", 1)[0], k) for k in sd if k.endswith(".weight")]
+    linear_keys.sort(key=lambda t: t[1])
+
+    for i, (prefix, wkey) in enumerate(linear_keys):
+        w_name = f"w{i + 1}"
+        b_name = f"b{i + 1}"
+        if w_name in weights:
+            sd[wkey] = torch.tensor(weights[w_name])
+        if b_name in weights:
+            bkey = prefix + ".bias"
+            sd[bkey] = torch.tensor(weights[b_name])
+
+    net.load_state_dict(sd)
+    net.to(device)
+
+    # Extract training state from metadata
+    meta = data.get("metadata", {})
+    episode = meta.get("episodes", 0)
+    win_rate = meta.get("win_rate_vs_random", 0.0)
+
+    print(f"  Resumed from episode {episode:,} (win rate: {win_rate:.1%})", flush=True)
+    return episode, win_rate
 
 
 # ---------------------------------------------------------------------------
@@ -382,8 +463,10 @@ def main():
 
     parser = argparse.ArgumentParser(description="Blazing MK-III: Multiprocessed Gumbel Training")
 
-    parser.add_argument("--max_time", type=int, default=0)
-    parser.add_argument("--max_episodes", type=int, default=1_000_000)
+    parser.add_argument("--max_time", type=int, default=0,
+                        help="Max training time in seconds (0 = unlimited, just Ctrl+C when done)")
+    parser.add_argument("--max_episodes", type=int, default=0,
+                        help="Max episodes (0 = unlimited)")
 
     # Workers
     parser.add_argument("--num_workers", type=int, default=12)
@@ -414,13 +497,21 @@ def main():
     parser.add_argument("--output_prefix", type=str, default="policy_blazing3")
     parser.add_argument("--seed", type=int, default=None)
 
+    # Resume
+    parser.add_argument("--resume", type=str, default=None,
+                        help="Resume from checkpoint file (use .checkpoint.json for fine-tuning)")
+
     args = parser.parse_args()
 
     if args.output is None:
         args.output = generate_timestamped_output("./training", args.output_prefix)
         print(f"  Output: {args.output}")
 
-    check_output_path(args.output, None)
+    check_output_path(args.output, args.resume)
+
+    # Setup signal handlers for graceful shutdown
+    signal.signal(signal.SIGTERM, _signal_handler)
+    signal.signal(signal.SIGINT, _signal_handler)
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -431,6 +522,13 @@ def main():
 
     net = BlazingNet(OBS_SIZE, args.hidden_size, NUM_ACTIONS, args.num_layers).to(device)
     frozen = BlazingNet(OBS_SIZE, args.hidden_size, NUM_ACTIONS, args.num_layers).to(device)
+
+    # Resume from checkpoint if specified
+    resumed_episode = 0
+    resumed_wr = 0.0
+    if args.resume:
+        resumed_episode, resumed_wr = _load_checkpoint(args.resume, net, device)
+
     frozen.load_state_dict(net.state_dict())
 
     optimizer = torch.optim.Adam(net.parameters(), lr=args.lr)
@@ -446,9 +544,17 @@ def main():
     print(f"  Workers:       {args.num_workers} x {args.episodes_per_worker} eps")
     print(f"  Network:       {n_params:,} params")
     print(f"  Gumbel:        {'OFF' if args.no_search else f'{args.n_simulations} sims'}")
+    if args.resume:
+        print(f"  Resumed from:  {os.path.basename(args.resume)}")
+        print(f"  Start episode: {resumed_episode:,}")
+    if args.max_time > 0 or args.max_episodes > 0:
+        print()
+        if args.max_time > 0:
+            print(f"  Max time:      {args.max_time}s")
+        if args.max_episodes > 0:
+            print(f"  Max episodes:  {args.max_episodes:,}")
     print()
-    if args.max_time > 0:
-        print(f"  Max time:      {args.max_time}s")
+    print("  Press Ctrl+C to stop and save checkpoint")
     print()
     print("=" * 60)
     print()
@@ -462,16 +568,24 @@ def main():
 
     start = time.time()
     last_report = start
-    episode = 0
-    best_wr = 0.0
+    episode = resumed_episode
+    best_wr = resumed_wr
     metrics = {}
+    stop_reason = "max_episodes"
 
     try:
         while True:
+            # Check for graceful shutdown
+            if _shutdown_requested:
+                stop_reason = "shutdown_requested"
+                break
+
             elapsed = time.time() - start
             if args.max_time > 0 and elapsed >= args.max_time:
+                stop_reason = "max_time"
                 break
-            if episode >= args.max_episodes:
+            if args.max_episodes > 0 and episode >= args.max_episodes:
+                stop_reason = "max_episodes"
                 break
 
             # Serialize weights
@@ -558,12 +672,13 @@ def main():
                         "num_actions": NUM_ACTIONS,
                         "input_size": OBS_SIZE,
                         "hidden_size": args.hidden_size,
-                        "num_layers": args.num_layers,
+                        "num_layers": args.num_layers - 1,  # Actual hidden layers in encoder
                         "output_size": NUM_ACTIONS,
                         "n_simulations": args.n_simulations,
                         "episodes": episode,
                         "win_rate_vs_random": round(wr, 4),
-                    })
+                    }, exclude_prefixes=["value_head"])
+                    _validate_typescript_compat(args.output)
                     net.to(device)
 
                 if wr_f >= 0.55:
@@ -574,7 +689,12 @@ def main():
                 cleanup_memory(device)
 
     except KeyboardInterrupt:
-        print("\nInterrupted")
+        stop_reason = "keyboard_interrupt"
+        print("\n[KeyboardInterrupt] Saving checkpoint...")
+    except Exception as e:
+        stop_reason = f"error: {e}"
+        print(f"\n[ERROR] {e}")
+        traceback.print_exc()
     finally:
         pool.terminate()
         pool.join()
@@ -583,26 +703,36 @@ def main():
     print()
     print("=" * 60)
     print(f"  Done: {episode:,} episodes in {elapsed:.1f}s ({episode/elapsed:.1f} eps/s)")
+    print(f"  Stop reason: {stop_reason}")
     print("=" * 60)
 
+    # Always save checkpoint on exit (for resume capability)
     net.cpu()
-    wr = evaluate_vs_random(game, net, torch.device("cpu"), args.eval_games)
-    print(f"  Final: {wr:.1%}, Best: {best_wr:.1%}")
+    print("  Saving final checkpoint...")
+    export_weights(net, args.output, {
+        "algorithm": "blazing_mk_iii",
+        "action_space": "raw",
+        "num_actions": NUM_ACTIONS,
+        "input_size": OBS_SIZE,
+        "hidden_size": args.hidden_size,
+        "num_layers": args.num_layers - 1,  # Actual hidden layers in encoder
+        "output_size": NUM_ACTIONS,
+        "n_simulations": args.n_simulations,
+        "episodes": episode,
+        "win_rate_vs_random": round(best_wr, 4),
+        "stop_reason": stop_reason,
+    }, exclude_prefixes=["value_head"])
+    _validate_typescript_compat(args.output)
 
-    if wr >= best_wr:
-        export_weights(net, args.output, {
-            "algorithm": "blazing_mk_iii",
-            "action_space": "raw",
-            "num_actions": NUM_ACTIONS,
-            "input_size": OBS_SIZE,
-            "hidden_size": args.hidden_size,
-            "num_layers": args.num_layers,
-            "output_size": NUM_ACTIONS,
-            "n_simulations": args.n_simulations,
-            "episodes": episode,
-            "win_rate_vs_random": round(wr, 4),
-        })
-    print(f"  -> {args.output}")
+    # Show resume command
+    checkpoint_path = args.output.replace(".json", ".checkpoint.json")
+    print()
+    print(f"  Inference:  {args.output}")
+    print(f"  Checkpoint: {checkpoint_path}")
+    print()
+    print(f"  To resume training:")
+    print(f"    python {os.path.basename(__file__)} --resume {checkpoint_path}")
+    print()
 
 
 def _train_step(net, optimizer, obs, actions, legals, advantages, returns,

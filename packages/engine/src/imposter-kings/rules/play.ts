@@ -408,11 +408,14 @@ export const applyPlaySafe = (
 
   if (!card) return err({ kind: "card_not_in_hand", cardId });
 
-  if (sourceSlot === "hand" && !canPlayCard(card, state, throneValue(state))) {
+  // Capture throne value BEFORE moving the card (for Oathbound's playedOnHigherValue check)
+  const throneValueBeforePlay = throneValue(state);
+
+  if (sourceSlot === "hand" && !canPlayCard(card, state, throneValueBeforePlay)) {
     return err({
       kind: "insufficient_value",
       cardValue: ikCardOps.value(card),
-      threshold: throneValue(state),
+      threshold: throneValueBeforePlay,
     });
   }
 
@@ -451,7 +454,7 @@ export const applyPlaySafe = (
     activePlayer,
     numPlayers: state.numPlayers,
     playedFrom: sourceSlot,
-    playedOnValue: throneValue(state),
+    playedOnValue: throneValueBeforePlay,  // Use value captured BEFORE card was placed
   };
   const resolution = resolve(onPlayEffect.effect, moved.value, ctx);
 

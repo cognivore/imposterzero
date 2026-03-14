@@ -753,11 +753,17 @@ def main():
                     net.cpu()
                     export_weights(net, args.output, {
                         "algorithm": "blazing_mk_ii",
+                        "action_space": "raw",
+                        "num_actions": NUM_ACTIONS,
+                        "input_size": OBS_SIZE,
+                        "hidden_size": args.hidden_size,
+                        "num_layers": args.num_layers - 1,  # Actual hidden layers in encoder
+                        "output_size": NUM_ACTIONS,
                         "n_envs": args.n_envs,
                         "n_simulations": args.n_simulations,
                         "episodes": episode,
-                        "win_rate": round(wr, 4),
-                    })
+                        "win_rate_vs_random": round(wr, 4),
+                    }, exclude_prefixes=["value_head"])
                     net.to(device)
 
                 if wr_f >= 0.55:
@@ -785,9 +791,15 @@ def main():
     if wr >= best_wr:
         export_weights(net, args.output, {
             "algorithm": "blazing_mk_ii",
+            "action_space": "raw",
+            "num_actions": NUM_ACTIONS,
+            "input_size": OBS_SIZE,
+            "hidden_size": args.hidden_size,
+            "num_layers": args.num_layers - 1,  # Actual hidden layers in encoder
+            "output_size": NUM_ACTIONS,
             "episodes": episode,
-            "win_rate": round(wr, 4),
-        })
+            "win_rate_vs_random": round(wr, 4),
+        }, exclude_prefixes=["value_head"])
     print(f"  -> {args.output}")
 
 

@@ -1074,10 +1074,10 @@ def main():
                         "win_rate_vs_random": round(wr, 4),
                         "input_size": OBS_SIZE,
                         "hidden_size": args.hidden_size,
-                        "num_layers": args.num_layers,
+                        "num_layers": args.num_layers - 1,  # Actual hidden layers in encoder
                         "output_size": NUM_ACTIONS,
                     }
-                    export_weights(net, args.output, meta)
+                    export_weights(net, args.output, meta, exclude_prefixes=["value_head"])
                     net.to(device)
 
                 # Update frozen net
@@ -1111,10 +1111,10 @@ def main():
             "win_rate_vs_random": round(final_wr, 4),
             "input_size": OBS_SIZE,
             "hidden_size": args.hidden_size,
-            "num_layers": args.num_layers,
+            "num_layers": args.num_layers - 1,  # Actual hidden layers in encoder
             "output_size": NUM_ACTIONS,
         }
-        export_weights(net, args.output, meta)
+        export_weights(net, args.output, meta, exclude_prefixes=["value_head"])
 
     print(f"  -> {args.output}")
     print()

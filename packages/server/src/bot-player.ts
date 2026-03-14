@@ -899,13 +899,34 @@ const rawObservation = (state: IKState, player: PlayerId, matchCtx?: MatchContex
     facet === "charismatic" ? 1 : 0,
   ];
 
+  const oppFacet = oppZones.king.facet;
+  const oppFacetOh = [
+    oppFacet === "default" ? 1 : 0,
+    oppFacet === "masterTactician" ? 1 : 0,
+    oppFacet === "charismatic" ? 1 : 0,
+  ];
+
+  // Revealed successors: cards known to be in successor slots
+  // Charismatic reveals the player's successor to everyone
+  const revealedSucc = new Array<number>(RAW_SPAN).fill(0);
+  for (let p = 0; p < state.numPlayers; p++) {
+    const pZones = playerZones(state, p as PlayerId);
+    const succCard = pZones.successor?.card;
+    if (succCard && succCard.id >= 0 && succCard.id < RAW_SPAN) {
+      // Successor is revealed if: it's our own OR that player chose Charismatic
+      if (p === player || pZones.king.facet === "charismatic") {
+        revealedSucc[succCard.id] = 1;
+      }
+    }
+  }
+
   return [
     ...activeOh, ...phaseOh, ...handBin, ...courtUp,
     kingUp, succSet, dungSet, throne, courtSz, accusedVal, forgotten,
     ...fpOh, oppHand, oppKing,
     ante, condemned, disgraced,
     myScore, oppScore, rounds, armyAvail, armyExh,
-    ...facetOh,
+    ...facetOh, ...oppFacetOh, ...revealedSucc,
   ];
 };
 
