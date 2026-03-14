@@ -454,7 +454,8 @@ def main():
     print()
 
     game = pyspiel.load_game("imposter_zero_match")
-    pool = Pool(processes=args.num_workers, maxtasksperchild=1)
+    # Recycle workers every 10 batches to bound memory growth without constant respawn overhead
+    pool = Pool(processes=args.num_workers, maxtasksperchild=10)
 
     # Replay buffer
     buffer = deque(maxlen=100_000)
@@ -494,7 +495,7 @@ def main():
                 print("[WARN] Worker timeout, recreating pool", flush=True)
                 pool.terminate()
                 pool.join()
-                pool = Pool(processes=args.num_workers, maxtasksperchild=1)
+                pool = Pool(processes=args.num_workers, maxtasksperchild=10)
                 continue  # Skip this batch
 
             # Process results
