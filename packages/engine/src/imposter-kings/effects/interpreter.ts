@@ -836,23 +836,41 @@ export const resolve = (
 
           const inHand = victimZones.hand.find((c) => c.id === chosenId);
           if (inHand) {
-            afterPick = {
-              ...afterPick,
-              players: afterPick.players.map((p, i) => {
-                if (i === victimId) return { ...p, hand: p.hand.filter((c) => c.id !== chosenId) };
-                if (i === assassinId) return { ...p, hand: [...p.hand, inHand] };
-                return p;
-              }),
-            };
+            // Handle victim === assassin edge case (shouldn't happen, but defensive)
+            if (victimId === assassinId) {
+              // Card stays in hand, no transfer needed
+            } else {
+              afterPick = {
+                ...afterPick,
+                players: afterPick.players.map((p, i) => {
+                  if (i === victimId) return { ...p, hand: p.hand.filter((c) => c.id !== chosenId) };
+                  if (i === assassinId) return { ...p, hand: [...p.hand, inHand] };
+                  return p;
+                }),
+              };
+            }
           } else if (victimZones.successor?.card.id === chosenId) {
-            afterPick = {
-              ...afterPick,
-              players: afterPick.players.map((p, i) => {
-                if (i === victimId) return { ...p, successor: null };
-                if (i === assassinId) return { ...p, hand: [...p.hand, victimZones.successor!.card] };
-                return p;
-              }),
-            };
+            // Handle victim === assassin edge case (shouldn't happen, but defensive)
+            if (victimId === assassinId) {
+              // Move successor to hand for the same player
+              afterPick = {
+                ...afterPick,
+                players: afterPick.players.map((p, i) =>
+                  i === victimId
+                    ? { ...p, successor: null, hand: [...p.hand, victimZones.successor!.card] }
+                    : p,
+                ),
+              };
+            } else {
+              afterPick = {
+                ...afterPick,
+                players: afterPick.players.map((p, i) => {
+                  if (i === victimId) return { ...p, successor: null };
+                  if (i === assassinId) return { ...p, hand: [...p.hand, victimZones.successor!.card] };
+                  return p;
+                }),
+              };
+            }
           }
 
           const eliminated: IKState = {
@@ -1046,10 +1064,12 @@ const shouldSkipTriggerReactionWindow = (
 
 const opponentsInPlayOrder = (state: IKState, ctx: EffectContext): ReadonlyArray<PlayerId> => {
   const opponents: PlayerId[] = [];
+  let current = ctx.activePlayer;
   for (let i = 1; i < ctx.numPlayers; i++) {
-    opponents.push(
-      nextPlayer(state, ((ctx.activePlayer + i - 1) % ctx.numPlayers) as PlayerId),
-    );
+    current = nextPlayer(state, current);
+    // Stop if we've looped back to the active player (all others eliminated)
+    if (current === ctx.activePlayer) break;
+    opponents.push(current);
   }
   return opponents;
 };

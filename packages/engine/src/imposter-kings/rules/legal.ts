@@ -1,7 +1,7 @@
 import type { PlayerId } from "@imposter-zero/types";
 
 import { ikCardOps, type IKCard } from "../card.js";
-import { effectiveValue, effectiveKeywords } from "../effects/modifiers.js";
+import { effectiveValue, effectiveKeywords, isMuted } from "../effects/modifiers.js";
 import type { IKAction } from "../actions.js";
 import { playerZones, throne, type IKState } from "../state.js";
 import { throneValue, isKingFaceUp } from "../selectors.js";
@@ -55,6 +55,7 @@ export const canPlayCard = (
         return (
           top !== null &&
           top.face === "up" &&
+          !isMuted(state, card) &&
           effectiveValue(state, top.card) > effectiveValue(state, card) &&
           hand.length >= 2
         );

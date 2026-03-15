@@ -37,6 +37,8 @@ const matchesQuery = (
         card.id !== sourceCardId &&
         state.shared.court.some((e) => e.card.id === card.id)
       );
+    case "all":
+      return true;
     case "byId":
       return card.id === query.cardId;
     case "ownedBySourceOwner": {

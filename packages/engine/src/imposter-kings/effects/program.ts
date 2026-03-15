@@ -54,6 +54,7 @@ export type CardQuery =
   | { readonly tag: "byMinBaseValue"; readonly minValue: number }
   | { readonly tag: "allInCourt" }
   | { readonly tag: "allInCourtExceptSelf" }
+  | { readonly tag: "all" }
   | { readonly tag: "byId"; readonly cardId: number }
   | { readonly tag: "ownedBySourceOwner" }
   | { readonly tag: "and"; readonly left: CardQuery; readonly right: CardQuery }

@@ -149,6 +149,8 @@ const describeQuery = (query: CardQuery): string => {
       return `cards with base value \u2265 ${query.minValue}`;
     case "allInCourtExceptSelf":
       return "all other cards in court";
+    case "all":
+      return "all cards";
     case "byId":
       return `card #${query.cardId}`;
     case "ownedBySourceOwner":

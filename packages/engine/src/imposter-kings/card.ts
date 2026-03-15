@@ -597,7 +597,7 @@ const CONSPIRACIST: CardContent = {
 
 const exileOnPlay = addRoundModifier(
   played,
-  { tag: "mute", target: { tag: "allInCourtExceptSelf" } },
+  { tag: "mute", target: { tag: "all" } },
 );
 
 const EXILE: CardContent = {

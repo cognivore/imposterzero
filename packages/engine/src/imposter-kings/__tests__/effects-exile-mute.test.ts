@@ -107,11 +107,14 @@ describe("Exile mute suppresses on-play effects", () => {
       ),
     };
 
-    expect(isMuted(state, sentry)).toBe(false);
+    // Exile mutes all cards except itself (including cards in hand)
+    expect(isMuted(state, sentry)).toBe(true);
 
     state = apply(state, { kind: "play", cardId: sentry.id });
 
+    // Sentry is still muted after entering court
     expect(isMuted(state, sentry)).toBe(true);
+    // Effect is suppressed, so no resolution
     expect(state.phase).toBe("play");
     expect(state.pendingResolution).toBeNull();
 
@@ -189,5 +192,244 @@ describe("Exile mute affects keyword-based filters", () => {
     ]);
 
     expect(effectiveKeywords(state, elder)).not.toContain("immune_to_kings_hand");
+  });
+});
+
+describe("Exile mute prevents Oathbound onHigherValue override", () => {
+  it("Oathbound in hand is muted by Exile and cannot use onHigherValue override", () => {
+    const oathbound = mkCard("Oathbound", 211);
+    const sentry = mkCard("Sentry", 215);
+
+    // Set up Exile in court (P0's turn -> plays Exile -> P1's turn)
+    let state = playExileIntoCourt([]);
+
+    // P1 plays Sentry (value 8)
+    state = {
+      ...state,
+      players: state.players.map((p, i) =>
+        i === 1 ? { ...p, hand: [...p.hand, sentry] } : p,
+      ),
+    };
+    state = apply(state, { kind: "play", cardId: sentry.id });
+
+    // Now it's P0's turn, Sentry (value 8) is on throne
+    expect(state.activePlayer).toBe(0);
+
+    // Give P0 the Oathbound card and another card (need 2 cards for onHigherValue)
+    const zealot = mkCard("Zealot", 216);
+    state = {
+      ...state,
+      players: state.players.map((p, i) =>
+        i === 0 ? { ...p, hand: [...p.hand, oathbound, zealot] } : p,
+      ),
+    };
+
+    // Oathbound in hand is muted by Exile (which mutes all cards)
+    expect(isMuted(state, oathbound)).toBe(true);
+
+    // P0 should NOT be able to play Oathbound via onHigherValue override
+    // because Oathbound is muted
+    const legal = legalActions(state);
+    const oathboundPlay = legal.find(
+      (a) => a.kind === "play" && a.cardId === oathbound.id,
+    );
+
+    // Oathbound (value 6) < throne threshold (Sentry value 8)
+    // Oathbound would need the onHigherValue override, but it's muted so the override
+    // is not available
+    expect(oathboundPlay).toBeUndefined();
+  });
+});
+
+describe("Exile mute applies to all zones", () => {
+  it("Exile itself is NOT muted (steadfast immunity)", () => {
+    const exile = mkCard("Exile", 300);
+    expect(exile.kind.props.keywords).toContain("steadfast");
+
+    let state = playExileIntoCourt([]);
+
+    // Find Exile in court
+    const exileInCourt = state.shared.court.find((e) => e.card.kind.name === "Exile");
+    expect(exileInCourt).toBeDefined();
+
+    // Exile is steadfast, so it is NOT muted
+    expect(isMuted(state, exileInCourt!.card)).toBe(false);
+  });
+
+  it("cards in hand are muted", () => {
+    const sentry = mkCard("Sentry", 301);
+    let state = playExileIntoCourt([]);
+
+    state = {
+      ...state,
+      players: state.players.map((p, i) =>
+        i === 1 ? { ...p, hand: [...p.hand, sentry] } : p,
+      ),
+    };
+
+    expect(isMuted(state, sentry)).toBe(true);
+  });
+
+  it("cards in army are muted", () => {
+    const sentry = mkCard("Sentry", 302);
+    let state = playExileIntoCourt([]);
+
+    state = {
+      ...state,
+      players: state.players.map((p, i) =>
+        i === 1 ? { ...p, army: [...p.army, sentry] } : p,
+      ),
+    };
+
+    expect(isMuted(state, sentry)).toBe(true);
+  });
+
+  it("cards in dungeon are muted", () => {
+    const sentry = mkCard("Sentry", 303);
+    let state = playExileIntoCourt([]);
+
+    state = {
+      ...state,
+      players: state.players.map((p, i) =>
+        i === 1 ? { ...p, dungeon: { card: sentry, knownBy: [] } } : p,
+      ),
+    };
+
+    expect(isMuted(state, sentry)).toBe(true);
+  });
+
+  it("cards in antechamber are muted", () => {
+    const sentry = mkCard("Sentry", 304);
+    let state = playExileIntoCourt([]);
+
+    state = {
+      ...state,
+      players: state.players.map((p, i) =>
+        i === 1 ? { ...p, antechamber: [...p.antechamber, sentry] } : p,
+      ),
+    };
+
+    expect(isMuted(state, sentry)).toBe(true);
+  });
+
+  it("cards in exhausted zone are muted", () => {
+    const sentry = mkCard("Sentry", 305);
+    let state = playExileIntoCourt([]);
+
+    state = {
+      ...state,
+      players: state.players.map((p, i) =>
+        i === 1 ? { ...p, exhausted: [...p.exhausted, sentry] } : p,
+      ),
+    };
+
+    expect(isMuted(state, sentry)).toBe(true);
+  });
+
+  it("cards in squire slot are muted", () => {
+    const sentry = mkCard("Sentry", 306);
+    let state = playExileIntoCourt([]);
+
+    state = {
+      ...state,
+      players: state.players.map((p, i) =>
+        i === 1 ? { ...p, squire: { card: sentry, knownBy: [] } } : p,
+      ),
+    };
+
+    expect(isMuted(state, sentry)).toBe(true);
+  });
+
+  it("cards in parting zone are muted", () => {
+    const sentry = mkCard("Sentry", 307);
+    let state = playExileIntoCourt([]);
+
+    state = {
+      ...state,
+      players: state.players.map((p, i) =>
+        i === 1 ? { ...p, parting: [...p.parting, sentry] } : p,
+      ),
+    };
+
+    expect(isMuted(state, sentry)).toBe(true);
+  });
+
+  it("cards in court are muted", () => {
+    const sentry = mkCard("Sentry", 308);
+    const state = playExileIntoCourt([
+      { card: sentry, face: "up", playedBy: 0 },
+    ]);
+
+    expect(isMuted(state, sentry)).toBe(true);
+  });
+
+  it("cards in condemned pile are muted", () => {
+    const sentry = mkCard("Sentry", 309);
+    let state = playExileIntoCourt([]);
+
+    state = {
+      ...state,
+      shared: {
+        ...state.shared,
+        condemned: [...state.shared.condemned, { card: sentry, knownBy: [] }],
+      },
+    };
+
+    expect(isMuted(state, sentry)).toBe(true);
+  });
+});
+
+describe("Exile mute respects steadfast in all zones", () => {
+  it("steadfast card in hand is NOT muted", () => {
+    const aegis = mkCard("Aegis", 310);
+    expect(aegis.kind.props.keywords).toContain("steadfast");
+
+    let state = playExileIntoCourt([]);
+
+    state = {
+      ...state,
+      players: state.players.map((p, i) =>
+        i === 1 ? { ...p, hand: [...p.hand, aegis] } : p,
+      ),
+    };
+
+    expect(isMuted(state, aegis)).toBe(false);
+  });
+
+  it("steadfast card in army is NOT muted", () => {
+    const aegis = mkCard("Aegis", 311);
+    let state = playExileIntoCourt([]);
+
+    state = {
+      ...state,
+      players: state.players.map((p, i) =>
+        i === 1 ? { ...p, army: [...p.army, aegis] } : p,
+      ),
+    };
+
+    expect(isMuted(state, aegis)).toBe(false);
+  });
+
+  it("steadfast card in court is NOT muted", () => {
+    const aegis = mkCard("Aegis", 312);
+    const state = playExileIntoCourt([
+      { card: aegis, face: "up", playedBy: 0 },
+    ]);
+
+    expect(isMuted(state, aegis)).toBe(false);
+  });
+
+  it("steadfast card in dungeon is NOT muted", () => {
+    const aegis = mkCard("Aegis", 313);
+    let state = playExileIntoCourt([]);
+
+    state = {
+      ...state,
+      players: state.players.map((p, i) =>
+        i === 1 ? { ...p, dungeon: { card: aegis, knownBy: [] } } : p,
+      ),
+    };
+
+    expect(isMuted(state, aegis)).toBe(false);
   });
 });
